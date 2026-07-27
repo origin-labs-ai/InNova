@@ -6,6 +6,8 @@
 #include "oil/tokenizer.h"
 #include "oil/autograd.h"
 #include "oil/codebook.h"
+#include "oil/random.h"
+#include "oil/reward.h"
 #include <vector>
 #include <string>
 #include <functional>
@@ -48,6 +50,9 @@ struct TrainConfig {
     // C9: Curriculum learning
     bool curriculum = false;
     int curriculum_epochs = 3;
+    // Gradient noise injection (Neelakantan et al. ICLR 2016)
+    float grad_noise_eta = 0.0f;
+    float grad_noise_gamma = 0.55f;
 };
 
 struct AugmentConfig {
@@ -267,6 +272,8 @@ public:
     Tensor label_smoothing_loss(const Tensor& logits, const Tensor& labels, float smoothing);
     // C19: R-Drop consistency loss
     float rdrop_loss(const Tensor& input_ids, const Tensor& labels, float alpha);
+    // Gradient noise injection (Neelakantan et al. ICLR 2016)
+    void inject_gradient_noise(int step);
     
 private:
     Model* model_;
@@ -292,6 +299,144 @@ private:
     // Task 121: master FP32 weight copies for mixed precision
     std::vector<Tensor> mp_master_;
     bool mp_active_ = false;
+
+    float grad_noise_eta_ = 0.0f;
+    float grad_noise_gamma_ = 0.55f;
+    RNG grad_noise_rng_;
+    float label_smoothing_ = 0.0f;
 };
+
+// ===========================================================================
+// PPO Trainer — Proximal Policy Optimization for RLHF
+// ===========================================================================
+class PPOTrainer {
+public:
+    PPOTrainer(Model* policy, Model* ref_model, float clip_epsilon = 0.2f,
+               float value_coef = 0.5f, float entropy_coef = 0.01f,
+               float gamma = 0.99f, float gae_lambda = 0.95f,
+               float kl_target = 0.02f);
+
+    void train_step(const Tensor& states, const Tensor& actions,
+                    const Tensor& old_logprobs, const Tensor& advantages,
+                    const Tensor& returns);
+
+    Tensor compute_gae(const Tensor& rewards, const Tensor& values,
+                       const Tensor& dones);
+    float compute_kl_divergence(const Tensor& logits_a, const Tensor& logits_b);
+
+    Tensor compute_log_probs(const Tensor& logits, const Tensor& ids);
+
+    std::vector<Tensor*> critic_parameters();
+    void set_log_callback(std::function<void(float pl, float vl, float ent, float kl)> cb) {
+        log_cb_ = cb;
+    }
+    float kl_alpha() const { return kl_alpha_; }
+    float last_kl() const { return last_kl_; }
+
+private:
+    Model* policy_;
+    Model* ref_model_;
+    float clip_epsilon_;
+    float value_coef_;
+    float entropy_coef_;
+    float gamma_;
+    float gae_lambda_;
+    float kl_target_;
+    float kl_alpha_;
+    float last_kl_ = 0.0f;
+
+    Tensor v_fc1_weight_, v_fc1_bias_;
+    Tensor v_fc2_weight_, v_fc2_bias_;
+
+    Tensor critic_forward(const Tensor& hidden);
+    std::function<void(float, float, float, float)> log_cb_;
+};
+
+// ===========================================================================
+// DPO Trainer — Direct Preference Optimization
+// ===========================================================================
+class DPOTrainer {
+public:
+    DPOTrainer(Model* policy, Model* ref_model, float beta = 0.1f);
+
+    float train_step(const Tensor& chosen_logits, const Tensor& rejected_logits,
+                     const Tensor& chosen_ids, const Tensor& rejected_ids);
+
+    void set_log_callback(std::function<void(float loss, float kl)> cb) {
+        log_cb_ = cb;
+    }
+    float last_loss() const { return last_loss_; }
+    float beta() const { return beta_; }
+    void set_beta(float b) { beta_ = b; }
+
+private:
+    Model* policy_;
+    Model* ref_model_;
+    float beta_;
+    float last_loss_ = 0.0f;
+
+    float compute_log_probs(const Tensor& logits, const Tensor& ids, Tensor* out_probs = nullptr);
+    std::function<void(float, float)> log_cb_;
+};
+
+// ===========================================================================
+// RLHF Pipeline — Complete preference-based alignment loop
+// ===========================================================================
+class RLHFPipeline {
+public:
+    RLHFPipeline(Model* model, Model* ref_model, Tokenizer* tokenizer,
+                 RewardModel* reward_model, Trainer* trainer,
+                 Optimizer* policy_opt, Optimizer* rm_opt);
+
+    void generate_comparisons(const std::vector<std::string>& prompts, int max_new_tokens = 64);
+    void train_reward_model(const std::vector<Comparison>& data, int epochs = 3, int batch_size = 8);
+    void ppo_finetune(const std::vector<std::string>& prompts, int n_ppo_steps = 100,
+                      int ppo_batch_size = 8, int max_new_tokens = 64);
+    void dpo_finetune(const std::vector<Comparison>& comparisons, int n_steps = 10,
+                      int batch_size = 4);
+
+    void run(int n_rounds = 3, int n_prompts = 50, int n_ppo_steps = 200);
+
+    const std::vector<Comparison>& comparisons() const { return comparison_buffer_; }
+    const RLHFMetrics& metrics() const { return metrics_; }
+
+    void set_log_callback(std::function<void(const RLHFMetrics&)> cb) { log_cb_ = cb; }
+    void set_verbose(bool v) { verbose_ = v; }
+
+    // GAE computation helpers
+    Tensor compute_gae(const Tensor& rewards, const Tensor& values,
+                       float gamma = 0.99f, float lam = 0.95f);
+    Tensor compute_returns_discounted(const Tensor& rewards, float gamma = 0.99f);
+    float compute_kl_between_policies(const Tensor& logits_pi, const Tensor& logits_ref,
+                                       const Tensor& actions);
+    float compute_reward_accuracy(const std::vector<Comparison>& data);
+    float train_reward_model_epoch_with_accuracy(
+        const std::vector<Comparison>& train_data,
+        const std::vector<Comparison>& val_data,
+        int epochs = 3, int batch_size = 8,
+        const char* split_name = nullptr);
+
+private:
+    Model* model_;
+    Model* ref_model_;
+    Tokenizer* tokenizer_;
+    RewardModel* reward_model_;
+    Trainer* trainer_;
+    Optimizer* policy_opt_;
+    Optimizer* rm_opt_;
+    std::vector<Comparison> comparison_buffer_;
+    RLHFMetrics metrics_;
+    bool verbose_ = true;
+    std::function<void(const RLHFMetrics&)> log_cb_;
+
+    Tensor extract_hidden(Tensor& logits, int64_t hidden_size);
+    Tensor get_reward_for_sequence(Model* model, const std::vector<int>& ids);
+};
+
+} // namespace oil
+
+namespace oil {
+
+void collect_dense_params(DenseModel* dm, std::vector<Tensor*>& params);
 
 } // namespace oil

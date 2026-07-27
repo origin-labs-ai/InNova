@@ -12,8 +12,8 @@
 param(
     [string]$BuildDir = "build_windows\Release",
     [string]$CertStore = "Cert:\CurrentUser\My",
-    [string]$CertSubject = "CN=MYTHOS.cpp Dev Signing",
-    [string]$PolicyName = "MYTHOS Dev Allowlist"
+    [string]$CertSubject = "CN=XeonAI",
+    [string]$PolicyName = "XeonAI Dev Allowlist"
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,10 +83,10 @@ $policyXml = @"
   </Rules>
   <EKUs />
   <FileRules>
-    <Allow ID="ID_ALLOW_SIGNER_1" FriendlyName="MYTHOS Dev Signing Cert" />
+    <Allow ID="ID_ALLOW_SIGNER_1" FriendlyName="XeonAI Dev Signing Cert" />
   </FileRules>
   <Signers>
-    <Signer ID="ID_SIGNER_1" Name="MYTHOS Dev Signing">
+    <Signer ID="ID_SIGNER_1" Name="XeonAI Dev Signing">
       <CertPublisher Value="$certHash" />
     </Signer>
   </Signers>

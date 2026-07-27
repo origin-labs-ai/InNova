@@ -35,7 +35,7 @@ static FTArgs parse_args(int argc, char** argv) {
         else if (strcmp(argv[i], "--batch-size") == 0 && i + 1 < argc)
             args.batch_size = std::stoi(argv[++i]);
         else if (strcmp(argv[i], "--seq-length") == 0 && i + 1 < argc)
-            args.seq_length = std::stoll(argv[++i]);
+            args.seq_length = static_cast<int>(std::stoll(argv[++i]));
         else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             std::cout << "Usage: oil_finetune --model base.oil --data finetune.txt --output finetuned.oil\n";
             exit(0);

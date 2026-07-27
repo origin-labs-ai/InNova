@@ -8,21 +8,12 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include "oil/test.h"
 
 using namespace oil;
 
-static int g_tests = 0;
-static int g_passed = 0;
-static int g_failures = 0;
-
-#define CHECK(cond, msg) do { \
-    g_tests++; \
-    if (!(cond)) { printf("  FAIL: %s\n", msg); g_failures++; } \
-    else { g_passed++; printf("  PASS: %s\n", msg); } \
-} while(0)
-
 static void test_idx_write_and_read() {
-    printf("\n=== Test 1: OILIdx write and read ===\n");
+    TEST_SUITE("Test 1: OILIdx write and read");
 
     std::string path = "test_sha256_idx.oilidx";
 
@@ -44,7 +35,7 @@ static void test_idx_write_and_read() {
     }
 
     OILIdxReader reader(path);
-    CHECK(reader.valid(), "idx file opened successfully");
+    TEST_CHECK(reader.valid(), "idx file opened successfully");
 
     std::vector<std::string> names;
     bool threw = false;
@@ -55,20 +46,20 @@ static void test_idx_write_and_read() {
         printf("  Error: %s\n", e.what());
     }
 
-    CHECK(!threw, "read_idx does not throw for valid file");
-    CHECK(names.size() == tensor_names.size(), "correct number of tensor names read");
+    TEST_CHECK(!threw, "read_idx does not throw for valid file");
+    TEST_CHECK(names.size() == tensor_names.size(), "correct number of tensor names read");
 
     bool all_match = true;
     for (size_t i = 0; i < std::min(names.size(), tensor_names.size()); i++) {
         if (names[i] != tensor_names[i]) { all_match = false; break; }
     }
-    CHECK(all_match, "all tensor names match");
+    TEST_CHECK(all_match, "all tensor names match");
 
     std::filesystem::remove(path);
 }
 
 static void test_corrupt_detection() {
-    printf("\n=== Test 2: SHA256 corrupt detection (one byte) ===\n");
+    TEST_SUITE("Test 2: SHA256 corrupt detection (one byte)");
 
     std::string path = "test_sha256_corrupt.oilidx";
 
@@ -88,7 +79,7 @@ static void test_corrupt_detection() {
     // Corrupt one byte in the middle of the file (inside "weight_3_corrupt_me")
     {
         std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
-        CHECK(file.is_open(), "corrupt file opened for writing");
+        TEST_CHECK(file.is_open(), "corrupt file opened for writing");
 
         std::string content((std::istreambuf_iterator<char>(file)),
                             std::istreambuf_iterator<char>());
@@ -96,7 +87,7 @@ static void test_corrupt_detection() {
 
         // Find "weight_3" in the content and flip a byte
         size_t pos = content.find("weight_3_corrupt_me");
-        CHECK(pos != std::string::npos, "found target tensor name in file");
+        TEST_CHECK(pos != std::string::npos, "found target tensor name in file");
 
         // Corrupt the 'c' in "corrupt" to 'X'
         content[pos + 9] = 'X';
@@ -107,7 +98,7 @@ static void test_corrupt_detection() {
     }
 
     OILIdxReader reader(path);
-    CHECK(reader.valid(), "corrupt idx file still opens");
+    TEST_CHECK(reader.valid(), "corrupt idx file still opens");
 
     bool threw = false;
     std::string error_msg;
@@ -118,19 +109,19 @@ static void test_corrupt_detection() {
         error_msg = e.what();
     }
 
-    CHECK(threw, "corrupt idx file throws Error");
+    TEST_CHECK(threw, "corrupt idx file throws Error");
     printf("  Error message: %s\n", error_msg.c_str());
 
     bool reports_tensor_name = error_msg.find("weight") != std::string::npos ||
                                error_msg.find("corrupt") != std::string::npos ||
                                error_msg.find("Xorrupt") != std::string::npos;
-    CHECK(reports_tensor_name, "error message reports the corrupt tensor name");
+    TEST_CHECK(reports_tensor_name, "error message reports the corrupt tensor name");
 
     std::filesystem::remove(path);
 }
 
 static void test_magic_header() {
-    printf("\n=== Test 3: MYTHOSIDX magic header ===\n");
+    TEST_SUITE("Test 3: MYTHOSIDX magic header");
 
     std::string path = "test_sha256_magic.oilidx";
 
@@ -146,14 +137,14 @@ static void test_magic_header() {
     file.read(magic, 10);
     file.close();
 
-    CHECK(std::memcmp(magic, "MYTHOSIDX", 9) == 0, "MYTHOSIDX magic header present");
+    TEST_CHECK(std::memcmp(magic, "MYTHOSIDX", 9) == 0, "MYTHOSIDX magic header present");
     printf("  Magic: %.10s\n", magic);
 
     std::filesystem::remove(path);
 }
 
 static void test_truncated_file() {
-    printf("\n=== Test 4: Truncated idx file detection ===\n");
+    TEST_SUITE("Test 4: Truncated idx file detection");
 
     std::string path = "test_sha256_trunc.oilidx";
 
@@ -186,13 +177,13 @@ static void test_truncated_file() {
         printf("  Error: %s\n", e.what());
     }
 
-    CHECK(threw, "truncated idx file throws Error (fail-fast)");
+    TEST_CHECK(threw, "truncated idx file throws Error (fail-fast)");
 
     std::filesystem::remove(path);
 }
 
 static void test_oil_writer_sha256_dedup() {
-    printf("\n=== Test 5: OIL writer SHA256 dedup ===\n");
+    TEST_SUITE("Test 5: OIL writer SHA256 dedup");
 
     std::string path = "test_sha256_dedup.oil";
 
@@ -212,11 +203,11 @@ static void test_oil_writer_sha256_dedup() {
         size_t off1 = writer.write_dedup(data1.data(), data1.size());
         size_t off2 = writer.write_dedup(data2.data(), data2.size());
 
-        CHECK(off1 == off2, "identical content deduped to same offset (SHA256 match)");
+        TEST_CHECK(off1 == off2, "identical content deduped to same offset (SHA256 match)");
 
         std::vector<uint8_t> data3(1024, 0x99); // different content
         size_t off3 = writer.write_dedup(data3.data(), data3.size());
-        CHECK(off3 != off1, "different content gets different offset");
+        TEST_CHECK(off3 != off1, "different content gets different offset");
 
         writer.close();
     }
@@ -235,27 +226,26 @@ int main() {
     test_truncated_file();
     test_oil_writer_sha256_dedup();
 
-    printf("\n========================================\n");
-    printf("  Results: %d/%d passed, %d failures\n",
-           g_passed, g_tests, g_failures);
+    int failures = TEST_REPORT();
     printf("========================================\n");
 
+    auto& tr = oil::test::TestRunner::instance();
     std::ofstream log("SHA256_TEST_LOG.md");
     if (log) {
         log << "# SHA256 Hash Indexing Test Log\n\n";
         log << "## Results\n\n";
         log << "| Test | Status |\n";
         log << "|------|--------|\n";
-        log << "| OILIdx write and read | " << (g_failures == 0 ? "PASSED" : "FAILED") << " |\n";
-        log << "| SHA256 corrupt detection (one byte) | " << (g_failures == 0 ? "PASSED" : "FAILED") << " |\n";
-        log << "| MYTHOSIDX magic header | " << (g_failures == 0 ? "PASSED" : "FAILED") << " |\n";
-        log << "| Truncated idx file detection | " << (g_failures == 0 ? "PASSED" : "FAILED") << " |\n";
-        log << "| OIL writer SHA256 dedup | " << (g_failures == 0 ? "PASSED" : "FAILED") << " |\n";
+        log << "| OILIdx write and read | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
+        log << "| SHA256 corrupt detection (one byte) | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
+        log << "| MYTHOSIDX magic header | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
+        log << "| Truncated idx file detection | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
+        log << "| OIL writer SHA256 dedup | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
         log << "\n## Summary\n\n";
-        log << "- Total tests: " << g_tests << "\n";
-        log << "- Passed: " << g_passed << "\n";
-        log << "- Failed: " << g_failures << "\n";
-        log << "- Verdict: " << (g_failures == 0 ? "PASSED" : "FAILED") << "\n";
+        log << "- Total tests: " << tr.tests_run << "\n";
+        log << "- Passed: " << (tr.tests_run - tr.failures) << "\n";
+        log << "- Failed: " << tr.failures << "\n";
+        log << "- Verdict: " << (failures == 0 ? "PASSED" : "FAILED") << "\n";
         log << "\n## Proof\n\n";
         log << "- SHA256 hash indexing implemented in src/oil_format.cpp:105-112\n";
         log << "- MYTHOSIDX magic header in OILIdxWriter::write_idx() src/oil_format.cpp:522\n";
@@ -264,5 +254,5 @@ int main() {
         log << "\nFile: tests/test_sha256_corrupt.cpp\n";
     }
 
-    return g_failures > 0 ? 1 : 0;
+    return failures > 0 ? 1 : 0;
 }

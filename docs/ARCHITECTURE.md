@@ -297,7 +297,7 @@ Implementation of Mixture of Experts architectures.
 
 ### 6. GPU Layer (Hardware Acceleration)
 
-GPU compute acceleration using DirectX 12.
+GPU compute acceleration using Vulkan.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -308,7 +308,7 @@ GPU compute acceleration using DirectX 12.
 │  │                    GPU Compute                               │  │
 │  │                                                                 │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │  │
-│  │  │  DirectX 12  │  │   HLSL       │  │   Buffers    │      │  │
+│  │  │  Vulkan     │  │  GLSL/SPIRV  │  │   Buffers    │      │  │
 │  │  │              │  │   Shaders    │  │              │      │  │
 │  │  │ • Device    │  │ • GEMM       │  │ • Upload     │      │  │
 │  │  │ • Pipeline  │  │ • GEMV       │  │ • Readback   │      │  │
@@ -318,11 +318,11 @@ GPU compute acceleration using DirectX 12.
 │  │                                                                 │  │
 │  │  ┌─────────────────────────────────────────────────────────┐  │  │
 │  │  │                    Shaders (Embedded)                        │  │  │
-│  │  │  • HLSL_GEMM     - Matrix multiplication                     │  │  │
-│  │  │  • HLSL_GEMV     - Matrix-vector multiplication              │  │  │
-│  │  │  • HLSL_RELU     - ReLU activation                           │  │  │
-│  │  │  • HLSL_GELU     - GELU activation                           │  │  │
-│  │  │  • HLSL_SOFTMAX  - Softmax activation                         │  │  │
+│  │  │  • SPIRV_GEMM     - Matrix multiplication                     │  │  │
+│  │  │  • SPIRV_GEMV     - Matrix-vector multiplication              │  │  │
+│  │  │  • SPIRV_RELU     - ReLU activation                           │  │  │
+│  │  │  • SPIRV_GELU     - GELU activation                           │  │  │
+│  │  │  • SPIRV_SOFTMAX  - Softmax activation                         │  │  │
 │  │  │  • ...                                                      │  │  │
 │  │  └─────────────────────────────────────────────────────────┘  │  │
 │  └─────────────────────────────────────────────────────────────┘  │
@@ -334,7 +334,8 @@ GPU compute acceleration using DirectX 12.
 
 **Key Files:**
 - `include/oil/gpu_compute.h` - GPU compute interface
-- `src/gpu_compute.cpp` - GPU implementation
+- `src/gpu_compute.cpp` - GPU implementation (DirectX 12)
+- `src/gpu_compute_vulkan.cpp` - Vulkan GPU backend
 
 ---
 
@@ -546,7 +547,7 @@ Command-line tools for various operations.
 - Hand-optimized kernels
 - SIMD vectorization (AVX2)
 - Cache-aware data layouts
-- GPU acceleration (DirectX 12)
+- GPU acceleration (Vulkan)
 - Mixed-precision computation
 
 ### 5. Modularity
@@ -630,6 +631,7 @@ ctest --test-dir build --output-on-failure -j$(nproc)
 | Version | Date | Changes |
 |---------|------|---------|
 | v0.1 | July 2026 | Initial release - Core engine, OIL format, basic tools |
+| v0.1.02 | July 26, 2026 | 82 targets (25 libs + 25 executables + 32 tests), Vulkan GPU backend, 29 OIL formats, 47 claims |
 | v0.2 (Planned) | - | Vision module, improved MoE, more tools |
 
 ---
@@ -688,4 +690,4 @@ To understand MYTHOS.cpp better, study these topics:
 
 ---
 
-*Last updated: July 12, 2026*
+*Last updated: July 26, 2026*

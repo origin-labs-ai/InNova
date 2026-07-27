@@ -7,8 +7,8 @@
 namespace oil {
 namespace kernel {
 
-// I2_S MAD: packed 2-bit ternary weight × int8 activation
-// Storage: 4 ternary values per byte, 1 shared scale per block
+// I2_S MAD: packed 2-bit SPARK weight × int8 activation
+// Storage: 4 SPARK values per byte, 1 shared scale per block
 // Compute: unpack → add/sub with scale factor
 void i2s_gemm(const Tensor& weights, const Tensor& activations,
               Tensor& output, int M, int N, int K);
@@ -16,13 +16,13 @@ void i2s_gemv(const uint8_t* packed_w, float w_scale,
               const int8_t* act, float act_scale,
               float* output, int K);
 
-// TL1: Ternary Lookup Table, groups of 2
+// TL1: SPARK Lookup Table, groups of 2
 void tl1_gemm(const Tensor& weights, const Tensor& activations,
               Tensor& output, int M, int N, int K);
 void tl1_precompute_lut(const int8_t* activations, int8_t* lut,
                         int K, float scales);
 
-// TL2: Ternary Lookup Table, groups of 3 (element-wise mirror consolidation)
+// TL2: SPARK Lookup Table, groups of 3 (element-wise mirror consolidation)
 void tl2_gemm(const Tensor& weights, const Tensor& activations,
               Tensor& output, int M, int N, int K);
 void tl2_precompute_lut(const int8_t* activations, int8_t* lut,
@@ -60,7 +60,7 @@ void avx2_tiled_gemm(const float* A, const float* B, float* C,
 void i2s_gemm_avx2(const Tensor& weights, const Tensor& activations,
                    Tensor& output, int M, int N, int K);
 
-// AVX2 I2S GEMM with VNNI: packed ternary × int8 activations
+// AVX2 I2S GEMM with VNNI: packed SPARK × int8 activations
 void i2s_gemm_vnni(const uint8_t* packed_w, const int8_t* activations,
                    float* output, int M, int N, int K);
 

@@ -65,6 +65,9 @@ Reduces memory from O(N²) to O(N) by computing attention in tiles without mater
 ### Quantized Inference
 Quantized weights (OIL4/OIL8) are dequantized on-the-fly during matmul, reducing memory bandwidth by up to 16×.
 
+### GPU Acceleration
+Vulkan compute shaders are available for GPU-accelerated inference, offloading GEMM, GELU, and Softmax to the GPU.
+
 ## Performance
 
 | Model Size | FP16 | OIL4 (1.5 BPW) | OIL8 (0.85 BPW) |

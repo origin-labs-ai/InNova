@@ -5,8 +5,6 @@
 #include <cstring>
 #include <algorithm>
 
-// When OIL_AVX2 is defined, math_avx2.cpp provides all implementations.
-// This file serves as the scalar reference fallback.
 #if !defined(OIL_AVX2)
 
 namespace oil {
@@ -109,7 +107,7 @@ void gelu(const Tensor& x, Tensor& y) {
     const float* px = rd(x);
     float* py = wr(y);
     int64_t n = x.numel();
-    const float s = 0.7071067811865475f; // 1/sqrt(2)
+    const float s = 0.7071067811865475f;
     for (int64_t i = 0; i < n; i++) {
         float v = px[i];
         py[i] = 0.5f * v * (1.0f + std::erf(v * s));
@@ -316,6 +314,221 @@ Tensor ones_like(const Tensor& x) {
     t.fill(1.0f);
     return t;
 }
+
+// ===========================================================================
+// SIMD vector math functions — scalar fallbacks
+// ===========================================================================
+
+void vec_exp(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::exp(std::max(-88.376f, std::min(88.376f, src[i])));
+}
+
+void vec_log(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::log(std::max(1e-38f, src[i]));
+}
+
+void vec_sigmoid(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = 1.0f / (1.0f + std::exp(-src[i]));
+}
+
+void vec_tanh(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::tanh(src[i]);
+}
+
+void vec_pow(float* dst, const float* src, float exp_val, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::pow(src[i], exp_val);
+}
+
+void vec_erf(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::erf(src[i]);
+}
+
+void vec_softmax_stable(float* dst, const float* src, int n) {
+    if (n <= 0) return;
+    float max_val = src[0];
+    for (int i = 1; i < n; i++) max_val = std::max(max_val, src[i]);
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        float e = std::exp(src[i] - max_val);
+        dst[i] = e;
+        sum += e;
+    }
+    double inv = 1.0 / sum;
+    for (int i = 0; i < n; i++) dst[i] = (float)((double)dst[i] * inv);
+}
+
+void vec_layer_norm(float* dst, const float* src, const float* gamma,
+                    const float* beta, int n, float eps) {
+    double mu = 0.0;
+    for (int i = 0; i < n; i++) mu += src[i];
+    mu /= (double)n;
+
+    double var = 0.0;
+    for (int i = 0; i < n; i++) { double d = src[i] - mu; var += d * d; }
+    var /= (double)n;
+
+    double inv_std = 1.0 / std::sqrt(var + (double)eps);
+    for (int i = 0; i < n; i++) {
+        double val = ((double)src[i] - mu) * inv_std;
+        if (gamma) val *= gamma[i];
+        if (beta) val += beta[i];
+        dst[i] = (float)val;
+    }
+}
+
+void vec_rms_norm(float* dst, const float* src, const float* gamma,
+                  int n, float eps) {
+    double ss = 0.0;
+    for (int i = 0; i < n; i++) ss += (double)src[i] * src[i];
+    ss /= (double)n;
+
+    double inv = 1.0 / std::sqrt(ss + (double)eps);
+    for (int i = 0; i < n; i++) {
+        double val = (double)src[i] * inv;
+        if (gamma) val *= gamma[i];
+        dst[i] = (float)val;
+    }
+}
+
+// Scalar fallback — real AVX2 in math_avx2.cpp
+void vec_exp_avx2(float* dst, const float* src, int n) { vec_exp(dst, src, n); }
+void vec_log_avx2(float* dst, const float* src, int n) { vec_log(dst, src, n); }
+void vec_sigmoid_avx2(float* dst, const float* src, int n) { vec_sigmoid(dst, src, n); }
+void vec_tanh_avx2(float* dst, const float* src, int n) { vec_tanh(dst, src, n); }
+void vec_pow_avx2(float* dst, const float* src, float exp_val, int n) { vec_pow(dst, src, exp_val, n); }
+void vec_erf_avx2(float* dst, const float* src, int n) { vec_erf(dst, src, n); }
+
+// ---------------------------------------------------------------------------
+// Additional scalar vector functions
+// ---------------------------------------------------------------------------
+
+void vec_relu(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = src[i] > 0.0f ? src[i] : 0.0f;
+}
+
+void vec_gelu(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) {
+        dst[i] = 0.5f * src[i] * (1.0f + std::erf(src[i] * 0.7071067811865475f));
+    }
+}
+
+void vec_silu(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) {
+        dst[i] = src[i] / (1.0f + std::exp(-src[i]));
+    }
+}
+
+void vec_add(float* dst, const float* a, const float* b, int n) {
+    for (int i = 0; i < n; i++) dst[i] = a[i] + b[i];
+}
+
+void vec_sub(float* dst, const float* a, const float* b, int n) {
+    for (int i = 0; i < n; i++) dst[i] = a[i] - b[i];
+}
+
+void vec_mul(float* dst, const float* a, const float* b, int n) {
+    for (int i = 0; i < n; i++) dst[i] = a[i] * b[i];
+}
+
+void vec_scale(float* dst, const float* src, float factor, int n) {
+    for (int i = 0; i < n; i++) dst[i] = src[i] * factor;
+}
+
+void vec_negate(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = -src[i];
+}
+
+void vec_abs(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::abs(src[i]);
+}
+
+void vec_sqrt(float* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::sqrt(std::max(0.0f, src[i]));
+}
+
+void vec_dot(float* result, const float* a, const float* b, int n) {
+    double s = 0.0;
+    for (int i = 0; i < n; i++) s += (double)a[i] * b[i];
+    *result = (float)s;
+}
+
+void vec_norm(float* result, const float* src, int n) {
+    double s = 0.0;
+    for (int i = 0; i < n; i++) s += (double)src[i] * src[i];
+    *result = (float)std::sqrt(s);
+}
+
+void vec_sum(float* result, const float* src, int n) {
+    double s = 0.0;
+    for (int i = 0; i < n; i++) s += src[i];
+    *result = (float)s;
+}
+
+void vec_maximum(float* dst, const float* a, const float* b, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::max(a[i], b[i]);
+}
+
+void vec_minimum(float* dst, const float* a, const float* b, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::min(a[i], b[i]);
+}
+
+void vec_clip(float* dst, const float* src, float lo, float hi, int n) {
+    for (int i = 0; i < n; i++) dst[i] = std::max(lo, std::min(hi, src[i]));
+}
+
+void vec_lerp(float* dst, const float* a, const float* b, float t, int n) {
+    for (int i = 0; i < n; i++) dst[i] = a[i] * (1.0f - t) + b[i] * t;
+}
+
+void vec_smoothstep(float* dst, const float* src, float edge0, float edge1, int n) {
+    for (int i = 0; i < n; i++) {
+        float tval = std::max(0.0f, std::min(1.0f, (src[i] - edge0) / (edge1 - edge0)));
+        dst[i] = tval * tval * (3.0f - 2.0f * tval);
+    }
+}
+
+void vec_fp32_to_fp16(uint16_t* dst, const float* src, int n) {
+    for (int i = 0; i < n; i++) {
+        float f = src[i];
+        uint32_t bits;
+        std::memcpy(&bits, &f, sizeof(bits));
+        uint16_t sign = (uint16_t)((bits >> 16) & 0x8000);
+        int32_t exp = (int32_t)((bits >> 23) & 0xFF) - 127 + 15;
+        uint32_t mant = bits & 0x007FFFFF;
+        if (exp <= 0) {
+            if (exp < -10) { dst[i] = sign; }
+            else { mant = (mant | 0x00800000) >> (1 - exp); dst[i] = (uint16_t)(sign | (mant >> 13)); }
+        } else if (exp >= 31) {
+            dst[i] = (uint16_t)(sign | 0x7C00 | (mant != 0 ? 0x0200 : 0));
+        } else {
+            dst[i] = (uint16_t)(sign | ((uint16_t)exp << 10) | (mant >> 13));
+        }
+    }
+}
+
+void vec_fp16_to_fp32(float* dst, const uint16_t* src, int n) {
+    for (int i = 0; i < n; i++) {
+        uint16_t h = src[i];
+        uint32_t sign = (uint32_t)(h >> 15) << 31;
+        int32_t exp = (int32_t)((h >> 10) & 0x1F);
+        uint32_t mant = h & 0x03FF;
+        if (exp == 0) {
+            if (mant == 0) { dst[i] = 0.0f; }
+            else { float m = (float)mant / 1024.0f; dst[i] = (sign ? -1.0f : 1.0f) * m * 1.5258789e-5f; }
+        } else if (exp == 31) {
+            uint32_t f32 = sign | 0x7F800000 | (mant << 13);
+            std::memcpy(&dst[i], &f32, sizeof(float));
+        } else {
+            uint32_t f32 = sign | ((uint32_t)(exp + 112) << 23) | (mant << 13);
+            std::memcpy(&dst[i], &f32, sizeof(float));
+        }
+    }
+}
+
+// Scalar fallback — real AVX2 in math_avx2.cpp
+void vec_softmax_stable_avx2(float* dst, const float* src, int n) { vec_softmax_stable(dst, src, n); }
+void vec_layer_norm_avx2(float* dst, const float* src, const float* gamma, const float* beta, int n, float eps) { vec_layer_norm(dst, src, gamma, beta, n, eps); }
+void vec_rms_norm_avx2(float* dst, const float* src, const float* gamma, int n, float eps) { vec_rms_norm(dst, src, gamma, n, eps); }
 
 } // namespace math
 } // namespace oil

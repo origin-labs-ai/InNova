@@ -2,6 +2,8 @@
 #include "oil/transformer.h"
 #include "oil/math.h"
 #include <cstring>
+#include <cmath>
+#include <random>
 #include <unordered_map>
 #include <stdexcept>
 
@@ -40,6 +42,48 @@ int64_t DenseModel::param_count() const {
     count += norm->weight.numel();
     count += lm_head->param_count();
     return count;
+}
+
+void DenseModel::init_weights() {
+    std::mt19937 rng(42);
+    auto rand_fill = [&](Tensor& t) {
+        float* d = t.data<float>();
+        int64_t fan_in = (t.rank() >= 2) ? t.dim(t.rank() - 1) : t.numel();
+        float std_dev = std::sqrt(2.0f / fan_in);
+        std::normal_distribution<float> dist(0.0f, std_dev);
+        for (int64_t i = 0; i < t.numel(); i++) d[i] = dist(rng);
+    };
+    for (auto& l : layers) {
+        rand_fill(l->attention.q_proj.weight);
+        rand_fill(l->attention.k_proj.weight);
+        rand_fill(l->attention.v_proj.weight);
+        rand_fill(l->attention.o_proj.weight);
+        rand_fill(l->ffn.gate_proj.weight);
+        rand_fill(l->ffn.up_proj.weight);
+        rand_fill(l->ffn.down_proj.weight);
+        l->attention_norm.weight.fill(1.0f);
+        l->ffn_norm.weight.fill(1.0f);
+    }
+    rand_fill(lm_head->weight);
+    norm->weight.fill(1.0f);
+}
+
+void DenseModel::get_parameters(std::vector<Tensor*>& params) {
+    params.clear();
+    params.push_back(&tok_embeddings->weight);
+    for (auto& l : layers) {
+        params.push_back(&l->attention.q_proj.weight);
+        params.push_back(&l->attention.k_proj.weight);
+        params.push_back(&l->attention.v_proj.weight);
+        params.push_back(&l->attention.o_proj.weight);
+        params.push_back(&l->ffn.gate_proj.weight);
+        params.push_back(&l->ffn.up_proj.weight);
+        params.push_back(&l->ffn.down_proj.weight);
+        params.push_back(&l->attention_norm.weight);
+        params.push_back(&l->ffn_norm.weight);
+    }
+    params.push_back(&norm->weight);
+    params.push_back(&lm_head->weight);
 }
 
 Tensor DenseModel::forward(const Tensor& input_ids, const Tensor& positions,
@@ -126,7 +170,7 @@ void DenseModel::save(const std::string& oil_path) const {
         for (int64_t offset = 0; offset < numel; ) {
             uint32_t blk_size = (uint32_t)std::min((int64_t)32768, numel - offset);
             BlockData bd;
-            bd.format = Format::FP32;
+            bd.format = Format::OIL32;
             bd.num_weights = blk_size;
             bd.indices.resize(blk_size * 4);
             std::memcpy(bd.indices.data(), td + offset, blk_size * 4);
@@ -162,11 +206,124 @@ void DenseModel::save(const std::string& oil_path) const {
     writer.close();
 }
 
+void DenseModel::save_quantized(const std::string& oil_path, Format fmt) const {
+    auto named = collect_named_tensors(*this);
+
+    std::vector<FormatBlockEntry> ft;
+    std::vector<TensorEntry> te;
+    std::vector<std::string> names;
+    std::vector<BlockData> blocks;
+    uint32_t block_id = 0;
+    uint32_t block_start = 0;
+
+    int codebook_size = 0;
+    Format oil_fmt = fmt;
+    if (fmt == Format::OIL8) codebook_size = 256;
+    else if (fmt == Format::OIL4) codebook_size = 16;
+    else if (fmt == Format::OIL2) codebook_size = 4;
+
+    for (auto& [name, t] : named) {
+        names.push_back(name);
+        int64_t numel = t.numel();
+        if (numel == 0) continue;
+
+        const float* td = t.data<float>();
+        uint32_t block_count = 0;
+        uint32_t bs = block_start;
+
+        if (codebook_size > 0) {
+            CodebookOIL8 cb;
+            if (codebook_size == 16) {
+                CodebookOIL4 cb4;
+                cb4.train(td, (size_t)numel);
+                std::vector<uint8_t> indices(numel);
+                for (int64_t i = 0; i < numel; i++)
+                    indices[i] = cb4.quantize(td[i]);
+                BlockData bd;
+                bd.format = oil_fmt;
+                bd.num_weights = (uint32_t)numel;
+                bd.indices = indices;
+                std::vector<uint8_t> cb_raw(cb4.serialized_size());
+                cb4.serialize(cb_raw.data());
+                bd.codebook = cb_raw;
+                blocks.push_back(bd);
+                FormatBlockEntry fbe;
+                fbe.block_id = block_id++;
+                fbe.format = (uint32_t)oil_fmt;
+                fbe.cb_bytes = (uint32_t)cb_raw.size();
+                ft.push_back(fbe);
+                block_count++;
+            } else {
+                cb.train(td, (size_t)numel);
+                std::vector<uint8_t> indices(numel);
+                for (int64_t i = 0; i < numel; i++)
+                    indices[i] = cb.quantize(td[i]);
+                BlockData bd;
+                bd.format = oil_fmt;
+                bd.num_weights = (uint32_t)numel;
+                bd.indices = indices;
+                std::vector<uint8_t> cb_raw(cb.serialized_size());
+                cb.serialize(cb_raw.data());
+                bd.codebook = cb_raw;
+                blocks.push_back(bd);
+                FormatBlockEntry fbe;
+                fbe.block_id = block_id++;
+                fbe.format = (uint32_t)oil_fmt;
+                fbe.cb_bytes = (uint32_t)cb_raw.size();
+                ft.push_back(fbe);
+                block_count++;
+            }
+        } else {
+            for (int64_t offset = 0; offset < numel; ) {
+                uint32_t blk_size = (uint32_t)std::min((int64_t)32768, numel - offset);
+                BlockData bd;
+                bd.format = Format::OIL32;
+                bd.num_weights = blk_size;
+                bd.indices.resize(blk_size * 4);
+                std::memcpy(bd.indices.data(), td + offset, blk_size * 4);
+                blocks.push_back(bd);
+                FormatBlockEntry fbe;
+                fbe.block_id = block_id++;
+                fbe.format = 5;
+                fbe.cb_bytes = 0;
+                ft.push_back(fbe);
+                block_count++;
+                offset += blk_size;
+            }
+        }
+
+        TensorEntry entry;
+        entry.block_start = bs;
+        entry.num_blocks = block_count;
+        te.push_back(entry);
+        block_start = block_id;
+    }
+
+    OILWriter writer(oil_path);
+    OILHeader hdr;
+    std::memcpy(hdr.magic, "OIL1", 4);
+    hdr.version = 1;
+    hdr.flags = 0;
+    hdr.config_size = sizeof(TransformerConfig);
+    writer.write_header(hdr, (const uint8_t*)&config);
+    writer.write_format_table(ft);
+    writer.write_tensor_table(te, names);
+    for (auto& bd : blocks) writer.write_block(bd);
+    writer.close();
+}
+
 // ========================================================================
 // REAL load: read named tensors from OIL format and assign to model
 // ========================================================================
 
 void DenseModel::load(const std::string& oil_path) {
+    if (oil_path.size() < 4 ||
+        oil_path.substr(oil_path.size() - 4) != ".oil") {
+        throw std::runtime_error(
+            "OIL format required: only .oil files are supported. "
+            "External format adapters removed. OIL is ~40-45% more compute-efficient "
+            "than standard formats — contact owner for commercial deployment");
+    }
     OILReader reader(oil_path);
     if (!reader.valid()) throw std::runtime_error("Cannot open: " + oil_path);
     if (reader.header().config_size >= sizeof(TransformerConfig)) {
@@ -211,14 +368,9 @@ void DenseModel::load(const std::string& oil_path) {
 }
 
 void Model::load(const std::string& oil_path) {
-    OILReader reader(oil_path);
-    if (!reader.valid()) throw std::runtime_error("Cannot open: " + oil_path);
-    if (reader.header().config_size >= sizeof(TransformerConfig)) {
-        auto cfg_data = reader.read_config();
-        if (cfg_data.size() >= sizeof(TransformerConfig)) {
-            std::memcpy(&config, cfg_data.data(), sizeof(TransformerConfig));
-        }
-    }
+    throw std::runtime_error(
+        "Model::load() base class cannot load weights — use DenseModel::load() "
+        "which reads config + weights from OIL blocks.");
 }
 
 void Model::save(const std::string& oil_path) const {

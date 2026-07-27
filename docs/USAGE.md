@@ -211,9 +211,8 @@ oil-finetune [OPTIONS]
 | `--learning-rate`, `-lr` | float | 1e-5 | Learning rate (typically smaller than training) |
 | `--batch-size`, `-b` | int | 4 | Batch size |
 | `--seq-length`, `-s` | int | 128 | Sequence length |
-| `--method` | string | full | Fine-tuning method: full, lora, qlora |
-| `--lora-rank` | int | 8 | Rank for LoRA adapters |
-| `--lora-alpha` | float | 16.0 | Alpha for LoRA scaling |
+| `--method` | string | full | Fine-tuning method: full, quantized |
+| `--target-bpw` | float | 1.58 | Target bits-per-weight for quantized fine-tuning |
 | `--target-modules` | string | all | Modules to fine-tune (comma-separated) |
 | `--freeze-base` | flag | false | Freeze base model weights |
 | `--log-interval` | int | 10 | Log every N steps |
@@ -228,11 +227,8 @@ oil-finetune [OPTIONS]
 # Full fine-tuning
 oil-finetune -m base.oil -d data.txt -o fine-tuned.oil --epochs 3
 
-# LoRA fine-tuning
-oil-finetune -m base.oil -d data.txt -o lora.oil --method lora --lora-rank 8
-
-# QLoRA fine-tuning (quantized + LoRA)
-oil-finetune -m base.oil -d data.txt -o qlora.oil --method qlora --target-bpw 4.0
+# Quantized fine-tuning (native OIL, target 2.0 BPW)
+oil-finetune -m base.oil -d data.txt -o quant.oil --method quantized --target-bpw 2.0
 ```
 
 ---

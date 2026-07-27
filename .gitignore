@@ -18,7 +18,6 @@ build2/
 # IDE
 .vs/
 .idea/
-.vscode/
 .claude/
 
 # Temp & OS
@@ -32,19 +31,19 @@ Thumbs.db
 
 # WDAC / signing artifacts
 tools/wdac/*.bin
-tools/wdac/*.pfx
 tools/wdac/*.cer
+*.pfx
 
 # Temp build dirs
 build_windows_temp/
+
+# Duplicate source trees
+dist/source/
 
 # Generated graphs
 graphify-out/
 Testing/
 _test_checkpoint.oil.opt
-
-# Template artifacts (unused)
-.bitnet/
 
 # External model formats — must use adapters::import_xxx
 *.bin
@@ -60,13 +59,22 @@ _test_checkpoint.oil.opt
 # Checkpoints
 checkpoints/
 
-# Kilo temp
-.kilo/tmp/
-
 # Excluded files
 TASKS.md
 DIFFUSION.txt
 build_linux.sh
+FLYWHEEL_LOG.md
+PEER_REVIEW_LOG.md
+RELEASE_NOTES.md
+THEOREM.md
+SHA256_TEST_LOG.md
+REPORT.md
+SANDBOX_TEST_LOG.md
+
+# Excluded directories
+.llama/
+.kilo/
+.bitnet/
 
 # Linux binaries
 dist/linux/

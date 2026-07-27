@@ -14,6 +14,122 @@
 
 namespace oil {
 
+// ===========================================================================
+// I21: Server metrics
+// ===========================================================================
+struct ServerMetrics {
+    std::atomic<int64_t> total_requests{0};
+    std::atomic<int64_t> total_errors{0};
+    std::atomic<int64_t> total_tokens_generated{0};
+    std::atomic<int64_t> current_requests{0};
+    std::atomic<int64_t> max_concurrent{0};
+    std::atomic<double> total_latency_ms{0.0};
+    double avg_latency_ms() const {
+        auto n = total_requests.load();
+        return n > 0 ? total_latency_ms.load() / n : 0.0;
+    }
+    double requests_per_sec() const;
+    struct LatencyHistogram {
+        std::vector<double> samples;
+        mutable std::mutex mtx;
+        void record(double ms);
+        double percentile(double p) const;
+        double p50() const { return percentile(50.0); }
+        double p95() const { return percentile(95.0); }
+        double p99() const { return percentile(99.0); }
+    };
+    LatencyHistogram latency_hist;
+};
+
+// ===========================================================================
+// I22: ModelServer — production-grade serving with request queue, batching,
+//      metrics, health, and model lifecycle management
+// ===========================================================================
+struct ServingRequest {
+    int64_t id;
+    std::vector<int> prompt_ids;
+    std::string prompt_text;
+    int max_tokens;
+    int priority;               // lower = higher priority
+    std::chrono::steady_clock::time_point created_at;
+    std::function<void(const std::string&, const std::vector<int>&)> callback;
+};
+
+struct BatchConsolidationResult {
+    std::vector<int> request_ids;
+    Tensor batched_input;
+    Tensor batched_positions;
+    std::vector<int> seq_lens;
+    std::vector<int> offsets;
+};
+
+class ModelServer {
+public:
+    ModelServer(Model* model, Tokenizer* tokenizer, int port = 8080,
+                int n_workers = 4);
+    ~ModelServer();
+
+    void start();
+    void stop();
+    bool is_running() const { return running_.load(); }
+
+    // Lifecycle
+    bool load_model(const std::string& path);
+    void unload_model();
+    bool is_model_loaded() const { return model_ != nullptr; }
+
+    // Request submission
+    int64_t submit(const ServingRequest& req);
+    int64_t submit(const std::string& prompt, int max_tokens,
+                    int priority = 0,
+                    std::function<void(const std::string&, const std::vector<int>&)> cb = nullptr);
+
+    // Metrics
+    const ServerMetrics& metrics() const { return metrics_; }
+    ServerMetrics& metrics() { return metrics_; }
+    
+    // Health
+    std::string health_json() const;
+    std::string metrics_json() const;
+
+    void set_batch_size(int bs) { max_batch_size_ = bs; }
+    void set_queue_wait_ms(int ms) { queue_wait_ms_ = ms; }
+
+private:
+    Model* model_;
+    Tokenizer* tokenizer_;
+    int port_;
+    int max_batch_size_ = 8;
+    int queue_wait_ms_ = 5;
+    std::atomic<bool> running_{false};
+
+    // Request queue (min-heap by priority)
+    struct CompareRequest {
+        bool operator()(const ServingRequest& a, const ServingRequest& b) {
+            if (a.priority != b.priority) return a.priority > b.priority;
+            return a.created_at > b.created_at;
+        }
+    };
+    std::priority_queue<ServingRequest, std::vector<ServingRequest>, CompareRequest> request_queue_;
+    std::mutex queue_mutex_;
+    std::condition_variable queue_cv_;
+    std::atomic<int64_t> next_request_id_{1};
+
+    // Worker threads
+    std::vector<std::thread> workers_;
+    std::thread server_thread_;
+    std::thread metrics_thread_;
+
+    // Consolidation
+    BatchConsolidationResult consolidate_batch(std::vector<ServingRequest>& batch);
+
+    // Loop functions
+    void worker_loop();
+    void metrics_loop();
+
+    ServerMetrics metrics_;
+};
+
 // I3: C API bindings
 extern "C" {
     struct OilModel;
@@ -24,11 +140,11 @@ extern "C" {
     const char* oil_last_error();
 }
 
-// I5: HTTP API server
-class HTTPServer {
+// I5: HTTP API server (Model-integrated, direct inference)
+class ModelHTTPServer {
 public:
-    HTTPServer(Model* model, int port = 8080);
-    ~HTTPServer();
+    ModelHTTPServer(Model* model, int port = 8080);
+    ~ModelHTTPServer();
     void start();
     void stop();
     bool is_running() const { return running_; }
@@ -72,6 +188,7 @@ public:
     void start();
     void stop();
     void broadcast(const std::string& token);
+    bool is_running() const { return running_.load(); }
 private:
     int port_;
     std::atomic<bool> running_{false};
@@ -116,7 +233,7 @@ struct Result {
 // I12: Logging system
 class Logger {
 public:
-    enum Level { DEBUG, INFO, WARN, ERROR };
+    enum Level : uint8_t { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3 };
     Logger(Level level = INFO);
     void log(Level level, const std::string& message);
     void set_level(Level level) { level_ = level; }
@@ -142,7 +259,7 @@ public:
     bool validate(std::string* error_out = nullptr) const;
 private:
     struct JsonValue {
-        enum Type { NULL_VAL, BOOL, INT64, FLOAT64, STRING, ARRAY, OBJECT };
+        enum Type : uint8_t { NULL_VAL = 0, BOOL = 1, INT64 = 2, FLOAT64 = 3, STRING = 4, ARRAY = 5, OBJECT = 6 };
         Type type = NULL_VAL;
         bool bool_val = false;
         int64_t int_val = 0;
@@ -227,12 +344,12 @@ private:
     void scan_directory(std::vector<ModelInfo>& out) const;
 };
 
-// I16-I18: Language bindings (stubs for pybind11, JNI, FFI)
+// I16-I18: Language bindings — dynamic library loading for Python/Java/Rust FFI
 class PythonBindings { public: static void init(); };
 class JavaBindings { public: static void init(); };
 class RustBindings { public: static void init(); };
 
-// I19: Mobile deployment — Android/iOS stubs
+// I19: Mobile deployment — Android/iOS with toolchain detection
 class MobileDeploy {
 public:
     static bool deploy_android(const std::string& apk_path);

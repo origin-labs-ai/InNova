@@ -5,6 +5,8 @@
 #include <vector>
 #include <unordered_map>
 #include <functional>
+#include <mutex>
+#include <atomic>
 
 namespace oil {
 
@@ -87,10 +89,12 @@ public:
 
 private:
     AutogradEngine() = default;
+    mutable std::mutex mutex_;
     std::vector<std::shared_ptr<AutogradNode>> nodes_;
-    std::unordered_map<void*, std::weak_ptr<AutogradNode>> output_to_node_;
-    std::unordered_map<void*, Tensor*> param_map_;
-    static bool enabled_;
+    mutable std::mutex param_mutex_;
+    std::unordered_map<const void*, std::weak_ptr<AutogradNode>> output_to_node_;
+    std::unordered_map<const void*, Tensor*> param_map_;
+    static std::atomic<bool> enabled_;
     bool next_is_checkpoint_ = false;
     std::shared_ptr<AutogradNode> last_checkpoint_;
 };
@@ -98,6 +102,7 @@ private:
 Tensor matmul_grad(const Tensor& a, const Tensor& b, const Tensor& grad_output);
 Tensor matmul_grad_wrt_a(const Tensor& grad_output, const Tensor& b);
 Tensor matmul_grad_wrt_b(const Tensor& grad_output, const Tensor& a);
+Tensor weight_grad(const Tensor& grad_output, const Tensor& a, const Tensor& weight);
 Tensor relu_grad(const Tensor& x, const Tensor& grad);
 Tensor silu_grad(const Tensor& x, const Tensor& grad);
 Tensor gelu_grad(const Tensor& x, const Tensor& grad);

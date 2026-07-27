@@ -52,14 +52,25 @@ Optimizer State (optional):
 
 ## Format Variants
 
+MYTHOS.cpp defines **29 total formats**: 12 single-precision, 13 two-mix (twimix), and 4 four-mix.
+
+| Category | Count | Examples |
+|----------|-------|---------|
+| Single-precision | 12 | OIL1–OIL32, Binary, Ternary, FP16, FP32, INT8, etc. |
+| Two-mix (twimix) | 13 | Mixed BPW combinations using 2-format blending |
+| Four-mix | 4 | Mixed BPW combinations using 4-format blending |
+
+### Core Format Variants
+
 | Variant | BPW | Storage | Centroids |
 |---------|-----|---------|-----------|
 | `BINARY` | 1.00 | 1 bit/weight | {-1, +1} |
 | `TERNARY` | 1.58 | 2 bits/weight | {-1, 0, +1} |
+| `OIL2` | 2.00 | 2 bits/weight | 4 centroids |
 | `OIL4` | 1.50 | 4 bits/weight + 16×FP16 table | 16 centroids |
 | `OIL8` | 0.85 | 8 bits/weight + 256×FP32 table | 256 centroids |
-| `FP16` | 16.0 | 16 bits/weight | — |
-| `FP32` | 32.0 | 32 bits/weight | — |
+| `OIL16` | 16.0 | 16 bits/weight | — |
+| `OIL32` | 32.0 | 32 bits/weight | FP32 lossless |
 
 ## Quantization Format Details
 

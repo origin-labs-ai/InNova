@@ -14,7 +14,7 @@ namespace oil {
 
 class Tensor {
 public:
-    Tensor();
+    Tensor() noexcept;
     explicit Tensor(Shape shape, DType dtype = DType::F32);
     Tensor(Shape shape, std::shared_ptr<Buffer> buffer, DType dtype = DType::F32);
 
@@ -22,19 +22,19 @@ public:
     Tensor& operator=(const Tensor&);
     Tensor(Tensor&&) noexcept;
     Tensor& operator=(Tensor&&) noexcept;
-    ~Tensor();
+    ~Tensor() noexcept;
 
-    const Shape& shape() const { return shape_; }
-    int64_t dim(int i) const { return shape_.dims[i]; }
-    int rank() const { return shape_.rank; }
-    int64_t numel() const { return shape_.numel(); }
-    DType dtype() const { return dtype_; }
-    void* data() { return buffer_ ? (char*)buffer_->data() + offset_ : nullptr; }
-    const void* data() const { return buffer_ ? (const char*)buffer_->data() + offset_ : nullptr; }
-    template<typename T> T* data() { return static_cast<T*>(data()); }
-    template<typename T> const T* data() const { return static_cast<const T*>(data()); }
-    std::shared_ptr<Buffer> buffer() const { return buffer_; }
-    size_t size_bytes() const { return numel() * dtype_size(dtype_); }
+    const Shape& shape() const noexcept { return shape_; }
+    int64_t dim(int i) const noexcept { return shape_.dims[i]; }
+    int rank() const noexcept { return shape_.rank; }
+    int64_t numel() const noexcept { return shape_.numel(); }
+    DType dtype() const noexcept { return dtype_; }
+    void* data() noexcept { return buffer_ ? (char*)buffer_->data() + offset_ : nullptr; }
+    const void* data() const noexcept { return buffer_ ? (const char*)buffer_->data() + offset_ : nullptr; }
+    template<typename T> T* data() noexcept { return static_cast<T*>(data()); }
+    template<typename T> const T* data() const noexcept { return static_cast<const T*>(data()); }
+    std::shared_ptr<Buffer> buffer() const noexcept { return buffer_; }
+    size_t size_bytes() const noexcept { return numel() * dtype_size(dtype_); }
 
     Tensor view(const Shape& new_shape) const;
     Tensor slice(int dim, int64_t start, int64_t end) const;
@@ -49,21 +49,20 @@ public:
     Tensor clone() const;
     void zero_();
 
-    static Tensor zeros(const Shape& shape);
-    static Tensor ones(const Shape& shape);
+    static Tensor zeros(const Shape& shape, DType dtype = DType::F32);
+    static Tensor ones(const Shape& shape, DType dtype = DType::F32);
     static Tensor arange(int64_t n);
 
     bool requires_grad() const { return requires_grad_; }
     void requires_grad(bool req) { requires_grad_ = req; }
     Tensor& grad() const {
         if (!grad_) {
-            static Tensor empty_grad;
-            return empty_grad;
+            throw std::runtime_error("Tensor::grad() called but no gradient set");
         }
         return *grad_;
     }
     bool has_grad() const { return grad_ != nullptr; }
-    void set_grad(const Tensor& g) { delete grad_; grad_ = new Tensor(g); }
+    void set_grad(const Tensor& g) { grad_ = std::make_unique<Tensor>(g); }
     void zero_grad() { if (grad_) grad_->zero_(); }
 
     size_t serialized_size() const;
@@ -80,7 +79,7 @@ private:
     DType dtype_ = DType::F32;
     std::shared_ptr<Buffer> buffer_;
     bool requires_grad_ = false;
-    Tensor* grad_ = nullptr;
+    std::unique_ptr<Tensor> grad_;
     size_t offset_ = 0;
     bool is_transposed_ = false;
     std::vector<int64_t> strides_;

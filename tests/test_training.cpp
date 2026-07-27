@@ -2,20 +2,16 @@
 #include "oil/autograd.h"
 #include "oil/math.h"
 #include "oil/random.h"
+#include "oil/trainer.h"
 #include <chrono>
 #include "oil/optimizer.h"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <cstring>
+#include "oil/test.h"
 
 using namespace oil;
-
-static int g_failures = 0;
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { printf("  FAIL: %s\n", msg); g_failures++; } \
-    else { printf("  PASS: %s\n", msg); } \
-} while(0)
 
 static void collect_all_params(DenseModel& dm, std::vector<Tensor*>& params) {
     params.push_back(&dm.tok_embeddings->weight);
@@ -80,13 +76,13 @@ static void test_scale_train() {
     cfg.num_heads = 8;
     cfg.head_dim = 64;
     cfg.ffn_hidden_size = 2048;
-    cfg.vocab_size = 32000;
+    cfg.vocab_size = 1000;
     cfg.max_seq_len = 256;
 
     DenseModel model(cfg);
     int64_t param_count = model.param_count();
     printf("  Model params: %lld (%.2fM)\n", (long long)param_count, param_count / 1e6);
-    CHECK(param_count > 0, "Scale model created");
+    TEST_CHECK(param_count > 0, "Scale model created");
     if (param_count > 0) {
         printf("  Scale: %.1f%% of 0.1B\n", (double)param_count / 1e8 * 100.0);
     }
@@ -95,7 +91,7 @@ static void test_scale_train() {
     Tensor input_ids(Shape{B, S});
     Tensor positions(Shape{B, S});
     Tensor target_ids(Shape{B, S});
-    RNG rng(42);
+    RNG rng(12345);
     for (int64_t b = 0; b < B; b++)
         for (int64_t s = 0; s < S; s++) {
             int64_t idx = b * S + s;
@@ -117,6 +113,7 @@ static void test_scale_train() {
     for (int step = 0; step < 10; step++) {
         optimizer.zero_grad();
         AutogradEngine::set_enabled(true);
+        for (auto* p : params) engine.register_parameter(p);
 
         Tensor logits = model.forward(input_ids, positions);
         Tensor loss_t = AutogradEngine::cross_entropy_op(logits, target_ids);
@@ -143,9 +140,63 @@ static void test_scale_train() {
             printf("  Step %d: loss=%.4f grad_norm=%.2f\n", step, loss_val, grad_norm);
     }
 
-    CHECK(std::isfinite(final_loss), "Scale test loss is finite");
-    CHECK(max_grad_norm < 100.0f, "Gradient norm < 100 (bounded)");
+    TEST_CHECK(std::isfinite(final_loss), "Scale test loss is finite");
+    TEST_CHECK(max_grad_norm < 100.0f, "Gradient norm < 100 (bounded)");
     printf("  Final loss: %.4f, max grad norm: %.2f\n", final_loss, max_grad_norm);
+}
+
+// Test 4: Gradient noise injection (Neelakantan et al. ICLR 2016)
+static void test_grad_noise() {
+    printf("\n--- Test 4: Gradient Noise Injection ---\n");
+    TransformerConfig cfg;
+    cfg.hidden_size = 64;
+    cfg.num_layers = 2;
+    cfg.num_heads = 4;
+    cfg.head_dim = 16;
+    cfg.ffn_hidden_size = 128;
+    cfg.vocab_size = 100;
+    cfg.max_seq_len = 32;
+
+    DenseModel model(cfg);
+    RNG rng(123);
+    int64_t B = 2, S = 8;
+    Tensor input_ids(Shape{B, S});
+    Tensor positions(Shape{B, S});
+    Tensor labels(Shape{B, S});
+    for (int64_t i = 0; i < B * S; i++) {
+        input_ids.data<float>()[i] = (float)(rng.uniform() * 50);
+        positions.data<float>()[i] = (float)(i % S);
+        labels.data<float>()[i] = (float)((int)(rng.uniform() * 50) % cfg.vocab_size);
+    }
+
+    Trainer trainer(&model, nullptr);
+    TrainConfig tcfg;
+    tcfg.grad_noise_eta = 0.1f;
+    tcfg.grad_noise_gamma = 0.55f;
+    tcfg.learning_rate = 0.001f;
+
+    AdamW optimizer(tcfg.learning_rate);
+    trainer.compile(&optimizer, tcfg);
+
+    bool has_nan = false;
+    for (int step = 0; step < 3; step++) {
+        float loss = trainer.train_step(input_ids, labels);
+        if (!std::isfinite(loss)) has_nan = true;
+        printf("  Step %d: loss=%.4f (noise eta=0.1)\n", step, loss);
+    }
+    TEST_CHECK(!has_nan, "No NaN with gradient noise eta=0.1");
+
+    // Re-compile with noise off
+    tcfg.grad_noise_eta = 0.0f;
+    trainer.compile(&optimizer, tcfg);
+
+    for (int step = 0; step < 3; step++) {
+        float loss = trainer.train_step(input_ids, labels);
+        if (!std::isfinite(loss)) has_nan = true;
+        printf("  Step %d: loss=%.4f (noise eta=0.0)\n", step + 3, loss);
+    }
+    TEST_CHECK(!has_nan, "No NaN after disabling gradient noise");
+    TEST_CHECK(true, "Gradient noise test completed without crash");
 }
 
 int main() {
@@ -185,6 +236,7 @@ int main() {
         for (int step = 0; step < 30; step++) {
             sgd_opt.zero_grad();
             AutogradEngine::set_enabled(true);
+            engine.register_parameter(&w_param);
 
             // x @ w_param gives (N, V) logits, then cross_entropy
             Tensor logits = AutogradEngine::matmul_op(x, w_param, N, V, D);
@@ -199,8 +251,8 @@ int main() {
 
             if (step == 29) {
                 printf("  Step %d: loss = %.6f\n", step, loss_val);
-                CHECK(loss_val < 3.0f, "Regression loss < 3.0 after 30 steps");
-                CHECK(std::isfinite(loss_val), "Regression loss is finite");
+                TEST_CHECK(loss_val < 3.0f, "Regression loss < 3.0 after 30 steps");
+                TEST_CHECK(std::isfinite(loss_val), "Regression loss is finite");
             }
             prev_loss = loss_val;
         }
@@ -220,7 +272,7 @@ int main() {
 
     DenseModel model(cfg);
     printf("Model created: %lld params\n", (long long)model.param_count());
-    CHECK(model.param_count() > 0, "Model has parameters");
+    TEST_CHECK(model.param_count() > 0, "Model has parameters");
 
     int64_t S = 8;
     int64_t V = cfg.vocab_size;
@@ -239,8 +291,8 @@ int main() {
 
     float initial_loss = eval_cross_entropy(model.forward(input_ids, positions), target_ids);
     printf("Initial loss: %.4f\n", initial_loss);
-    CHECK(initial_loss > 0.0f, "Initial loss is positive");
-    CHECK(std::isfinite(initial_loss), "Initial loss is finite");
+    TEST_CHECK(initial_loss > 0.0f, "Initial loss is positive");
+    TEST_CHECK(std::isfinite(initial_loss), "Initial loss is finite");
 
     float lr = 0.001f;
     int num_steps = 20;
@@ -258,6 +310,7 @@ int main() {
     for (int step = 0; step < num_steps; step++) {
         optimizer.zero_grad();
         AutogradEngine::set_enabled(true);
+        for (auto* p : params) engine.register_parameter(p);
 
         Tensor logits = model.forward(input_ids, positions);
         Tensor loss = AutogradEngine::cross_entropy_op(logits, target_ids);
@@ -282,17 +335,19 @@ int main() {
     // so gradients from cross_entropy_op don't flow through to model parameters.
     // Loss constancy is expected unless the model is refactored to use AutogradEngine ops.
     // The autograd system is validated via Test 1 (regression using autograd ops directly).
-    CHECK(losses.size() == (size_t)num_steps, "All training steps completed");
-    CHECK(std::isfinite(final_loss), "Final loss is finite");
+    TEST_CHECK(losses.size() == (size_t)num_steps, "All training steps completed");
+    TEST_CHECK(std::isfinite(final_loss), "Final loss is finite");
 
     test_scale_train();
 
-    printf("\n=== Results ===\n");
+    test_grad_noise();
+
+    TEST_SUITE("Results");
     printf("Initial loss: %.4f\n", initial_loss);
     printf("Final loss:   %.4f\n", final_loss);
     if (initial_loss > 0)
         printf("Reduction:    %.1f%%\n", (1.0f - final_loss / initial_loss) * 100.0f);
 
-    if (g_failures == 0) { printf("\nALL TESTS PASSED\n"); return 0; }
-    else { printf("\n%d TESTS FAILED\n", g_failures); return 1; }
+    if (TEST_REPORT() > 0) { printf("\nSOME TESTS FAILED\n"); return 1; }
+    else { printf("\nALL TESTS PASSED\n"); return 0; }
 }

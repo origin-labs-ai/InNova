@@ -10,7 +10,7 @@
 namespace oil {
 namespace kernel {
 
-// I2_S unpack: extract ternary values {-1,0,+1} from packed 2-bit
+// I2_S unpack: extract SPARK values {-1,0,+1} from packed 2-bit
 // Storage: 4 values per byte: [v3:2][v2:2][v1:2][v0:2]
 // Mapping: 00=-1, 01=0, 10=+1
 static inline int decode_i2s(uint8_t packed, int shift) {
@@ -20,7 +20,7 @@ static inline int decode_i2s(uint8_t packed, int shift) {
     return 1;
 }
 
-// Pre-computed LUT: for each byte value (0-255), store all 4 decoded ternary values
+// Pre-computed LUT: for each byte value (0-255), store all 4 decoded SPARK values
 static int8_t g_i2s_lut[256][4];
 static std::once_flag g_i2s_lut_init;
 static void init_i2s_lut() {
@@ -152,7 +152,7 @@ void avx2_tiled_gemm(const float* A, const float* B, float* C,
     }
 }
 
-// AVX2 I2S GEMM with LUT-based decode (processes 32 ternary values per iteration)
+// AVX2 I2S GEMM with LUT-based decode (processes 32 SPARK values per iteration)
 void i2s_gemm_avx2(const Tensor& weights, const Tensor& activations,
                    Tensor& output, int M, int N, int K) {
     std::call_once(g_i2s_lut_init, init_i2s_lut);
@@ -167,7 +167,7 @@ void i2s_gemm_avx2(const Tensor& weights, const Tensor& activations,
             for (k = 0; k + 32 <= K; k += 32) {
                 const uint8_t* wb = w + m * (K / 4) + k / 4;
                 const float* ab = a + n * K + k;
-                // Load 8 packed bytes = 32 ternary values, decode into 32 floats
+                // Load 8 packed bytes = 32 SPARK values, decode into 32 floats
                 int32_t dec[32];
                 for (int i = 0; i < 8; i++) {
                     uint8_t b = wb[i];
@@ -252,7 +252,17 @@ void i2s_gemm_avx2(const Tensor& weights, const Tensor& activations,
 
 void i2s_gemm_vnni(const uint8_t* packed_w, const int8_t* activations,
                    float* output, int M, int N, int K) {
-    (void)packed_w; (void)activations; (void)output; (void)M; (void)N; (void)K;
+    std::call_once(g_i2s_lut_init, init_i2s_lut);
+    for (int m = 0; m < M; m++) {
+        for (int n = 0; n < N; n++) {
+            float sum = 0.0f;
+            for (int k = 0; k < K; k++) {
+                sum += (float)g_i2s_lut[packed_w[m * (K / 4) + k / 4]][k % 4]
+                     * (float)activations[n * K + k];
+            }
+            output[m * N + n] = sum;
+        }
+    }
 }
 #endif
 

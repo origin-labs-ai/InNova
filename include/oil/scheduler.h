@@ -58,8 +58,9 @@ public:
         : initial_lr_(initial_lr), step_size_(step_size), gamma_(gamma) {}
     float get_lr(int step) override;
 private:
-    float initial_lr_, gamma_;
+    float initial_lr_;
     int step_size_;
+    float gamma_;
 };
 
 class ReduceLROnPlateauScheduler : public LRScheduler {
@@ -68,7 +69,7 @@ public:
                                int patience = 5, float min_lr = 1e-6f,
                                float threshold = 1e-4f)
         : initial_lr_(initial_lr), base_lr_(initial_lr), factor_(factor),
-          patience_(patience), min_lr_(min_lr), threshold_(threshold) {}
+          min_lr_(min_lr), threshold_(threshold), patience_(patience) {}
     float get_lr(int step) override;
     void step_metric(float metric);
     void reset() { bad_epochs_ = 0; base_lr_ = initial_lr_; }
@@ -125,6 +126,91 @@ public:
     float get_lr(int step) override { last_lr_ = fn_(step); return last_lr_; }
 private:
     std::function<float(int)> fn_;
+};
+
+// ============================================================
+// ChainedScheduler — Multiply the output of two schedulers
+// ============================================================
+class ChainedScheduler : public LRScheduler {
+public:
+    ChainedScheduler(LRScheduler* primary, LRScheduler* secondary);
+    float get_lr(int step) override;
+    float get_last_lr() const override;
+private:
+    LRScheduler* primary_;
+    LRScheduler* secondary_;
+};
+
+// ============================================================
+// CosineWarmupRestart — Cosine annealing with optional warmup
+// ============================================================
+class CosineWarmupRestart : public LRScheduler {
+public:
+    CosineWarmupRestart(float base_lr, int total_steps,
+                        int warmup_steps = 0, float min_lr = 0.0f);
+    float get_lr(int step) override;
+private:
+    float base_lr_;
+    int total_steps_, warmup_steps_;
+    float min_lr_;
+};
+
+// ============================================================
+// PolyScheduler — Polynomial LR decay
+// ============================================================
+class PolyScheduler : public LRScheduler {
+public:
+    PolyScheduler(float base_lr, float end_lr, int total_steps,
+                  float power = 1.0f);
+    float get_lr(int step) override;
+private:
+    float base_lr_, end_lr_;
+    int total_steps_;
+    float power_;
+};
+
+// ============================================================
+// MultiStepDecay — Step decay at specified milestones
+// ============================================================
+class MultiStepDecay : public LRScheduler {
+public:
+    MultiStepDecay(float base_lr, std::vector<int> milestones,
+                   float gamma = 0.5f);
+    float get_lr(int step) override;
+private:
+    float base_lr_, gamma_;
+    std::vector<int> milestones_;
+};
+
+// ============================================================
+// LinearWarmupDecay — Linear warmup then polynomial decay
+// ============================================================
+class LinearWarmupDecay : public LRScheduler {
+public:
+    LinearWarmupDecay(float start_lr, float peak_lr, float end_lr,
+                      int warmup_steps, int total_steps,
+                      float decay_power = 1.0f);
+    float get_lr(int step) override;
+private:
+    float start_lr_, peak_lr_, end_lr_;
+    int warmup_steps_, total_steps_;
+    float decay_power_;
+};
+
+// ============================================================
+// CyclicLR — Triangular cyclic LR with decay
+// ============================================================
+class CyclicLR : public LRScheduler {
+public:
+    enum class CycleMode { TRIANGULAR, TRIANGULAR2, EXP_RANGE };
+    CyclicLR(float base_lr, float max_lr, int step_size_up,
+             int step_size_down = -1, float decay = 0.0f,
+             CycleMode mode = CycleMode::TRIANGULAR);
+    float get_lr(int step) override;
+private:
+    float base_lr_, max_lr_, decay_;
+    int step_size_up_, step_size_down_, total_size_;
+    CycleMode mode_;
 };
 
 } // namespace oil

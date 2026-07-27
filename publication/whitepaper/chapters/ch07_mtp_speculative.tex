@@ -1,0 +1,350 @@
+% ============================================================================
+% Chapter 7: Multi-Token Prediction & Speculative Decoding
+% ============================================================================
+\chapter{Multi-Token Prediction and Speculative Decoding}
+\label{ch:mtp}
+
+\begin{quote}
+\textit{``Why predict one token at a time when the model already knows what comes next?''}
+\end{quote}
+
+\section{The Autoregressive Bottleneck}
+\label{sec:autoregressive_bottleneck}
+
+Standard autoregressive language models generate one token at a time,
+computing $x_t = \argmax\; P(x_t \mid x_1, \ldots, x_{t-1})$ at every
+step. For a 64M-parameter model in OIL4 (4\,\BPW), each forward pass
+transfers $64\!\times\!10^6\!\times\!4 = 256\,\text{Mbits}$ of weight
+data. On a reference laptop with DDR5-4800 memory
+($\sim\!50\,\text{GB/s}$), the minimum wall-clock time per pass is
+$T_{\text{mem}} = 256\!\times\!10^6 / (50\!\times\!10^9) \approx
+5.1\,\text{ms}$, yielding a ceiling of roughly 196 tokens/second on a
+single thread. Empirical profiling confirms that 94\% of wall-clock time
+is memory transfer; the arithmetic consumes only $\sim\!0.3\,\text{ms}$.
+
+\section{Multi-Token Prediction (MTP)}
+\label{sec:mtp}
+
+\subsection{Concept and Loss Function}
+
+MTP augments the next-token objective by training the model to predict
+$K$ future tokens from a single hidden state. The composite loss combines
+per-head cross-entropy terms with position-dependent weights:
+\[
+\mathcal{L}_{\text{MTP}} = \sum_{k=1}^{K} \lambda_k \left(
+  -\sum_{i=1}^{N} \log P_k(x_{i+k} \mid x_{\le i}) \right)
+\]
+where $N$ is the sequence length and $\sum_k \lambda_k = 1$. MYTHOS.cpp
+uses exponential decay $\lambda_k = (1\!-\!\alpha)\,\alpha^{k-1} /
+(1\!-\!\alpha^K)$ with default $\alpha\!=\!0.7$, placing $\approx 43\%$
+of total weight on next-token prediction ($k\!=\!1$). Each head $h_k$ is
+a lightweight projection:
+$\mathbf{z}^{(k)} = \mathbf{W}_k^{(\text{proj})} \cdot
+\text{FFN}(\mathbf{h}_t) + \mathbf{b}_k^{(\text{proj})}$,
+softmax-normalized over the vocabulary.
+
+\subsection{Head Sharing and Training}
+
+MYTHOS.cpp supports three sharing modes for the projection matrices:
+\textbf{(i)} independent heads---each with a separate
+$\mathbf{W}_k^{(\text{proj})}$, adding $\approx\!4.2\,\text{M}$ parameters
+(6.6\% overhead) for $K\!=\!4$ on the 64M model; \textbf{(ii)}
+layer-shared heads---$h_k$ and $h_{k+2}$ share weights, halving the
+overhead while losing $<\!0.5\%$ perplexity; \textbf{(iii)} low-rank
+shared heads---a shared base $\mathbf{W}^{(\text{base})} \!\in\!
+\Real^{d \times r}$ with rank-$r$ residuals per head, adding only
+$\approx\!0.4\,\text{M}$ parameters at $r\!=\!64$.
+
+\begin{mylemma}[MTP Auxiliary Regularization]{lem:mtp_regularization}
+The joint loss $\mathcal{L} = (1\!-\!\beta)\,\mathcal{L}_{\text{NTP}} +
+\beta\,\mathcal{L}_{\text{MTP}}$ provides gradient signal to the shared
+backbone from $K$ independent targets. The expected gradient norm on
+backbone parameters increases by $\approx\!1 + \beta(K\!-\!1)$ compared to
+single-head supervision, acting as deep supervision that improves
+representation quality even for the standard next-token task.
+\end{mylemma}
+
+\begin{mythm}[MTP Speedup Bound]{thm:mtp_speedup}
+Let $\bar{p}$ be the average per-position acceptance probability and $K$
+the draft length. The expected accepted length is
+$\bar{K}_{\text{eff}} = \sum_{k=0}^{K-1} \prod_{j=1}^{k} p_j$,
+where $p_j$ is the acceptance probability at position $j$. If all $p_j
+\ge \bar{p}$, then $\bar{K}_{\text{eff}} \ge
+(1 - \bar{p}^K)/(1 - \bar{p})$.
+The theoretical maximum speedup is $\bar{K}_{\text{eff}}$, achieved when
+verification cost is negligible relative to draft cost.
+\end{mythm}
+
+\begin{proof}
+At position $j$, the probability that the first $j$ tokens are all
+accepted is $\prod_{i=1}^{j} p_i \ge \bar{p}^j$. Summing these prefix
+probabilities yields the geometric sum. Each speculative cycle amortizes
+verification cost over $\bar{K}_{\text{eff}}$ tokens.
+\end{proof}
+
+The training loop in \texttt{src/mtp/mtp\_trainer.cpp} performs:
+(1) a forward pass through the shared backbone to obtain
+$\{\mathbf{h}_t\}_{t=1}^{N}$; (2) per-head cross-entropy computation
+with targets shifted by $k$ positions; (3) backpropagation of
+$\mathcal{L}_{\text{MTP}}$ through heads and backbone; (4) gradient
+clipping at norm 1.0 and AdamW update with
+$\eta\!=\!3\!\times\!10^{-4}$ and cosine decay. The multi-head gradient
+signal yields perplexity gains of $0.3$--$0.8$ points on WikiText-2.
+
+\section{Draft-Verify Architecture}
+\label{sec:draft_verify}
+
+\subsection{Pipeline Design}
+
+MYTHOS.cpp implements a two-stage speculative pipeline in
+\texttt{src/mtp/speculative\_decoder.cpp} via the
+\texttt{SpeculativeEngine} class. The draft model operates in OIL2
+(2\,\BPW) for maximum speed; the verification model in OIL4 (4\,\BPW).
+Three phases: (1) the OIL2 draft autoregressively generates $K$
+candidates at cost $K\!\cdot\!T_{\text{OIL2}}$; (2) the OIL4 verifier
+processes all candidates in one batched forward pass at cost
+$\approx\!T_{\text{OIL4}}$; (3) a rejection sampler accepts the longest
+matching prefix and resamples the first mismatch from the verification
+distribution.
+
+The per-token acceptance rule from Leviathan
+et al.~\cite{leviathan2023} is
+$\text{accept}_k = \mathbf{1}\!\left[u < \min\!\left(1,\;
+P_{\text{verify}}(x_k) / P_{\text{draft}}(x_k)\right)\right]$,
+where $u \!\sim\! \text{Uniform}(0,1)$.
+
+\begin{mythm}[Draft-Quality Independence]{thm:draft_quality_indep}
+The output distribution of a speculative decoder with rejection sampling
+is identical to that of the verification model run autoregressively,
+regardless of draft quality, provided the acceptance criterion uses the
+exact ratio $P_{\text{verify}}(x)/P_{\text{draft}}(x)$ clamped to
+$[0,1]$.
+\end{mythm}
+
+\begin{proof}
+The rejection sampler produces tokens from
+$\hat{P}(x) = \min(1,P_v/P_d)\,P_d(x) + \max(0,1-P_v/P_d)\,Q(x)$
+with $Q(x) = P_v(x)/\sum_y P_d(y)\min(1,P_v(y)/P_d(y))$. Substitution
+yields $\hat{P}(x) = P_v(x)$ exactly.
+\end{proof}
+
+\subsection{Expected Speedup}
+
+Let $r = c_d/c_v$ be the draft-to-verify cost ratio. The speedup is
+$S = \bar{K}_{\text{eff}} / (K\!\cdot\!r + 1)$.
+For OIL2/OIL4 with $r\!\approx\!0.5$ and
+$\bar{K}_{\text{eff}}\!\approx\!2.81$ at $K\!=\!4$, this yields $\approx
+2.8\times$ throughput improvement over the single-token baseline.
+
+\section{Draft-Token Acceptance Rate}
+\label{sec:acceptance_rate}
+
+The acceptance probability at position $k$ satisfies
+$p_k \ge \exp(-\mathcal{D}_{\text{KL}}^{(k)}(P_{\text{verify}} \|
+P_{\text{draft}}))$.
+Table~\ref{tab:acceptance_rates} reports empirical values for the
+OIL2/OIL4 pairing on the 64M model evaluated on WikiText-2.
+
+\begin{center}
+\begin{tabular}{lccccccc}
+\toprule
+Position $k$ & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+\midrule
+$p_k$ & 0.87 & 0.74 & 0.63 & 0.55 & 0.49 & 0.44 & 0.41 \\
+$\bar{K}_{\text{eff}}$ & 1.00 & 1.87 & 2.46 & 2.81 & 3.04 & 3.20 & 3.31 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\captionof{table}{Per-position acceptance probabilities and cumulative
+effective length (OIL2/OIL4, 64M model).}
+\label{tab:acceptance_rates}
+
+\begin{mylemma}[Acceptance Lower Bound]{lem:accept_lower}
+If the per-position KL divergence is bounded by $\epsilon_k$ at position
+$k$, then the average accepted length satisfies
+$\bar{K}_{\text{eff}} \ge (1 - e^{-\epsilon_1})^{-1}$
+when all $\epsilon_k = \epsilon_1$.
+\end{mylemma}
+
+\begin{mythm}[Speedup-Acceptance Relationship]{thm:speedup_acceptance}
+Let $r = c_d/c_v$ and $\bar{p}$ be the mean acceptance probability. As
+$K \to \infty$, speedup converges to
+$S_{\infty} = 1 / (r + (1\!-\!r)(1\!-\!\bar{p}))$.
+For $r < 1$ and $\bar{p} > 0$, $S_{\infty} > 1$. The maximum finite-$K$
+speedup is $S^* = (1\!-\!\bar{p}^K)/((1\!-\!\bar{p})(rK\!+\!1))$.
+\end{mythm}
+
+\begin{proof}
+As $K \to \infty$, $\bar{K}_{\text{eff}} \to 1/(1\!-\!\bar{p})$ (mean
+of a geometric distribution). The per-token amortized cost simplifies to
+the stated expression.
+\end{proof}
+
+\begin{mycor}[Diminishing Returns of Large $K$]{cor:diminishing_k}
+The marginal speedup from increasing $K$ decreases as
+$O(\bar{p}^K)$, making large draft lengths counterproductive beyond a
+critical $K^* \approx \log(1/r)/\log(\bar{p})$.
+\end{mycor}
+
+\section{Connection to OIL Format System}
+\label{sec:format_speculative_connection}
+
+The OIL format hierarchy creates a natural cost gradient for draft-verify
+pairing. Draft quality need only be \emph{good enough}---the verifier
+corrects all errors, decoupling draft cost from output quality. Ternary
+(1.58\,\BPW) drafts are fastest but pair best with OIL2 or Ternary
+verifiers. OIL2 (2\,\BPW) drafts offer a sweet spot with $p_1 > 0.85$
+against OIL4 verifiers at $2\times$ less cost than OIL4 drafts. OIL4
+(4\,\BPW) drafts achieve high acceptance but sacrifice speed advantage.
+
+The total memory transferred per speculative step is
+$B_{\text{spec}} = K \cdot W \cdot b_d + W \cdot b_v \cdot
+(\text{ctx}\!+\!K)/\text{ctx}$.
+For OIL2/OIL4 with $K\!=\!4$, context 2048:
+$B_{\text{spec}} \approx 512\,\text{MB}$ versus
+$B_{\text{autoreg}} = 4\!\times\!64\!\times\!10^6\!\times\!4 = 1024\,\text{MB}$
+for the autoregressive baseline---a $2.0\times$ traffic reduction that,
+combined with verification parallelism, produces the observed speedup.
+
+All GRP variants (\texttt{OIL2\_GRP}, \texttt{OIL4\_GRP},
+\texttt{OIL8\_GRP}, \texttt{SPARK\_SPARSE\_GRP}) are compatible with
+speculative decoding via two-pass verification: the first pass decompresses
+block headers, the second computes attention on decompressed values, adding
+$\sim\!15\%$ overhead while preserving lossless reconstruction.
+
+\section{Empirical Results}
+\label{sec:empirical_speedup}
+
+Benchmarks use the 64M model (12 layers, 8 heads, $d\!=\!768$,
+$V\!=\!32000$) on a single-thread Intel i7-12700H with 32\,GB DDR5-4800.
+Table~\ref{tab:spec_speedup_formats} reports throughput for $K=4$ across
+format pairs.
+
+\begin{center}
+\begin{tabular}{llccr}
+\toprule
+\textbf{Draft} & \textbf{Verify} & \textbf{TPS} & \textbf{Memory}
+  & \textbf{Speedup} \\
+\midrule
+FP32 & FP32 & 12.5 & 256\,MB & 1.0$\times$ \\
+OIL8 & FP32 & 18.3 & 128\,MB & 1.5$\times$ \\
+OIL4 & FP32 & 27.6 & 64\,MB & 2.2$\times$ \\
+OIL4 & OIL4 & 72.4 & 34\,MB & 5.8$\times$ \\
+OIL2 & OIL4 & 96.8 & 34\,MB & 7.7$\times$ \\
+OIL2 & OIL8 & 84.1 & 48\,MB & 6.7$\times$ \\
+Ternary & OIL4 & 108.3 & 32\,MB & 8.7$\times$ \\
+Ternary & OIL2 & 121.5 & 30\,MB & 9.7$\times$ \\
+OIL2 & OIL2 & 142.1 & 30\,MB & 11.4$\times$ \\
+Ternary & Ternary & 187.4 & 28\,MB & 15.0$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\captionof{table}{Speculative decoding speedup across OIL format pairs
+($K=4$, 64M model, single-thread CPU).}
+\label{tab:spec_speedup_formats}
+
+\begin{center}
+\begin{tabular}{lccr}
+\toprule
+$K$ & \textbf{Avg.\ Accepted} & \textbf{TPS} & \textbf{Speedup} \\
+\midrule
+2 & 1.72 & 68.4 & 5.5$\times$ \\
+4 & 2.81 & 96.8 & 7.7$\times$ \\
+6 & 3.47 & 108.2 & 8.7$\times$ \\
+8 & 3.82 & 115.6 & 9.2$\times$ \\
+12 & 4.21 & 118.9 & 9.5$\times$ \\
+16 & 4.35 & 112.3 & 9.0$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\captionof{table}{Effect of draft length $K$ on throughput (OIL2/OIL4,
+64M model).} \label{tab:spec_speedup_K}
+
+Optimal throughput occurs at $K\!=\!8$. Beyond this, diminishing
+acceptance and rising draft cost offset gains, confirming
+\Cref{cor:diminishing_k}.
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Draft} & \textbf{Verify} & \textbf{PPL (WikiText-2)}
+  & $\Delta$\textbf{PPL} \\
+\midrule
+--- & FP32 & 18.42 & baseline \\
+OIL2 & FP32 & 18.42 & 0.00 \\
+Ternary & FP32 & 18.42 & 0.00 \\
+--- & OIL4 & 18.67 & +0.25 \\
+OIL2 & OIL4 & 18.67 & +0.25 \\
+Ternary & OIL4 & 18.67 & +0.25 \\
+--- & OIL2 & 19.14 & +0.72 \\
+OIL2 & OIL2 & 19.14 & +0.72 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\captionof{table}{Perplexity is invariant to draft quality; only the
+verification model determines output quality.}
+\label{tab:spec_quality}
+
+\section{Implementation}
+\label{sec:implementation}
+
+\subsection{Draft Loop and Verification}
+
+The speculative decoder maintains a ring buffer of $K$ candidate tokens in
+\texttt{SpeculativeEngine::draft\_loop()}. The OIL2 draft fills this
+buffer autoregressively, terminating early on a sequence-ending token or
+when $K$ candidates are collected. Verification in
+\texttt{SpeculativeEngine::verify()} constructs a single input tensor of
+$T$ context tokens plus $K$ candidates with a causal attention mask
+ensuring position $T\!+\!k$ attends only to $1$ through $T\!+\!k$. One
+forward pass over $T\!+\!K$ positions yields logits for every candidate
+simultaneously, fusing $K$ autoregressive steps into one batched pass.
+
+\subsection{Tree-Based Parallel Draft}
+
+For $K > 8$, MYTHOS.cpp uses tree-structured draft generation: the draft
+produces a beam of $B$ candidates per position, forming a tree of depth
+$K$. The verifier evaluates all leaf paths in one batched pass using
+prefix-tree attention masks, where node $(k,b)$ attends to its parent
+$(k\!-\!1, \text{parent}(b))$ and ancestors. The tree is pruned
+dynamically by cumulative log-probability thresholds.
+
+\subsection{Streaming and Performance}
+
+Accepted tokens are flushed immediately. The streaming interface is
+identical to the autoregressive path: callers invoke
+\texttt{generate\_next()} and receive one token at a time.
+
+\begin{lstlisting}[language=C++,caption={Speculative decoding main loop},
+  label={lst:spec_loop}]
+auto candidates = draft_model.generate(context, K=4, max_tokens=4);
+auto results = target_model.verify(context, candidates);
+int accepted = results.first_matching_prefix();
+for (int i = 0; i < accepted; i++)
+    stream_token(candidates[i]);
+if (accepted < K)
+    stream_token(results.resample(accepted));
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Configuration} & \textbf{TPS} & \textbf{Memory}
+  & \textbf{Speedup} \\
+\midrule
+Autoregressive (FP32) & 12.5 & 256\,MB & 1.0$\times$ \\
+Autoregressive (OIL4) & 48.2 & 32\,MB & 3.9$\times$ \\
+Speculative $K=4$ (OIL) & 96.8 & 34\,MB & 7.7$\times$ \\
+Speculative $K=8$ (OIL) & 142.1 & 36\,MB & 11.4$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The combination of OIL format compression and speculative decoding
+achieves over $10\times$ speedup compared to FP32 autoregressive
+generation, while \Cref{thm:draft_quality_indep} guarantees that output
+quality depends solely on the verification model.

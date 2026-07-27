@@ -1,10 +1,12 @@
 #include "oil/inference_opt.h"
 #include "oil/math.h"
 #include "oil/int8_quant.h"
+#include "oil/random.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <set>
+#include <random>
 #include <sstream>
 namespace oil {
 
@@ -112,7 +114,8 @@ Tensor PagedAttention::forward(const Tensor& Q, int64_t* block_table,
 SpeculativeDecoder::SpeculativeDecoder(Model* draft, Model* target, float gamma,
                                        float min_gamma, float max_gamma)
     : draft_(draft), target_(target), gamma_(gamma),
-      min_gamma_(min_gamma), max_gamma_(max_gamma), sampler_(42) {
+      min_gamma_(min_gamma), max_gamma_(max_gamma), sampler_(42),
+      rng_(std::random_device{}()) {
     sampler_cfg_.temperature = 1.0f;
     sampler_cfg_.top_k = 40;
     sampler_cfg_.top_p = 0.9f;
@@ -127,18 +130,17 @@ void SpeculativeDecoder::adapt_gamma() {
 
 bool SpeculativeDecoder::verify_tokens(const std::vector<int>& draft_tokens,
                                        const Tensor& target_logits, int vocab_size) {
+    const float* logits_base = target_logits.data<float>();
     for (size_t i = 0; i < draft_tokens.size(); i++) {
-        const float* logits_row = target_logits.data<float>() + i * vocab_size;
+        const float* logits_row = logits_base + i * vocab_size;
         float p_target = 0, p_draft = 0;
-        std::vector<float> softmax_vals((size_t)vocab_size);
-        float max_l = -INFINITY;
-        for (int v = 0; v < vocab_size; v++) max_l = std::max(max_l, logits_row[v]);
+        float max_l = logits_row[0];
+        for (int v = 1; v < vocab_size; v++)
+            if (logits_row[v] > max_l) max_l = logits_row[v];
         float sum = 0;
-        for (int v = 0; v < vocab_size; v++) {
-            softmax_vals[(size_t)v] = std::exp(logits_row[v] - max_l);
-            sum += softmax_vals[(size_t)v];
-        }
-        p_target = softmax_vals[(size_t)draft_tokens[i]] / sum;
+        for (int v = 0; v < vocab_size; v++)
+            sum += std::exp(logits_row[v] - max_l);
+        p_target = std::exp(logits_row[draft_tokens[i]] - max_l) / sum;
         total_count_++;
         if (draft_) {
             Tensor draft_input(Shape{1, 1});
@@ -147,16 +149,18 @@ bool SpeculativeDecoder::verify_tokens(const std::vector<int>& draft_tokens,
             draft_pos.data<float>()[0] = (float)i;
             Tensor draft_l = draft_->forward(draft_input, draft_pos);
             const float* dl = draft_l.data<float>();
-            float d_max = -INFINITY;
-            for (int v = 0; v < vocab_size; v++) d_max = std::max(d_max, dl[v]);
+            float d_max = dl[0];
+            for (int v = 1; v < vocab_size; v++)
+                if (dl[v] > d_max) d_max = dl[v];
             float d_sum = 0;
-            for (int v = 0; v < vocab_size; v++) d_sum += std::exp(dl[v] - d_max);
+            for (int v = 0; v < vocab_size; v++)
+                d_sum += std::exp(dl[v] - d_max);
             p_draft = std::exp(dl[draft_tokens[i]] - d_max) / d_sum;
         } else {
             p_draft = 1.0f / (float)vocab_size;
         }
         float accept_prob = std::min(1.0f, p_target / (p_draft + 1e-10f));
-        bool accepted = ((float)rand() / (float)RAND_MAX) <= accept_prob;
+        bool accepted = rng_.uniform() <= accept_prob;
         if (accepted) accepted_count_++;
         if (!accepted) {
             acceptance_rate_ = total_count_ > 0 ? (float)accepted_count_ / total_count_ : 0.0f;
@@ -168,6 +172,7 @@ bool SpeculativeDecoder::verify_tokens(const std::vector<int>& draft_tokens,
 }
 
 std::vector<int> SpeculativeDecoder::generate(const std::vector<int>& prompt, int max_tokens) {
+    static thread_local std::mt19937 rng(42);
     std::vector<int> output = prompt;
     int vocab = draft_ ? (int)draft_->vocab_size() : 32000;
     accepted_count_ = 0;
@@ -218,46 +223,43 @@ std::vector<int> SpeculativeDecoder::generate(const std::vector<int>& prompt, in
             float* ld = target_logits.data<float>();
             for (int64_t i = 0; i < num_draft; i++)
                 for (int v = 0; v < vocab; v++)
-                    ld[i * vocab + v] = (float)rand() / RAND_MAX;
+                    ld[i * vocab + v] = std::uniform_real_distribution<float>(0.0f, 1.0f)(rng);
         }
 
         bool all_accepted = true;
+        const float* tl_base = target_logits.data<float>();
         for (size_t i = 0; i < draft_tokens.size(); i++) {
-            const float* logits_row = target_logits.data<float>() + i * vocab;
-            float max_l = -INFINITY;
-            for (int v = 0; v < vocab; v++) max_l = std::max(max_l, logits_row[v]);
+            const float* logits_row = tl_base + i * vocab;
+            float max_l = logits_row[0];
+            for (int v = 1; v < vocab; v++)
+                if (logits_row[v] > max_l) max_l = logits_row[v];
             float sum = 0;
-            std::vector<float> softmax_vals((size_t)vocab);
-            for (int v = 0; v < vocab; v++) {
-                softmax_vals[(size_t)v] = std::exp(logits_row[v] - max_l);
-                sum += softmax_vals[(size_t)v];
-            }
-            float p_target = softmax_vals[(size_t)draft_tokens[i]] / (sum + 1e-10f);
+            for (int v = 0; v < vocab; v++)
+                sum += std::exp(logits_row[v] - max_l);
+            float p_target = std::exp(logits_row[draft_tokens[i]] - max_l) / (sum + 1e-10f);
             float p_draft = 1.0f / (float)vocab;
             total_count_++;
             float accept_prob = std::min(1.0f, p_target / (p_draft + 1e-10f));
-            if ((float)rand() / RAND_MAX <= accept_prob) {
+            if (rng_.uniform() <= accept_prob) {
                 accepted_count_++;
                 continue;
             }
-            // Rejection: sample from the adjusted distribution
             output.resize(output.size() - (draft_tokens.size() - i));
             std::vector<float> adjusted(vocab);
             float adj_sum = 0;
             for (int v = 0; v < vocab; v++) {
-                float t_p = softmax_vals[(size_t)v] / (sum + 1e-10f);
-                float d_p = 1.0f / (float)vocab;
-                adjusted[(size_t)v] = std::max(0.0f, t_p - d_p);
+                float t_p = std::exp(logits_row[v] - max_l) / (sum + 1e-10f);
+                adjusted[(size_t)v] = std::max(0.0f, t_p - p_draft);
                 adj_sum += adjusted[(size_t)v];
             }
             Tensor adj_logits(Shape{1, 1, vocab});
             float* adj_ld = adj_logits.data<float>();
             if (adj_sum > 1e-10f) {
+                float inv_adj = 1.0f / adj_sum;
                 for (int v = 0; v < vocab; v++)
-                    adj_ld[v] = adjusted[(size_t)v] / adj_sum;
+                    adj_ld[v] = adjusted[(size_t)v] * inv_adj;
             } else {
-                for (int v = 0; v < vocab; v++)
-                    adj_ld[v] = logits_row[v];
+                std::memcpy(adj_ld, logits_row, vocab * sizeof(float));
             }
             int replacement = sampler_.sample(adj_ld, vocab, sampler_cfg_);
             output.push_back(replacement);
@@ -306,12 +308,10 @@ BatchResponse ContinuousBatching::step() {
         active_.push_back(queue_.front());
         outputs_.push_back({});
         if (model_) {
-            KVCache kv((int)model_->config.num_layers, model_->config.max_seq_len,
-                       model_->config.num_heads, model_->config.head_dim);
-            kv_caches_.push_back(kv);
+            kv_caches_.emplace_back((int)model_->config.num_layers, model_->config.max_seq_len,
+                                    model_->config.num_heads, model_->config.head_dim);
         } else {
-            KVCache kv(12, 2048, 12, 64);
-            kv_caches_.push_back(kv);
+            kv_caches_.emplace_back(12, 2048, 12, 64);
         }
         queue_.pop();
     }
@@ -373,7 +373,7 @@ bool ContinuousBatching::has_pending() const {
 }
 
 // ===========================================================================
-// D4: Compressed KV cache — OIL4 ternary encoding
+// D4: Compressed KV cache — OIL4 SPARK encoding
 // ===========================================================================
 CompressedKVCache::CompressedKVCache(int64_t max_seq, int64_t n_layers, int64_t head_dim)
     : max_seq_(max_seq), n_layers_(n_layers), head_dim_(head_dim) {
@@ -393,12 +393,12 @@ void CompressedKVCache::append(int layer, const Tensor& k, const Tensor& v) {
     const float* kd = k.data<float>();
     const float* vd = v.data<float>();
     for (int64_t i = 0; i < n; i++) {
-        // OIL4 ternary: 2-bit per element, packed 4 per byte
+        // OIL4 SPARK: 2-bit per element, packed 4 per byte
         // 00 = -1, 01 = 0, 10 = +1, 11 = unused
         // Use threshold of 0.1 * max_abs to determine zero
         int8_t k_ter = (kd[i] > 0.1f) ? 1 : ((kd[i] < -0.1f) ? -1 : 0);
         int8_t v_ter = (vd[i] > 0.1f) ? 1 : ((vd[i] < -0.1f) ? -1 : 0);
-        // Pack 4 ternary values per byte (2 bits each)
+        // Pack 4 SPARK values per byte (2 bits each)
         size_t byte_idx = (size_t)i / 4;
         size_t bit_off = ((size_t)i % 4) * 2;
         if (byte_idx >= k_blocks_[layer][seq_len_].k_data.size()) {
@@ -422,7 +422,7 @@ void CompressedKVCache::append(int layer, const Tensor& k, const Tensor& v) {
     seq_len_++;
 }
 
-static float decode_ternary(uint8_t packed, size_t idx) {
+static float decode_spark(uint8_t packed, size_t idx) {
     size_t bit_off = (idx % 4) * 2;
     uint8_t val = (packed >> bit_off) & 0x03;
     return (val == 0) ? -1.0f : ((val == 2) ? 1.0f : 0.0f);
@@ -434,7 +434,7 @@ Tensor CompressedKVCache::get_k(int layer, int64_t pos) const {
     Tensor out({(int64_t)n});
     float* od = out.data<float>();
     for (size_t i = 0; i < n; i++) {
-        od[i] = decode_ternary(k_blocks_[layer][pos].k_data[i / 4], i);
+        od[i] = decode_spark(k_blocks_[layer][pos].k_data[i / 4], i);
     }
     return out;
 }
@@ -445,7 +445,7 @@ Tensor CompressedKVCache::get_v(int layer, int64_t pos) const {
     Tensor out({(int64_t)n});
     float* od = out.data<float>();
     for (size_t i = 0; i < n; i++) {
-        od[i] = decode_ternary(v_blocks_[layer][pos].v_data[i / 4], i);
+        od[i] = decode_spark(v_blocks_[layer][pos].v_data[i / 4], i);
     }
     return out;
 }
@@ -474,24 +474,21 @@ int64_t PrefixCache::match_prefix(const std::vector<int>& tokens) {
     return best_len;
 }
 
-void PrefixCache::store(const std::vector<int>& tokens, int64_t cache_id) {
-    TransformerConfig cfg;
-    cfg.num_layers = layers_;
-    cfg.max_seq_len = 2048;
-    cfg.num_heads = 12;
-    cfg.head_dim = 64;
-    KVCache cache((int)layers_, 2048, 12, 64);
-    PrefixEntry entry{tokens, std::move(cache)};
+void PrefixCache::store(const std::vector<int>& tokens, int64_t cache_id,
+                        int64_t max_seq_len, int64_t num_heads, int64_t head_dim) {
+    KVCache cache((int)layers_, max_seq_len, num_heads, head_dim);
     if (cache_id >= 0 && cache_id < (int64_t)entries_.size()) {
-        entries_[(size_t)cache_id] = std::move(entry);
+        PrefixEntry& e = entries_[(size_t)cache_id];
+        e.prefix = tokens;
+        e.cache = std::make_unique<KVCache>(std::move(cache));
     } else {
-        entries_.push_back(std::move(entry));
+        entries_.push_back(PrefixEntry{tokens, std::make_unique<KVCache>(std::move(cache))});
     }
 }
 
 KVCache* PrefixCache::get_cache(int64_t id, int64_t layer) {
     if (id >= 0 && id < (int64_t)entries_.size()) {
-        return &entries_[(size_t)id].cache;
+        return entries_[(size_t)id].cache.get();
     }
     return nullptr;
 }
@@ -609,11 +606,9 @@ Tensor flash_decoding(const Tensor& Q, const Tensor& K, const Tensor& V, int64_t
             const float* v_bh = v + bh_offset;
             float* o_bh = o + bh_offset;
 
-            // Per-query online softmax statistics
             std::vector<float> row_max((size_t)N, -INFINITY);
             std::vector<float> row_sum((size_t)N, 0.0f);
 
-            // Process KV in blocks (tiles)
             for (int64_t blk_start = 0; blk_start < N; blk_start += block_size) {
                 int64_t blk_end = std::min(blk_start + block_size, N);
 
@@ -621,7 +616,6 @@ Tensor flash_decoding(const Tensor& Q, const Tensor& K, const Tensor& V, int64_t
                     float m_prev = row_max[(size_t)i];
                     float m_new = m_prev;
 
-                    // First pass: find max score in this block
                     for (int64_t j = blk_start; j < blk_end; j++) {
                         float dot = 0;
                         for (int64_t d = 0; d < D; d++)
@@ -630,13 +624,11 @@ Tensor flash_decoding(const Tensor& Q, const Tensor& K, const Tensor& V, int64_t
                         m_new = std::max(m_new, score);
                     }
 
-                    // Rescale from previous max to new max
                     float rescale = (m_prev != -INFINITY) ? std::exp(m_prev - m_new) : 0.0f;
                     for (int64_t d = 0; d < D; d++)
                         o_bh[i * D + d] *= rescale;
                     row_sum[(size_t)i] *= rescale;
 
-                    // Second pass: accumulate softmax contributions
                     for (int64_t j = blk_start; j < blk_end; j++) {
                         float dot = 0;
                         for (int64_t d = 0; d < D; d++)
@@ -652,7 +644,6 @@ Tensor flash_decoding(const Tensor& Q, const Tensor& K, const Tensor& V, int64_t
                 }
             }
 
-            // Final normalization
             for (int64_t i = 0; i < N; i++) {
                 float inv = 1.0f / (row_sum[(size_t)i] + 1e-10f);
                 for (int64_t d = 0; d < D; d++)
@@ -839,7 +830,7 @@ std::vector<std::string> DynamicBatcher::batch_generate(
     size_t max_len = 0;
     for (auto& p : prompts) {
         std::vector<int> ids;
-        for (char c : p) ids.push_back((int)(unsigned char)c % model_->vocab_size());
+        for (char c : p) ids.push_back((int)(unsigned char)c);
         if (ids.empty()) ids.push_back(0);
         token_ids.push_back(ids);
         max_len = std::max(max_len, ids.size());
@@ -1105,14 +1096,12 @@ std::vector<float> Reranker::score_batch(const std::string& query,
 // ===========================================================================
 // D20: Grammar decoding — enforce JSON/regex token-level constraints
 // ===========================================================================
-GrammarDecoder::GrammarDecoder(const std::string& grammar_file) {
-    parse_grammar(grammar_file);
+GrammarDecoder::GrammarDecoder(const std::string& grammar_file, int vocab_size) {
+    parse_grammar(grammar_file, vocab_size);
 }
 
-void GrammarDecoder::parse_grammar(const std::string& grammar_file) {
-    // Build allowed token transitions from grammar specification
-    // For JSON mode: only allow tokens that form valid JSON
-    // Default: all tokens allowed initially
+void GrammarDecoder::parse_grammar(const std::string& grammar_file, int vocab_size) {
+    if (vocab_size > 0) vocab_size_ = vocab_size;
     allowed_tokens_.resize(1024, std::vector<bool>((size_t)vocab_size_, true));
 
     // Determine grammar mode from filename

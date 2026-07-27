@@ -18,32 +18,7 @@
 #include <mutex>
 #include <new>
 
-#ifdef OIL_HAS_CUDA
-extern "C" {
-void launch_cuda_softmax(float* y, const float* x, int rows, int cols);
-void launch_cuda_layernorm(float* y, const float* x, const float* gamma,
-                           const float* beta, float eps, int n, int d);
-void launch_cuda_rmsnorm(float* y, const float* x, const float* gamma,
-                         float eps, int n, int d);
-void launch_cuda_relu(float* y, const float* x, int n);
-void launch_cuda_gelu(float* y, const float* x, int n);
-void launch_cuda_silu(float* y, const float* x, int n);
-void launch_cuda_add(float* c, const float* a, const float* b, int n);
-void launch_cuda_mul(float* c, const float* a, const float* b, int n);
-void launch_cuda_scale(float* y, const float* x, float s, int n);
-void launch_cuda_embedding(float* out, const float* table,
-                           const int* indices, int B, int S, int D);
-void launch_cuda_moe_gather(float* out, const float* x,
-                            const int64_t* indices, const float* weights,
-                            int T, int K, int D);
-void launch_cuda_flash_attention(float* out, const float* Q, const float* K,
-                                 const float* V, int B, int H, int N, int D,
-                                 int block_size, bool causal);
-void launch_cuda_flash_attention_causal(float* out, const float* Q,
-                                        const float* K, const float* V,
-                                        int B, int H, int N, int D);
-}
-#endif
+
 
 using namespace Microsoft::WRL;
 
@@ -483,6 +458,7 @@ bool DirectXCompute::init(int64_t device_id) {
         impl_->init(device_id);
         return true;
     } catch (...) {
+        std::fprintf(stderr, "[WARN] Exception caught: %s (DirectX init failed)\n", __func__);
         delete impl_;
         impl_ = nullptr;
         return false;
@@ -507,7 +483,7 @@ void* DirectXCompute::allocate(size_t bytes) {
           impl_->bufs.push_back(std::move(gb));
         }
         return ptr;
-    } catch (...) { return nullptr; }
+    } catch (...) { std::fprintf(stderr, "[WARN] Exception caught: %s (GPU alloc failed)\n", __func__); return nullptr; }
 }
 
 void DirectXCompute::free(void* ptr) {
@@ -939,75 +915,6 @@ int64_t DirectXCompute::memory_total() const {
         }
     }
     return 16LL * 1024 * 1024 * 1024;
-}
-
-// ========================================================================
-// CUDABackend (stub — only when CUDA is available)
-// ========================================================================
-
-CUDABackend::CUDABackend() : impl_(nullptr) {}
-CUDABackend::~CUDABackend() {}
-
-bool CUDABackend::init(int64_t) { return false; }
-bool CUDABackend::is_initialized() const { return false; }
-void CUDABackend::shutdown() {}
-
-void* CUDABackend::allocate(size_t bytes) { (void)bytes; return std::malloc(bytes); }
-void CUDABackend::free(void* ptr) { std::free(ptr); }
-void CUDABackend::upload(const Tensor& src, void* dst) { (void)src; (void)dst; }
-void CUDABackend::download(void* src, Tensor& dst) { (void)src; (void)dst; }
-
-void CUDABackend::gemm(float, const void*, const void*, float, void*, int64_t, int64_t, int64_t) {}
-void CUDABackend::gemv(float, const void*, const void*, float, void*, int64_t, int64_t) {}
-void CUDABackend::relu(const void*, void*, int64_t) {}
-void CUDABackend::gelu(const void*, void*, int64_t) {}
-void CUDABackend::silu(const void*, void*, int64_t) {}
-void CUDABackend::add(const void*, const void*, void*, int64_t) {}
-void CUDABackend::mul(const void*, const void*, void*, int64_t) {}
-void CUDABackend::scale(float, const void*, void*, int64_t) {}
-void CUDABackend::softmax(const void*, void*, int64_t, int64_t) {}
-void CUDABackend::rms_norm(const void*, const void*, void*, float, int64_t, int64_t) {}
-void CUDABackend::layer_norm(const void*, const void*, const void*, void*, float, int64_t, int64_t) {}
-void CUDABackend::moe_gather(const void*, const int64_t*, const float*, void*, int64_t, int64_t, int64_t) {}
-void CUDABackend::moe_scatter_add(void*, const int64_t*, const float*, const void*, int64_t, int64_t, int64_t) {}
-void CUDABackend::flash_attention(void*, const void*, const void*, const void*, int64_t, int64_t, int64_t, int64_t, bool) {}
-void CUDABackend::synchronize() {}
-int64_t CUDABackend::memory_free() const { return 0; }
-int64_t CUDABackend::memory_total() const { return 0; }
-
-// ========================================================================
-// Factory functions
-// ========================================================================
-
-static DirectXCompute s_dx_compute;
-static CUDABackend s_cuda_backend;
-static bool s_gpu_init = false;
-
-GPUType detect_best_gpu() {
-#if defined(_WIN32)
-    return GPUType::DIRECTX12;
-#else
-    return GPUType::CUDA;
-#endif
-}
-
-DirectXCompute& get_dx_compute() { return s_dx_compute; }
-CUDABackend& get_cuda_backend() { return s_cuda_backend; }
-
-bool gpu_available() {
-    return s_dx_compute.is_initialized();
-}
-
-void init_gpu(GPUType type, int64_t device) {
-    if (s_gpu_init) return;
-    s_gpu_init = true;
-    if (type == GPUType::DIRECTX12)
-        s_dx_compute.init(device);
-}
-
-void shutdown_gpu() {
-    s_dx_compute.shutdown();
-    s_gpu_init = false;
 }
 
 } // namespace gpu

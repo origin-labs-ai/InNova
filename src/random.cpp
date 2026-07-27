@@ -1,8 +1,39 @@
 #include "oil/random.h"
 #include <cmath>
 #include <limits>
+#include <random>
+#include <cstdlib>
 
 namespace oil {
+
+// ── GlobalSeedManager ──
+uint64_t GlobalSeedManager::base_seed_ = 0;
+uint64_t GlobalSeedManager::counter_ = 0;
+
+uint64_t GlobalSeedManager::get_seed() {
+    if (base_seed_ != 0) return base_seed_;
+    const char* env = std::getenv("OIL_SEED");
+    if (env) {
+        base_seed_ = (uint64_t)std::atoll(env);
+        if (base_seed_ == 0) base_seed_ = 1; // 0 means "use entropy"
+    }
+    if (base_seed_ == 0) {
+        std::random_device rd;
+        base_seed_ = ((uint64_t)rd() << 32) | rd();
+        if (base_seed_ == 0) base_seed_ = 1;
+    }
+    return base_seed_;
+}
+
+uint64_t GlobalSeedManager::next_seed() {
+    if (is_deterministic()) return base_seed_ + (++counter_);
+    return get_seed() + (++counter_);
+}
+
+bool GlobalSeedManager::is_deterministic() {
+    const char* env = std::getenv("OIL_SEED");
+    return env != nullptr && std::atoll(env) != 0;
+}
 
 static inline uint64_t splitmix64(uint64_t& state) {
     uint64_t z = (state += 0x9e3779b97f4a7c15ULL);

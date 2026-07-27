@@ -38,7 +38,7 @@ static int tests_failed = 0;
 void test_tensor_fp16_roundtrip() {
     Tensor t({1000});
     float* d = t.data<float>();
-    RNG rng(42);
+    RNG rng(12345);
     for (int i = 0; i < 1000; i++)
         d[i] = (float)(rng.uniform() * 2.0f - 1.0f);
 
@@ -214,7 +214,7 @@ void test_oil_format_roundtrip() {
 
         FormatBlockEntry ft;
         ft.block_id = 0;
-        ft.format = 5; // Format::FP32
+        ft.format = 6; // Format::OIL32
         ft.cb_bytes = 0;
         writer.write_format_table({ft});
 
@@ -225,7 +225,7 @@ void test_oil_format_roundtrip() {
         writer.write_tensor_table({te}, {"test_tensor"});
 
         BlockData bd;
-        bd.format = Format::BINARY;
+        bd.format = Format::OIL1;
         bd.num_weights = (uint32_t)t.numel();
         bd.indices.resize(t.size_bytes());
         std::memcpy(bd.indices.data(), t.data<float>(), t.size_bytes());
@@ -321,7 +321,7 @@ void test_rope_correctness() {
     int64_t B = 2, H = 3, S = 8, D = head_dim;
     Tensor q({B, H, S, D});
     Tensor k({B, H, S, D});
-    RNG rng(42);
+    RNG rng(12345);
     for (int i = 0; i < B * H * S * D; i++) {
         float v = (float)(rng.uniform() * 2.0f - 1.0f) * 0.5f;
         q.data<float>()[i] = v;
@@ -341,7 +341,7 @@ void test_rope_correctness() {
     // Hand-computed reference
     float* cos_d = rope.cos_cached.data<float>();
     float* sin_d = rope.sin_cached.data<float>();
-    int half_d = D / 2;
+    int half_d = static_cast<int>(D / 2);
 
     float max_err_q = 0, max_err_k = 0;
     for (int b = 0; b < B; b++) {
@@ -397,7 +397,7 @@ void test_rope_correctness() {
         for (int h = 0; h < H; h++) {
             for (int s = 0; s < S; s++) {
                 for (int d = 0; d < half_d; d++) {
-                    int pos = seq_start + s;
+                    int pos = static_cast<int>(seq_start + s);
                     float c = cos_d[pos * half_d + d];
                     float sn = sin_d[pos * half_d + d];
 

@@ -26,10 +26,10 @@ Tensor STEQuantizer::forward(const Tensor& fp32_weight) {
     float* rd = (float*)result.data();
 
     switch (target_format_) {
-        case Format::TERNARY: {
+        case Format::SPARK_Q0: {
             std::vector<uint8_t> packed((n + 3) / 4);
             float scale;
-            quantize_ternary(src, packed.data(), &scale, n);
+            quantize_spark(src, packed.data(), &scale, n);
             for (int64_t i = 0; i < n; i++) {
                 int v = (packed[i / 4] >> (2 * (i % 4))) & 3;
                 rd[i] = (float)(v == 1 ? 1 : v == 2 ? -1 : 0) * scale;
@@ -37,17 +37,25 @@ Tensor STEQuantizer::forward(const Tensor& fp32_weight) {
             break;
         }
         case Format::OIL8: {
-            CodebookOIL8 cb;
-            cb.train(src, (size_t)n);
+            static CodebookOIL8 cb8;
+            static bool cb8_trained = false;
+            if (!cb8_trained) {
+                cb8.train(src, (size_t)n);
+                cb8_trained = true;
+            }
             for (int64_t i = 0; i < n; i++)
-                rd[i] = cb.dequantize(cb.quantize(src[i]));
+                rd[i] = cb8.dequantize(cb8.quantize(src[i]));
             break;
         }
         case Format::OIL4: {
-            CodebookOIL4 cb;
-            cb.train(src, (size_t)n);
+            static CodebookOIL4 cb4;
+            static bool cb4_trained = false;
+            if (!cb4_trained) {
+                cb4.train(src, (size_t)n);
+                cb4_trained = true;
+            }
             for (int64_t i = 0; i < n; i++)
-                rd[i] = cb.dequantize(cb.quantize(src[i]));
+                rd[i] = cb4.dequantize(cb4.quantize(src[i]));
             break;
         }
         default:
@@ -72,8 +80,8 @@ Tensor STEQuantizer::quantize_with_codebook(const Tensor& fp32_weight, CodebookO
 
     // Train codebook on the data if centroids are all zero
     bool needs_train = true;
-    for (int i = 0; i < CodebookOIL8::SIZE; i++) {
-        if (codebook.centroids[i] != 0.0f) { needs_train = false; break; }
+    if (codebook.centroids[0] != 0.0f || codebook.centroids[CodebookOIL8::SIZE - 1] != 0.0f) {
+        needs_train = false;
     }
     if (needs_train) {
         codebook.train(src, (size_t)n);
@@ -151,20 +159,20 @@ Tensor STEQuantizer::forward_mixed(const Tensor& weights, const std::vector<Form
         Format fmt = per_block_formats[(size_t)b];
 
         switch (fmt) {
-            case Format::TERNARY: {
+        case Format::SPARK_Q0: {
                 std::vector<uint8_t> packed((block_n + 3) / 4);
                 float scale;
-                quantize_ternary(src + block_start, packed.data(), &scale, block_n);
+                quantize_spark(src + block_start, packed.data(), &scale, block_n);
                 for (int64_t i = 0; i < block_n; i++) {
                     int v = (packed[(size_t)i / 4] >> (2 * (i % 4))) & 3;
                     rd[block_start + i] = (float)(v == 1 ? 1 : v == 2 ? -1 : 0) * scale;
                 }
                 break;
             }
-            case Format::BINARY: {
+            case Format::OIL1: {
                 std::vector<uint8_t> packed((block_n + 7) / 8);
                 float scale;
-                quantize_binary(src + block_start, packed.data(), &scale, block_n);
+                quantize_oil1(src + block_start, packed.data(), &scale, block_n);
                 for (int64_t i = 0; i < block_n; i++) {
                     int v = (packed[(size_t)i / 8] >> (i % 8)) & 1;
                     rd[block_start + i] = (float)(v == 0 ? -1 : 1) * scale;
@@ -193,7 +201,7 @@ Tensor STEQuantizer::forward_mixed(const Tensor& weights, const std::vector<Form
     return result;
 }
 
-void STEQuantizer::quantize_ternary(const float* src, uint8_t* dst, float* scale, int64_t n) {
+void STEQuantizer::quantize_spark(const float* src, uint8_t* dst, float* scale, int64_t n) {
     float s = find_scale(src, n);
     float threshold = s * 0.5f;
     *scale = s;
@@ -214,7 +222,7 @@ void STEQuantizer::quantize_ternary(const float* src, uint8_t* dst, float* scale
     }
 }
 
-void STEQuantizer::quantize_binary(const float* src, uint8_t* dst, float* scale, int64_t n) {
+void STEQuantizer::quantize_oil1(const float* src, uint8_t* dst, float* scale, int64_t n) {
     float s = find_scale(src, n);
     *scale = s;
 

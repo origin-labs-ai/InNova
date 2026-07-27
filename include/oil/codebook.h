@@ -45,7 +45,7 @@ public:
     float dequantize(uint8_t idx) const override;
     size_t serialized_size() const;
     size_t serialize(uint8_t* dst) const;
-    static CodebookOIL8 deserialize(const uint8_t* src, size_t& offset);
+    static CodebookOIL8 deserialize(const uint8_t* src, size_t& offset, size_t size);
 
 private:
     mutable double batch_counts_[SIZE];
@@ -74,7 +74,7 @@ public:
     float dequantize(uint8_t idx) const override;
     size_t serialized_size() const;
     size_t serialize(uint8_t* dst) const;
-    static CodebookOIL4 deserialize(const uint8_t* src, size_t& offset);
+    static CodebookOIL4 deserialize(const uint8_t* src, size_t& offset, size_t size);
 
     static uint16_t float_to_half(float f);
     static float half_to_float(uint16_t h);
@@ -86,11 +86,11 @@ private:
     double running_sums_[SIZE];
 };
 
-struct TernaryScale {
+struct SparkScale {
     float scale;
 };
 
-struct BinaryScale {
+struct Oil1Scale {
     float scale;
 };
 

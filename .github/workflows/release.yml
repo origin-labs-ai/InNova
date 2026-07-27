@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v0.1.0)'
+        required: true
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            cmake_args: -DCMAKE_BUILD_TYPE=Release
+            generator: Ninja
+            artifact_prefix: linux-x86_64
+          - os: windows-latest
+            cmake_args: -DCMAKE_BUILD_TYPE=Release
+            generator: Ninja
+            artifact_prefix: windows-x64
+          - os: macos-latest
+            cmake_args: -DCMAKE_BUILD_TYPE=Release
+            generator: Ninja
+            artifact_prefix: macos-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++-12 || true
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja || true
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ninja -y || true
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake
+        run: cmake -B build -G "${{ matrix.generator }}" ${{ matrix.cmake_args }} -DOIL_BUILD_TESTS=ON -DOIL_BUILD_BENCHMARKS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package binaries
+        shell: bash
+        run: |
+          mkdir -p dist/${{ matrix.artifact_prefix }}
+          BINARY_DIR="build"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            find "$BINARY_DIR" -maxdepth 1 -name "*.exe" -exec cp {} dist/${{ matrix.artifact_prefix }}/ \;
+            find "$BINARY_DIR" -maxdepth 1 -name "*.dll" -exec cp {} dist/${{ matrix.artifact_prefix }}/ \;
+          else
+            find "$BINARY_DIR" -maxdepth 1 -type f -executable -exec cp {} dist/${{ matrix.artifact_prefix }}/ \;
+          fi
+          cd dist/${{ matrix.artifact_prefix }}
+          sha256sum * > SHA256SUMS
+
+      - name: Package source
+        if: runner.os == 'Linux'
+        run: |
+          cd ${{ github.workspace }}
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          tar --exclude='.git' --exclude='build' --exclude='dist' --exclude='.kilo' --exclude='.research' \
+            -czf dist/mythos-$VERSION-source.tar.gz .
+          cd dist
+          sha256sum mythos-$VERSION-source.tar.gz > mythos-$VERSION-source.tar.gz.sha256
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.artifact_prefix }}
+          path: dist/
+
+  create_release:
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/*
+          body: |
+            # MYTHOS.cpp ${{ github.ref_name }}
+
+            ## Build
+            - Zero-warning compilation with Clang/GCC/MSVC
+            - OIL format with 10 quantization engines
+            - 25 MoE variant architectures
+            - PagedKVCache4M (4M context, 2-level paging)
+            - SHA256-secured weight verification
+
+            ## Installation
+            See https://github.com/${{ github.repository }}/blob/main/README.md

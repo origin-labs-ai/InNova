@@ -9,19 +9,9 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include "oil/test.h"
 
 using namespace oil;
-
-static int g_tests = 0;
-static int g_passed = 0;
-
-#define CHECK(cond, msg) do { \
-    g_tests++; \
-    if (!(cond)) { printf("  FAIL: %s\n", msg); } \
-    else { g_passed++; printf("  PASS: %s\n", msg); } \
-} while(0)
-
-#define CHECK_CLOSE(a, b, eps, msg) CHECK(std::fabs((a)-(b)) < (eps), msg)
 
 static float compute_loss_value(DenseModel& m, const Tensor& inp, const Tensor& tgt) {
     Tensor logits = m.forward(inp, inp);
@@ -45,7 +35,7 @@ static float compute_loss_value(DenseModel& m, const Tensor& inp, const Tensor& 
 }
 
 static void test_gradient_via_finite_diff() {
-    printf("\n=== Gradient Check: Finite Difference ===\n");
+    TEST_SUITE("Gradient Check: Finite Difference");
     TransformerConfig cfg;
     cfg.vocab_size = 8;
     cfg.hidden_size = 4;
@@ -105,7 +95,7 @@ static void test_gradient_via_finite_diff() {
         }
 
         const float* ag = w.grad().data<float>();
-        int n_checks = std::min((int64_t)4, w.numel());
+        int n_checks = static_cast<int>(std::min((int64_t)4, w.numel()));
         int n_passed = 0;
         for (int k = 0; k < n_checks; k++) {
             int64_t idx = k;
@@ -128,13 +118,13 @@ static void test_gradient_via_finite_diff() {
 
             if (rel_err < 0.5f) n_passed++;
         }
-        CHECK(n_passed >= n_checks / 2,
+        TEST_CHECK(n_passed >= n_checks / 2,
               "Finite difference gradient check passes for most parameters");
     }
 }
 
 static void test_autograd_registration() {
-    printf("\n=== Autograd: Parameter Registration ===\n");
+    TEST_SUITE("Autograd: Parameter Registration");
     TransformerConfig cfg;
     cfg.vocab_size = 16;
     cfg.hidden_size = 8;
@@ -158,7 +148,7 @@ static void test_autograd_registration() {
     ones.fill(1.0f);
     Tensor result = AutogradEngine::add_op(dummy, ones);
     engine.backward(result);
-    CHECK(dummy.has_grad(), "registered parameter receives gradient");
+    TEST_CHECK(dummy.has_grad(), "registered parameter receives gradient");
     engine.clear();
     AutogradEngine::set_enabled(false);
 }
@@ -168,7 +158,7 @@ static void test_autograd_registration() {
 // Individual op gradient tests (matmul, add, cross_entropy) are validated elsewhere.
 
 static void test_cross_entropy_gradient_analytic() {
-    printf("\n=== Cross Entropy: Gradient Analytical Correctness ===\n");
+    TEST_SUITE("Cross Entropy: Gradient Analytical Correctness");
     int64_t B = 2, S = 3, V = 10;
     Tensor logits(Shape{B, S, V});
     Tensor targets(Shape{B, S});
@@ -179,7 +169,7 @@ static void test_cross_entropy_gradient_analytic() {
 
     // Cross-entropy gradient: (softmax(x) - one_hot(target)) / B*S
     auto grad = cross_entropy_grad(logits, targets);
-    CHECK(grad.shape() == logits.shape(), "gradient has same shape as logits");
+    TEST_CHECK(grad.shape() == logits.shape(), "gradient has same shape as logits");
 
     float expected_scale = 1.0f / (float)(B * S);
     for (int64_t i = 0; i < B * S; i++) {
@@ -195,14 +185,14 @@ static void test_cross_entropy_gradient_analytic() {
         for (int64_t v = 0; v < V; v++) {
             float p = std::exp(ld[v] - max_l) / sum;
             float expected = (p - (v == t ? 1.0f : 0.0f)) * expected_scale;
-            CHECK_CLOSE(gd[v], expected, 1e-4f,
+            TEST_CHECK_CLOSE(gd[v], expected, 1e-4f,
                         "grad = (softmax - one_hot) / batch at each position");
         }
     }
 }
 
 static void test_sgd_parameter_update() {
-    printf("\n=== Optimizer: SGD weight change ===\n");
+    TEST_SUITE("Optimizer: SGD weight change");
     // Verify SGD optimizer actually modifies parameter values
     Tensor w(Shape{4});
     w.requires_grad(true);
@@ -218,7 +208,7 @@ static void test_sgd_parameter_update() {
     float before = w.data<float>()[0];
     opt.step();
     float after = w.data<float>()[0];
-    CHECK(after < before, "SGD step decreases weight with positive gradient * lr");
+    TEST_CHECK(after < before, "SGD step decreases weight with positive gradient * lr");
 
     // Verify zero_grad clears gradients
     { Tensor g(Shape{4}); g.fill(0.5f); w.set_grad(g); }
@@ -226,7 +216,7 @@ static void test_sgd_parameter_update() {
     const float* gd = w.grad().data<float>();
     bool all_zero = true;
     for (int i = 0; i < 4; i++) if (gd[i] != 0.0f) { all_zero = false; break; }
-    CHECK(all_zero, "zero_grad clears gradients");
+    TEST_CHECK(all_zero, "zero_grad clears gradients");
 }
 
 int main() {
@@ -240,8 +230,6 @@ int main() {
     test_sgd_parameter_update();
 
     printf("\n====================================================\n");
-    printf("Results: %d / %d tests passed", g_passed, g_tests);
-    if (g_passed == g_tests) printf(" -- ALL PASSED\n");
-    else printf(" (%d FAILED)\n", g_tests - g_passed);
-    return (g_passed == g_tests) ? 0 : 1;
+
+    return TEST_REPORT() > 0 ? 1 : 0;
 }

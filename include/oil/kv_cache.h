@@ -3,6 +3,7 @@
 #include "oil/tensor.h"
 #include <vector>
 #include <string>
+#include <mutex>
 #include <unordered_map>
 
 namespace oil {
@@ -10,30 +11,26 @@ namespace oil {
 class KVCache {
 public:
     KVCache() = default;
+    KVCache(KVCache&& other) noexcept;
+    KVCache& operator=(KVCache&& other) noexcept;
     KVCache(int num_layers, int64_t max_seq_len, int64_t num_heads, 
             int64_t head_dim, bool quantized = false);
     
     void init(int num_layers, int64_t max_seq_len, int64_t num_heads,
               int64_t head_dim, bool quantized = false);
     
-    // Append a K,V pair for a layer at current position
     void append(int layer, const Tensor& k, const Tensor& v);
     
-    // Get cached K,V for given position range
     std::pair<Tensor, Tensor> get_range(int layer, int start, int end) const;
     std::pair<Tensor, Tensor> get_all(int layer) const;
     
-    // Get total context length
     int context_len() const;
     int max_seq_len() const;
     
-    // Memory usage
     size_t size_bytes() const;
     
-    // Clear and reset
     void clear();
     
-    // Resize cache
     void resize(int64_t new_max_seq_len);
     
     static constexpr int FP8_BLOCK_SIZE = 64;
@@ -49,7 +46,6 @@ private:
         Tensor k;
         Tensor v;
         int current_pos = 0;
-        // Quantized storage (used only when quantized_ == true)
         std::vector<uint8_t> k_quant;
         std::vector<uint8_t> v_quant;
         std::vector<float> k_scales;
@@ -61,47 +57,32 @@ private:
     int64_t num_heads_ = 0;
     int64_t head_dim_ = 0;
     bool quantized_ = false;
+    mutable std::mutex mutex_;
 };
 
 // ===========================================================================
-// PagedKVCache1T — 1T (minimum) to unlimited (maximum) hierarchical paging
+// PagedKVCacheBase — shared implementation for hierarchical paged KV caches
 //
-// Design:
-//   Logical token space: up to 2^40 (~1T) tokens, effectively unlimited
-//   Physical memory: limited (e.g. 8GB), pages evicted to disk via LRU
-//   NEVER lose data — evicted pages are offloaded to disk, retrievable
-//
-//   Hierarchical paging:
-//     L1 PageTable:  256 entries -> L2 PageTable pointers
-//     L2 PageTable:  256 entries -> L3 PageTable pointers
-//     L3 PageTable:  256 entries -> physical block IDs
-//     Each block = block_size_ tokens of K/V (heads × block_size × head_dim floats)
-//
-//   This gives 256^3 × block_size = 16.7M × block_size logical tokens.
-//   With block_size=16, that's 268M tokens per layer per head.
-//   With deeper levels or larger blocks, easily exceeds 1T.
-//
-//   Physical blocks are managed via LRU. When physical memory is full,
-//   the least recently used block is offloaded to a disk file and its
-//   slot is reused. On access, if the block is on disk, it is loaded back.
+// Both PagedKVCache4M (2-level) and PagedKVCache1T (3-level) inherit from
+// this base. All shared logic (LRU tracking, disk I/O, block management,
+// append, get_range, flush, clear) lives here. Only the page-table-specific
+// operations (resolve, alloc, max_logical) are virtual pure.
 // ===========================================================================
 
-class PagedKVCache1T {
+class PagedKVCacheBase {
 public:
-    static constexpr int64_t TABLE_ENTRIES = 4096;
-    static constexpr int64_t DEFAULT_BLOCK_SIZE = 16;
-    static constexpr int64_t MIN_LOGICAL_TOKENS = (int64_t)1 << 40; // 1T
+    PagedKVCacheBase(int num_layers, int64_t num_heads, int64_t head_dim,
+                     int64_t block_size, size_t physical_memory_bytes,
+                     const std::string& disk_path);
+    virtual ~PagedKVCacheBase();
+    void init_layer_roots();
+    void cleanup_layer_roots();
 
-    PagedKVCache1T(int num_layers, int64_t num_heads, int64_t head_dim,
-                   int64_t block_size = DEFAULT_BLOCK_SIZE,
-                   size_t physical_memory_bytes = 8ULL * 1024 * 1024 * 1024,
-                   const std::string& disk_path = "");
-
-    ~PagedKVCache1T();
+    PagedKVCacheBase(const PagedKVCacheBase&) = delete;
+    PagedKVCacheBase& operator=(const PagedKVCacheBase&) = delete;
 
     void append(int layer, int64_t logical_pos, const Tensor& k, const Tensor& v);
     std::pair<Tensor, Tensor> get_range(int layer, int64_t start, int64_t end) const;
-    std::pair<Tensor, Tensor> get_block(int layer, int64_t logical_pos) const;
 
     int64_t logical_capacity() const;
     int64_t num_physical_blocks() const;
@@ -119,11 +100,7 @@ public:
     int64_t num_heads() const { return num_heads_; }
     int64_t head_dim() const { return head_dim_; }
 
-    bool verify_retrieval(int layer, int64_t pos, const Tensor& expected_k,
-                          const Tensor& expected_v) const;
-    int64_t max_logical_tokens_per_layer() const;
-
-private:
+protected:
     struct PhysicalBlock {
         int64_t id = -1;
         mutable std::vector<float> k_data;
@@ -134,6 +111,107 @@ private:
         mutable std::string disk_file;
     };
 
+    struct LayerState {
+        void* root = nullptr;
+        std::unordered_map<int64_t, PhysicalBlock> blocks;
+        int64_t current_pos = 0;
+    };
+
+    virtual int64_t resolve_block_id(int layer, int64_t logical_pos) const = 0;
+    virtual int64_t alloc_block_id(int layer, int64_t logical_pos) = 0;
+    virtual int64_t max_logical_tokens_per_layer() const = 0;
+    virtual void* create_root() const = 0;
+    virtual void destroy_root(void* root) const = 0;
+    virtual const char* disk_name() const = 0;
+
+    int num_layers_;
+    int64_t num_heads_;
+    int64_t head_dim_;
+    int64_t block_size_;
+    size_t physical_memory_limit_;
+    mutable size_t current_memory_used_;
+    std::string disk_path_;
+    std::vector<LayerState> layers_;
+    mutable int64_t access_counter_;
+    int64_t next_block_id_;
+
+    void evict_lru(int layer) const;
+    void evict_to_disk(int layer, int64_t block_id) const;
+    void load_from_disk(int layer, int64_t block_id) const;
+    std::string block_disk_path(int layer, int64_t block_id) const;
+    int64_t tokens_per_block() const;
+};
+
+// ===========================================================================
+// PagedKVCache4M — 4M context via 2-level hierarchical paging
+//
+// Logical token space: up to 2^22 (~4M) tokens, configurable
+// Hierarchical paging: L1(4096) -> L2(4096) -> physical block
+// Capacity = 4096^2 * block_size = 268M tokens (block_size=16)
+// ===========================================================================
+
+class PagedKVCache4M : public PagedKVCacheBase {
+public:
+    static constexpr int64_t TABLE_ENTRIES = 4096;
+    static constexpr int64_t DEFAULT_BLOCK_SIZE = 16;
+    static constexpr int64_t MAX_LOGICAL_TOKENS = (int64_t)1 << 22;
+
+    PagedKVCache4M(int num_layers, int64_t num_heads, int64_t head_dim,
+                   int64_t block_size = DEFAULT_BLOCK_SIZE,
+                   size_t physical_memory_bytes = 8ULL * 1024 * 1024 * 1024,
+                   const std::string& disk_path = "");
+    ~PagedKVCache4M() override;
+
+    std::pair<Tensor, Tensor> get_block(int layer, int64_t logical_pos) const;
+
+    bool verify_retrieval(int layer, int64_t pos, const Tensor& expected_k,
+                          const Tensor& expected_v) const;
+
+    int64_t max_logical_tokens_per_layer() const override;
+
+private:
+    struct L2Table {
+        int64_t entries[TABLE_ENTRIES];
+        L2Table();
+    };
+
+    struct L1Table {
+        L2Table* entries[TABLE_ENTRIES];
+        L1Table();
+        ~L1Table();
+    };
+
+    int64_t resolve_block_id(int layer, int64_t logical_pos) const override;
+    int64_t alloc_block_id(int layer, int64_t logical_pos) override;
+    void* create_root() const override;
+    void destroy_root(void* root) const override;
+    const char* disk_name() const override;
+};
+
+// ===========================================================================
+// PagedKVCache1T — 1T+ logical tokens via 3-level hierarchical paging
+//
+// Like PagedKVCache4M but with an extra page table level:
+//   L1(4096) -> L2(4096) -> L3(4096) -> physical block
+//   Capacity = 4096^3 * block_size = 1T tokens (block_size=16)
+// ===========================================================================
+
+class PagedKVCache1T : public PagedKVCacheBase {
+public:
+    static constexpr int64_t TABLE_ENTRIES = 4096;
+    static constexpr int64_t DEFAULT_BLOCK_SIZE = 16;
+    static constexpr int64_t MAX_LOGICAL_TOKENS = (int64_t)1 << 40;
+    static constexpr int64_t MIN_LOGICAL_TOKENS = (int64_t)1 << 40;
+
+    PagedKVCache1T(int num_layers, int64_t num_heads, int64_t head_dim,
+                   int64_t block_size = DEFAULT_BLOCK_SIZE,
+                   size_t physical_memory_bytes = 8ULL * 1024 * 1024 * 1024,
+                   const std::string& disk_path = "");
+    ~PagedKVCache1T() override;
+
+    int64_t max_logical_tokens_per_layer() const override;
+
+private:
     struct L3Table {
         int64_t entries[TABLE_ENTRIES];
         L3Table();
@@ -151,30 +229,11 @@ private:
         ~L1Table();
     };
 
-    struct LayerState {
-        L1Table* root;
-        std::unordered_map<int64_t, PhysicalBlock> blocks;
-        int64_t current_pos = 0;
-    };
-
-    int num_layers_;
-    int64_t num_heads_;
-    int64_t head_dim_;
-    int64_t block_size_;
-    size_t physical_memory_limit_;
-    mutable size_t current_memory_used_;
-    std::string disk_path_;
-    std::vector<LayerState> layers_;
-    mutable int64_t access_counter_;
-    int64_t next_block_id_;
-
-    int64_t resolve_block_id(int layer, int64_t logical_pos) const;
-    int64_t alloc_block_id(int layer, int64_t logical_pos);
-    void evict_lru(int layer);
-    void offload_to_disk(int layer, int64_t block_id);
-    void load_from_disk(int layer, int64_t block_id) const;
-    std::string block_disk_path(int layer, int64_t block_id) const;
-    int64_t tokens_per_block() const;
+    int64_t resolve_block_id(int layer, int64_t logical_pos) const override;
+    int64_t alloc_block_id(int layer, int64_t logical_pos) override;
+    void* create_root() const override;
+    void destroy_root(void* root) const override;
+    const char* disk_name() const override;
 };
 
 } // namespace oil

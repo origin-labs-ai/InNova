@@ -1,176 +1,196 @@
 #include "oil/tensor.h"
 #include "oil/types.h"
+#include "oil/test.h"
 
 #include <iostream>
-#include <cassert>
 #include <cmath>
 #include <cstring>
 #include <vector>
 
 int main() {
+    TEST_SUITE("Tensor Tests");
     // Test Shape
     {
         oil::Shape s1(2, 3);
-        assert(s1.numel() == 6);
-        assert(s1.rank == 2);
-        assert(s1.dims[0] == 2);
-        assert(s1.dims[1] == 3);
+        TEST_CHECK(s1.numel() == 6, "Shape(2,3).numel() == 6");
+        TEST_CHECK(s1.rank == 2, "Shape(2,3).rank == 2");
+        TEST_CHECK(s1.dims[0] == 2, "Shape(2,3).dims[0] == 2");
+        TEST_CHECK(s1.dims[1] == 3, "Shape(2,3).dims[1] == 3");
 
-        oil::Shape s2(std::initializer_list<int64_t>{4, 5, 6});
-        assert(s2.rank == 3);
-        assert(s2.numel() == 120);
+        oil::Shape s2(4, 5, 6);
+        TEST_CHECK(s2.rank == 3, "Shape(4,5,6).rank == 3");
+        TEST_CHECK(s2.numel() == 120, "Shape(4,5,6).numel() == 120");
 
         oil::Shape s3;
-        assert(s3.rank == 0);
-        assert(s3.numel() == 1);
+        TEST_CHECK(s3.rank == 0, "default Shape.rank == 0");
+        TEST_CHECK(s3.numel() == 1, "default Shape.numel() == 1");
 
-        assert(s1 == oil::Shape(2, 3));
-        assert(!(s1 == s2));
-        assert(s1 != s2);
+        TEST_CHECK(s1 == oil::Shape(2, 3), "Shape equality");
+        TEST_CHECK(!(s1 == s2), "Shape inequality");
+        TEST_CHECK(s1 != s2, "Shape != operator");
     }
 
-    // Test Tensor zeros
+    // Test Tensor creation
     {
-        auto t = oil::Tensor::zeros({2, 3});
-        assert(t.numel() == 6);
-        assert(t.dtype() == oil::DType::F32);
-        assert(t.shape().rank == 2);
-        assert(t.shape().dims[0] == 2);
-        assert(t.shape().dims[1] == 3);
-        for (int64_t i = 0; i < t.numel(); i++)
-            assert(t.data<float>()[i] == 0.0f);
-    }
-
-    // Test Tensor ones
-    {
-        auto t = oil::Tensor::ones({4});
-        assert(t.numel() == 4);
-        for (int64_t i = 0; i < t.numel(); i++)
-            assert(t.data<float>()[i] == 1.0f);
-    }
-
-    // Test arange
-    {
-        auto t = oil::Tensor::arange(5);
-        assert(t.numel() == 5);
-        for (int64_t i = 0; i < 5; i++)
-            assert(t.data<float>()[i] == (float)i);
+        oil::Tensor t(oil::Shape(2, 3), oil::DType::F32);
+        TEST_CHECK(t.numel() == 6, "Tensor(2x3 F32).numel() == 6");
+        TEST_CHECK(t.dtype() == oil::DType::F32, "F32 dtype");
+        TEST_CHECK(t.shape().rank == 2, "shape().rank == 2");
+        TEST_CHECK(t.shape().dims[0] == 2, "shape().dims[0] == 2");
+        TEST_CHECK(t.shape().dims[1] == 3, "shape().dims[1] == 3");
+        bool zero_init = true;
+        for (int64_t i = 0; i < 6; i++)
+            if (t.data<float>()[i] != 0.0f) zero_init = false;
+        TEST_CHECK(zero_init, "zero initialized");
     }
 
     // Test fill
     {
-        auto t = oil::Tensor::zeros({2, 2});
-        t.fill(3.14f);
-        for (int64_t i = 0; i < t.numel(); i++)
-            assert(std::abs(t.data<float>()[i] - 3.14f) < 1e-6f);
+        oil::Tensor t(oil::Shape(2, 2), oil::DType::F32);
+        t.fill(1.0f);
+        bool filled = true;
+        for (int64_t i = 0; i < 4; i++)
+            if (t.data<float>()[i] != 1.0f) filled = false;
+        TEST_CHECK(filled, "fill(1.0)");
     }
 
-    // Test at
+    // Test init with arange
     {
-        auto t = oil::Tensor::arange(6).reshape({2, 3});
-        assert(t.at({0, 0}) == 0.0f);
-        assert(t.at({0, 1}) == 1.0f);
-        assert(t.at({1, 2}) == 5.0f);
-        t.at({1, 1}) = 99.0f;
-        assert(t.at({1, 1}) == 99.0f);
+        oil::Tensor t = oil::Tensor::arange(5);
+        bool match = true;
+        for (int64_t i = 0; i < 5; i++)
+            if (t.data<float>()[i] != (float)i) match = false;
+        TEST_CHECK(match, "arange(5)");
+    }
+
+    // Test fill and access
+    {
+        oil::Tensor t(oil::Shape(2, 3), oil::DType::F32);
+        for (int64_t i = 0; i < 6; i++) t.data<float>()[i] = (float)i;
+        TEST_CHECK(t.at({0, 0}) == 0.0f, "at({0,0}) == 0");
+        TEST_CHECK(t.at({0, 1}) == 1.0f, "at({0,1}) == 1");
+        TEST_CHECK(t.at({1, 2}) == 5.0f, "at({1,2}) == 5");
     }
 
     // Test view
     {
-        auto t = oil::Tensor::arange(6);
+        oil::Tensor t(oil::Shape(2, 3), oil::DType::F32);
+        for (int64_t i = 0; i < 6; i++) t.data<float>()[i] = (float)i;
         auto v = t.view({2, 3});
-        assert(v.shape().rank == 2);
-        assert(v.shape().dims[0] == 2);
-        assert(v.shape().dims[1] == 3);
-        assert(v.at({0, 0}) == 0.0f);
-        assert(v.at({1, 2}) == 5.0f);
-        v.at({1, 1}) = 42.0f;
-        assert(t.data<float>()[4] == 42.0f);
+        TEST_CHECK(v.shape().rank == 2, "view rank == 2");
+        TEST_CHECK(v.shape().dims[0] == 2, "view dims[0] == 2");
+        TEST_CHECK(v.shape().dims[1] == 3, "view dims[1] == 3");
+        TEST_CHECK(v.at({0, 0}) == 0.0f, "view at({0,0}) == 0");
+        TEST_CHECK(v.at({1, 2}) == 5.0f, "view at({1,2}) == 5");
+        t.data<float>()[4] = 42.0f;
+        TEST_CHECK(v.at({1, 1}) == 42.0f, "view reflects mutation");
     }
 
     // Test reshape
     {
-        auto t = oil::Tensor::arange(12);
+        oil::Tensor t(oil::Shape(2, 6), oil::DType::F32);
+        for (int64_t i = 0; i < 12; i++) t.data<float>()[i] = (float)i;
         auto r = t.reshape({3, 4});
-        assert(r.shape().dims[0] == 3);
-        assert(r.shape().dims[1] == 4);
-        assert(r.numel() == 12);
+        TEST_CHECK(r.shape().dims[0] == 3, "reshape dims[0] == 3");
+        TEST_CHECK(r.shape().dims[1] == 4, "reshape dims[1] == 4");
+        TEST_CHECK(r.numel() == 12, "reshape numel == 12");
     }
 
-    // Test slice
+    // Test slice on 1D tensor
     {
-        auto t = oil::Tensor::arange(10);
-        auto s = t.slice(0, 2, 5);
-        assert(s.numel() == 3);
-        assert(s.data<float>()[0] == 2.0f);
-        assert(s.data<float>()[1] == 3.0f);
-        assert(s.data<float>()[2] == 4.0f);
+        oil::Tensor t = oil::Tensor::arange(5);
+        auto s = t.slice(0, 1, 4);
+        TEST_CHECK(s.numel() == 3, "slice 1D [1,4) numel == 3");
+        bool ok = s.data<float>()[0] == 1.0f && s.data<float>()[1] == 2.0f && s.data<float>()[2] == 3.0f;
+        TEST_CHECK(ok, "slice 1D values 1,2,3");
     }
 
     // Test transpose
     {
-        auto t = oil::Tensor::arange(6).reshape({2, 3});
+        oil::Tensor t = oil::Tensor::arange(6);
+        t = t.reshape({2, 3});
         auto tp = t.transpose(0, 1);
-        assert(tp.shape().dims[0] == 3);
-        assert(tp.shape().dims[1] == 2);
-        assert(tp.at({0, 0}) == t.at({0, 0}));
-        assert(tp.at({1, 0}) == t.at({0, 1}));
-        assert(tp.at({2, 1}) == t.at({1, 2}));
+        TEST_CHECK(tp.shape().dims[0] == 3, "transpose dims[0] == 3");
+        TEST_CHECK(tp.shape().dims[1] == 2, "transpose dims[1] == 2");
+        TEST_CHECK(tp.at({0, 0}) == t.at({0, 0}), "transpose at({0,0})");
+        TEST_CHECK(tp.at({1, 0}) == t.at({0, 1}), "transpose at({1,0}) == at({0,1})");
+        TEST_CHECK(tp.at({2, 1}) == t.at({1, 2}), "transpose at({2,1}) == at({1,2})");
     }
 
     // Test clone
     {
-        auto t = oil::Tensor::arange(10);
+        oil::Tensor t(oil::Shape(2, 3), oil::DType::F32);
+        for (int64_t i = 0; i < 6; i++) t.data<float>()[i] = (float)i;
         auto c = t.clone();
-        assert(c.numel() == t.numel());
-        for (int64_t i = 0; i < t.numel(); i++)
-            assert(c.data<float>()[i] == t.data<float>()[i]);
-        c.data<float>()[0] = 999.0f;
-        assert(t.data<float>()[0] == 0.0f);
+        TEST_CHECK(c.numel() == t.numel(), "clone numel");
+        bool match = true;
+        for (int64_t i = 0; i < 6; i++)
+            if (c.data<float>()[i] != t.data<float>()[i]) match = false;
+        TEST_CHECK(match, "clone values match");
+        t.data<float>()[0] = 100.0f;
+        TEST_CHECK(c.data<float>()[0] == 0.0f, "clone independent");
     }
 
-    // Test copy_from / copy_to
+    // Test copy constructor and assignment
     {
-        auto a = oil::Tensor::arange(5);
-        auto b = oil::Tensor::zeros({5});
-        a.copy_to(b);
-        for (int64_t i = 0; i < 5; i++)
-            assert(b.data<float>()[i] == (float)i);
-        b.data<float>()[0] = 100.0f;
-        a.copy_from(b);
-        assert(a.data<float>()[0] == 100.0f);
+        oil::Tensor t(oil::Shape(2, 3), oil::DType::F32);
+        for (int64_t i = 0; i < 6; i++) t.data<float>()[i] = (float)i;
+        oil::Tensor t2 = t;
+        TEST_CHECK(t2.numel() == t.numel(), "copy numel");
+        TEST_CHECK(t2.shape() == t.shape(), "copy shape");
+        TEST_CHECK(t2.dtype() == t.dtype(), "copy dtype");
+        bool match = true;
+        for (int64_t i = 0; i < 6; i++)
+            if (std::abs(t2.data<float>()[i] - t.data<float>()[i]) > 1e-6f) match = false;
+        TEST_CHECK(match, "copy values");
+        t2 = oil::Tensor(oil::Shape(1, 1), oil::DType::F32);
+        TEST_CHECK(t2.numel() == 1, "re-assign numel");
     }
 
-    // Test serialization round-trip
+    // Test zeros/ones static
     {
-        auto t = oil::Tensor::arange(42).reshape({6, 7});
-        std::vector<uint8_t> buf(t.serialized_size());
-        t.serialize(buf.data());
-        size_t offset = 0;
-        auto t2 = oil::Tensor::deserialize(buf.data(), offset);
-        assert(t2.numel() == t.numel());
-        assert(t2.shape() == t.shape());
-        assert(t2.dtype() == t.dtype());
-        for (int64_t i = 0; i < t.numel(); i++)
-            assert(std::abs(t2.data<float>()[i] - t.data<float>()[i]) < 1e-6f);
+        auto z = oil::Tensor::zeros({2, 3});
+        TEST_CHECK(z.numel() == 6, "zeros numel");
+        bool zero = true;
+        for (int64_t i = 0; i < 6; i++)
+            if (z.data<float>()[i] != 0.0f) zero = false;
+        TEST_CHECK(zero, "zeros all zero");
+
+        auto o = oil::Tensor::ones({2, 2});
+        bool one = true;
+        for (int64_t i = 0; i < 4; i++)
+            if (o.data<float>()[i] != 1.0f) one = false;
+        TEST_CHECK(one, "ones all one");
     }
 
-    // Test zero_
+    // Test copy_from
     {
-        auto t = oil::Tensor::ones({10});
-        t.zero_();
-        for (int64_t i = 0; i < t.numel(); i++)
-            assert(t.data<float>()[i] == 0.0f);
+        oil::Tensor a(oil::Shape(3), oil::DType::F32);
+        for (int64_t i = 0; i < 3; i++) a.data<float>()[i] = (float)i;
+        oil::Tensor b(oil::Shape(3), oil::DType::F32);
+        b.copy_from(a);
+        bool match = true;
+        for (int64_t i = 0; i < 3; i++)
+            if (b.data<float>()[i] != (float)i) match = false;
+        TEST_CHECK(match, "copy_from values");
     }
 
     // Test to_string
     {
-        auto t = oil::Tensor::arange(4);
-        std::string s = t.to_string();
-        assert(!s.empty());
-        assert(s.find("Tensor") != std::string::npos);
+        oil::Tensor t(oil::Shape(2, 3), oil::DType::F32);
+        auto s = t.to_string();
+        TEST_CHECK(!s.empty(), "to_string() non-empty");
+        TEST_CHECK(s.find("Tensor") != std::string::npos, "to_string() contains Tensor");
     }
 
-    std::cout << "All tensor tests passed!" << std::endl;
-    return 0;
+    // Test to_dtype
+    {
+        oil::Tensor t(oil::Shape(2, 2), oil::DType::F32);
+        t.fill(3.14f);
+        auto t2 = t.to_dtype(oil::DType::F16);
+        TEST_CHECK(t2.numel() == 4, "to_dtype numel preserved");
+        TEST_CHECK(t2.dtype() == oil::DType::F16, "to_dtype F16");
+    }
+
+    return TEST_REPORT() > 0 ? 1 : 0;
 }

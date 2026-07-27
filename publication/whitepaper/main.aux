@@ -1,0 +1,818 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\abx@aux@refcontext{nyt/global//global/global/global}
+\@writefile{toc}{\contentsline {chapter}{Abstract}{2}{chapter*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{List of Algorithms}{11}{chapter*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {1}Introduction and Motivation}{12}{chapter.1}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:introduction}{{1}{12}{Introduction and Motivation}{chapter.1}{}}
+\newlabel{ch:introduction@cref}{{[chapter][1][]1}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.1}The AI Dependency Crisis}{12}{section.1.1}\protected@file@percent }
+\newlabel{sec:ai_dependency_crisis}{{1.1}{12}{The AI Dependency Crisis}{section.1.1}{}}
+\newlabel{sec:ai_dependency_crisis@cref}{{[section][1][1]1.1}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1.1}The Python Runtime Trap}{12}{subsection.1.1.1}\protected@file@percent }
+\abx@aux@cite{0}{ma2023awq}
+\abx@aux@segm{0}{0}{ma2023awq}
+\abx@aux@cite{0}{frantar2023}
+\abx@aux@segm{0}{0}{frantar2023}
+\abx@aux@cite{0}{ma2023awq}
+\abx@aux@segm{0}{0}{ma2023awq}
+\abx@aux@cite{0}{kim2024}
+\abx@aux@segm{0}{0}{kim2024}
+\abx@aux@cite{0}{dettmers2022}
+\abx@aux@segm{0}{0}{dettmers2022}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1.2}Format Fragmentation}{13}{subsection.1.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1.3}Wasteful Uniform Quantization}{13}{subsection.1.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1.2}The Quantization Paradigm Shift}{13}{section.1.2}\protected@file@percent }
+\newlabel{sec:paradigm_shift_intro}{{1.2}{13}{The Quantization Paradigm Shift}{section.1.2}{}}
+\newlabel{sec:paradigm_shift_intro@cref}{{[section][2][1]1.2}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.3}The OIL Solution}{14}{section.1.3}\protected@file@percent }
+\newlabel{sec:oil_solution}{{1.3}{14}{The OIL Solution}{section.1.3}{}}
+\newlabel{sec:oil_solution@cref}{{[section][3][1]1.3}{[1][13][]14}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.4}Central Claim}{14}{section.1.4}\protected@file@percent }
+\newlabel{sec:central_claim}{{1.4}{14}{Central Claim}{section.1.4}{}}
+\newlabel{sec:central_claim@cref}{{[section][4][1]1.4}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.5}Contributions and Claims}{14}{section.1.5}\protected@file@percent }
+\newlabel{sec:contributions}{{1.5}{14}{Contributions and Claims}{section.1.5}{}}
+\newlabel{sec:contributions@cref}{{[section][5][1]1.5}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.6}The Bit Width Spectrum}{15}{section.1.6}\protected@file@percent }
+\newlabel{sec:bit_spectrum}{{1.6}{15}{The Bit Width Spectrum}{section.1.6}{}}
+\newlabel{sec:bit_spectrum@cref}{{[section][6][1]1.6}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.7}Why FLOPS is Broken}{15}{section.1.7}\protected@file@percent }
+\newlabel{sec:flops_broken}{{1.7}{15}{Why FLOPS is Broken}{section.1.7}{}}
+\newlabel{sec:flops_broken@cref}{{[section][7][1]1.7}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Scenario A: FP32 GEMM.}{15}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scenario B: OIL4 GEMM.}{15}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1.8}Paper Organization}{16}{section.1.8}\protected@file@percent }
+\newlabel{sec:organization}{{1.8}{16}{Paper Organization}{section.1.8}{}}
+\newlabel{sec:organization@cref}{{[section][8][1]1.8}{[1][15][]16}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.9}Comparison with Existing Frameworks}{16}{section.1.9}\protected@file@percent }
+\newlabel{sec:comparison}{{1.9}{16}{Comparison with Existing Frameworks}{section.1.9}{}}
+\newlabel{sec:comparison@cref}{{[section][9][1]1.9}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.10}Who Built This}{16}{section.1.10}\protected@file@percent }
+\newlabel{sec:who_built_this}{{1.10}{16}{Who Built This}{section.1.10}{}}
+\newlabel{sec:who_built_this@cref}{{[section][10][1]1.10}{[1][16][]16}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1.1}{\ignorespaces High-level architecture of the MYTHOS.cpp engine. The forward pass flows left-to-right through quantized layers. Training feedback flows right-to-left through STE backward pass and codebook EMA updates. The C++20 engine provides SIMD kernels, Vulkan GPU acceleration, distributed training, memory-mapped loading, SOPS measurement, and lock-free threading primitives.}}{17}{figure.caption.8}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:architecture_overview}{{1.1}{17}{High-level architecture of the MYTHOS.cpp engine. The forward pass flows left-to-right through quantized layers. Training feedback flows right-to-left through STE backward pass and codebook EMA updates. The C++20 engine provides SIMD kernels, Vulkan GPU acceleration, distributed training, memory-mapped loading, SOPS measurement, and lock-free threading primitives}{figure.caption.8}{}}
+\newlabel{fig:architecture_overview@cref}{{[figure][1][1]1.1}{[1][16][]17}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {2}The OIL Format System}{18}{chapter.2}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:oil_formats}{{2}{18}{The OIL Format System}{chapter.2}{}}
+\newlabel{ch:oil_formats@cref}{{[chapter][2][]2}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.1}Design Principles}{18}{section.2.1}\protected@file@percent }
+\newlabel{sec:format_design_principles}{{2.1}{18}{Design Principles}{section.2.1}{}}
+\newlabel{sec:format_design_principles@cref}{{[section][1][2]2.1}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.2}Base Formats}{18}{section.2.2}\protected@file@percent }
+\newlabel{sec:base_formats}{{2.2}{18}{Base Formats}{section.2.2}{}}
+\newlabel{sec:base_formats@cref}{{[section][2][2]2.2}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.1}BINARY (1.0 BPW)}{18}{subsection.2.2.1}\protected@file@percent }
+\newlabel{sec:binary}{{2.2.1}{18}{BINARY (1.0 BPW)}{subsection.2.2.1}{}}
+\newlabel{sec:binary@cref}{{[subsection][1][2,2]2.2.1}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{18}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Compute.}{18}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Quality.}{18}{section*.11}\protected@file@percent }
+\abx@aux@cite{0}{ma2024}
+\abx@aux@segm{0}{0}{ma2024}
+\@writefile{toc}{\contentsline {paragraph}{Codebook.}{19}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.2}SPARK\_Q0 (1.5 BPW)}{19}{subsection.2.2.2}\protected@file@percent }
+\newlabel{sec:spark_q0}{{2.2.2}{19}{SPARK\_Q0 (1.5 BPW)}{subsection.2.2.2}{}}
+\newlabel{sec:spark_q0@cref}{{[subsection][2][2,2]2.2.2}{[1][19][]19}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Quality.}{19}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.3}TERNARY (1.58 BPW)}{19}{subsection.2.2.3}\protected@file@percent }
+\newlabel{sec:ternary}{{2.2.3}{19}{TERNARY (1.58 BPW)}{subsection.2.2.3}{}}
+\newlabel{sec:ternary@cref}{{[subsection][3][2,2]2.2.3}{[1][19][]19}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{19}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Compute.}{19}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Quality.}{19}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.4}OIL2 (2.0 BPW)}{19}{subsection.2.2.4}\protected@file@percent }
+\newlabel{sec:oil2}{{2.2.4}{19}{OIL2 (2.0 BPW)}{subsection.2.2.4}{}}
+\newlabel{sec:oil2@cref}{{[subsection][4][2,2]2.2.4}{[1][19][]19}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{19}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Compute.}{19}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Quality.}{19}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.5}OIL4 (4.0 BPW)}{20}{subsection.2.2.5}\protected@file@percent }
+\newlabel{sec:oil4}{{2.2.5}{20}{OIL4 (4.0 BPW)}{subsection.2.2.5}{}}
+\newlabel{sec:oil4@cref}{{[subsection][5][2,2]2.2.5}{[1][19][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{20}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Compute.}{20}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Quality.}{20}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.6}OIL8 (8.0 BPW)}{20}{subsection.2.2.6}\protected@file@percent }
+\newlabel{sec:oil8}{{2.2.6}{20}{OIL8 (8.0 BPW)}{subsection.2.2.6}{}}
+\newlabel{sec:oil8@cref}{{[subsection][6][2,2]2.2.6}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{20}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Quality.}{20}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.7}OIL16 (16.0 BPW)}{20}{subsection.2.2.7}\protected@file@percent }
+\newlabel{sec:oil16}{{2.2.7}{20}{OIL16 (16.0 BPW)}{subsection.2.2.7}{}}
+\newlabel{sec:oil16@cref}{{[subsection][7][2,2]2.2.7}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.8}OIL32 (32.0 BPW)}{20}{subsection.2.2.8}\protected@file@percent }
+\newlabel{sec:oil32}{{2.2.8}{20}{OIL32 (32.0 BPW)}{subsection.2.2.8}{}}
+\newlabel{sec:oil32@cref}{{[subsection][8][2,2]2.2.8}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.3}Lossless GRP Variants}{20}{section.2.3}\protected@file@percent }
+\newlabel{sec:grp_variants}{{2.3}{20}{Lossless GRP Variants}{section.2.3}{}}
+\newlabel{sec:grp_variants@cref}{{[section][3][2]2.3}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3.1}OIL2\_GRP (2.0 BPW, Lossless)}{20}{subsection.2.3.1}\protected@file@percent }
+\newlabel{sec:oil2_grp}{{2.3.1}{20}{OIL2\_GRP (2.0 BPW, Lossless)}{subsection.2.3.1}{}}
+\newlabel{sec:oil2_grp@cref}{{[subsection][1][2,3]2.3.1}{[1][20][]20}{}{}{}}
+\newlabel{thm:oil2_grp_lossless}{{2.3.1}{20}{OIL2\_GRP (2.0 BPW, Lossless)}{subsection.2.3.1}{}}
+\newlabel{thm:oil2_grp_lossless@cref}{{[subsection][1][2,3]2.3.1}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{21}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3.2}OIL4\_GRP (4.0 BPW, Lossless)}{21}{subsection.2.3.2}\protected@file@percent }
+\newlabel{sec:oil4_grp}{{2.3.2}{21}{OIL4\_GRP (4.0 BPW, Lossless)}{subsection.2.3.2}{}}
+\newlabel{sec:oil4_grp@cref}{{[subsection][2][2,3]2.3.2}{[1][21][]21}{}{}{}}
+\newlabel{thm:oil4_grp_lossless}{{2.3.2}{21}{OIL4\_GRP (4.0 BPW, Lossless)}{subsection.2.3.2}{}}
+\newlabel{thm:oil4_grp_lossless@cref}{{[subsection][2][2,3]2.3.2}{[1][21][]21}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Storage.}{21}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3.3}OIL8 (8.0 BPW, Lossy)}{21}{subsection.2.3.3}\protected@file@percent }
+\newlabel{sec:oil8_lossy}{{2.3.3}{21}{OIL8 (8.0 BPW, Lossy)}{subsection.2.3.3}{}}
+\newlabel{sec:oil8_lossy@cref}{{[subsection][3][2,3]2.3.3}{[1][21][]21}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.4}The Lloyd-Max Codebook Algorithm}{21}{section.2.4}\protected@file@percent }
+\newlabel{sec:lloyd_max}{{2.4}{21}{The Lloyd-Max Codebook Algorithm}{section.2.4}{}}
+\newlabel{sec:lloyd_max@cref}{{[section][4][2]2.4}{[1][21][]21}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Lloyd-Max Codebook Training}}{21}{algorithm.1}\protected@file@percent }
+\newlabel{alg:lloyd_max}{{1}{21}{Lloyd-Max Codebook Training}{algorithm.1}{}}
+\newlabel{alg:lloyd_max@cref}{{[algorithm][1][]1}{[1][21][]21}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Convergence.}{21}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2.5}Cross-BPW Superiority}{21}{section.2.5}\protected@file@percent }
+\newlabel{sec:cross_bpw}{{2.5}{21}{Cross-BPW Superiority}{section.2.5}{}}
+\newlabel{sec:cross_bpw@cref}{{[section][5][2]2.5}{[1][21][]21}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.6}Quantization Barrier}{22}{section.2.6}\protected@file@percent }
+\newlabel{sec:quantization_barrier}{{2.6}{22}{Quantization Barrier}{section.2.6}{}}
+\newlabel{sec:quantization_barrier@cref}{{[section][6][2]2.6}{[1][22][]22}{}{}{}}
+\newlabel{thm:quant_barrier}{{2.6}{22}{Quantization Barrier}{section.2.6}{}}
+\newlabel{thm:quant_barrier@cref}{{[section][6][2]2.6}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.7}The Conservation Law}{22}{section.2.7}\protected@file@percent }
+\newlabel{sec:conservation}{{2.7}{22}{The Conservation Law}{section.2.7}{}}
+\newlabel{sec:conservation@cref}{{[section][7][2]2.7}{[1][22][]22}{}{}{}}
+\newlabel{thm:conservation}{{2.7}{22}{The Conservation Law}{section.2.7}{}}
+\newlabel{thm:conservation@cref}{{[section][7][2]2.7}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.8}SPARK\_SPARSE and SPARK\_SPARSE\_GRP}{22}{section.2.8}\protected@file@percent }
+\newlabel{sec:spark_sparse}{{2.8}{22}{SPARK\_SPARSE and SPARK\_SPARSE\_GRP}{section.2.8}{}}
+\newlabel{sec:spark_sparse@cref}{{[section][8][2]2.8}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.9}SPARK\_Q0 Analysis}{23}{section.2.9}\protected@file@percent }
+\newlabel{sec:spark_q0_analysis}{{2.9}{23}{SPARK\_Q0 Analysis}{section.2.9}{}}
+\newlabel{sec:spark_q0_analysis@cref}{{[section][9][2]2.9}{[1][23][]23}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {3}Mixed Precision via Twimix}{24}{chapter.3}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:mixed_precision}{{3}{24}{Mixed Precision via Twimix}{chapter.3}{}}
+\newlabel{ch:mixed_precision@cref}{{[chapter][3][]3}{[1][24][]24}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.1}Motivation}{24}{section.3.1}\protected@file@percent }
+\newlabel{sec:mix_motivation}{{3.1}{24}{Motivation}{section.3.1}{}}
+\newlabel{sec:mix_motivation@cref}{{[section][1][3]3.1}{[1][24][]24}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.2}The Twimix Framework}{24}{section.3.2}\protected@file@percent }
+\newlabel{sec:twimix}{{3.2}{24}{The Twimix Framework}{section.3.2}{}}
+\newlabel{sec:twimix@cref}{{[section][2][3]3.2}{[1][24][]24}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.3}The Trimix Ban}{24}{section.3.3}\protected@file@percent }
+\newlabel{sec:trimix_ban}{{3.3}{24}{The Trimix Ban}{section.3.3}{}}
+\newlabel{sec:trimix_ban@cref}{{[section][3][3]3.3}{[1][24][]24}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Rationale.}{24}{section*.28}\protected@file@percent }
+\gdef \LT@i {\LT@entry 
+    {2}{98.231pt}\LT@entry 
+    {1}{62.43146pt}\LT@entry 
+    {2}{42.4166pt}\LT@entry 
+    {2}{76.17892pt}\LT@entry 
+    {2}{69.03114pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.4}Two-Mix Formats (2-Mix)}{25}{section.3.4}\protected@file@percent }
+\newlabel{sec:two_mix}{{3.4}{25}{Two-Mix Formats (2-Mix)}{section.3.4}{}}
+\newlabel{sec:two_mix@cref}{{[section][4][3]3.4}{[1][25][]25}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4.1}Effective BPW Calculation}{25}{subsection.3.4.1}\protected@file@percent }
+\newlabel{eq:2mix_bpw}{{3.1}{25}{Effective BPW Calculation}{equation.3.1}{}}
+\newlabel{eq:2mix_bpw@cref}{{[equation][1][3]3.1}{[1][25][]25}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4.2}Effective Info Weight}{25}{subsection.3.4.2}\protected@file@percent }
+\newlabel{eq:2mix_iw}{{3.2}{25}{Effective Info Weight}{equation.3.2}{}}
+\newlabel{eq:2mix_iw@cref}{{[equation][2][3]3.2}{[1][25][]25}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4.3}Supported 2-Mix Formats}{25}{subsection.3.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4.4}Example: OIL8+Ternary 5:95}{25}{subsection.3.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3.5}Four-Mix Formats (4-Mix)}{26}{section.3.5}\protected@file@percent }
+\newlabel{sec:four_mix}{{3.5}{26}{Four-Mix Formats (4-Mix)}{section.3.5}{}}
+\newlabel{sec:four_mix@cref}{{[section][5][3]3.5}{[1][25][]26}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5.1}Effective BPW for 4-Mix}{26}{subsection.3.5.1}\protected@file@percent }
+\newlabel{eq:4mix_bpw}{{3.3}{26}{Effective BPW for 4-Mix}{equation.3.3}{}}
+\newlabel{eq:4mix_bpw@cref}{{[equation][3][3]3.3}{[1][25][]26}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5.2}Supported 4-Mix Formats}{26}{subsection.3.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3.6}The FormatPlanner}{26}{section.3.6}\protected@file@percent }
+\newlabel{sec:format_planner}{{3.6}{26}{The FormatPlanner}{section.3.6}{}}
+\newlabel{sec:format_planner@cref}{{[section][6][3]3.6}{[1][26][]26}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces FormatPlanner Allocation}}{26}{algorithm.2}\protected@file@percent }
+\newlabel{alg:format_planner}{{2}{26}{FormatPlanner Allocation}{algorithm.2}{}}
+\newlabel{alg:format_planner@cref}{{[algorithm][2][]2}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.7}SOPS for Mix Formats}{26}{section.3.7}\protected@file@percent }
+\newlabel{sec:sops_mix}{{3.7}{26}{SOPS for Mix Formats}{section.3.7}{}}
+\newlabel{sec:sops_mix@cref}{{[section][7][3]3.7}{[1][26][]26}{}{}{}}
+\newlabel{eq:sops_mix}{{3.4}{26}{SOPS for Mix Formats}{equation.3.4}{}}
+\newlabel{eq:sops_mix@cref}{{[equation][4][3]3.4}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.8}Per-Layer Format Allocation}{26}{section.3.8}\protected@file@percent }
+\newlabel{sec:per_layer}{{3.8}{26}{Per-Layer Format Allocation}{section.3.8}{}}
+\newlabel{sec:per_layer@cref}{{[section][8][3]3.8}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3.9}CID-Weighted Allocation}{27}{section.3.9}\protected@file@percent }
+\newlabel{sec:cid_weighted}{{3.9}{27}{CID-Weighted Allocation}{section.3.9}{}}
+\newlabel{sec:cid_weighted@cref}{{[section][9][3]3.9}{[1][27][]27}{}{}{}}
+\newlabel{eq:cid_allocation}{{3.5}{27}{CID-Weighted Allocation}{equation.3.5}{}}
+\newlabel{eq:cid_allocation@cref}{{[equation][5][3]3.5}{[1][27][]27}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {4}SOPS --- A New Compute Metric}{28}{chapter.4}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:sops}{{4}{28}{SOPS --- A New Compute Metric}{chapter.4}{}}
+\newlabel{ch:sops@cref}{{[chapter][4][]4}{[1][28][]28}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.1}The FLOPS Limitation}{28}{section.4.1}\protected@file@percent }
+\newlabel{sec:flops_limitation}{{4.1}{28}{The FLOPS Limitation}{section.4.1}{}}
+\newlabel{sec:flops_limitation@cref}{{[section][1][4]4.1}{[1][28][]28}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.2}SOPS Definition}{28}{section.4.2}\protected@file@percent }
+\newlabel{sec:sops_definition}{{4.2}{28}{SOPS Definition}{section.4.2}{}}
+\newlabel{sec:sops_definition@cref}{{[section][2][4]4.2}{[1][28][]28}{}{}{}}
+\newlabel{eq:sops_definition}{{4.1}{28}{SOPS Definition}{equation.4.1}{}}
+\newlabel{eq:sops_definition@cref}{{[equation][1][4]4.1}{[1][28][]28}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.3}Info Weight}{29}{section.4.3}\protected@file@percent }
+\newlabel{sec:info_weight}{{4.3}{29}{Info Weight}{section.4.3}{}}
+\newlabel{sec:info_weight@cref}{{[section][3][4]4.3}{[1][28][]29}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.1}Physical Meaning}{29}{subsection.4.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.4}Key Theorems}{29}{section.4.4}\protected@file@percent }
+\newlabel{sec:sops_theorems}{{4.4}{29}{Key Theorems}{section.4.4}{}}
+\newlabel{sec:sops_theorems@cref}{{[section][4][4]4.4}{[1][29][]29}{}{}{}}
+\newlabel{thm:iw_bw_ratio}{{4.4}{29}{Key Theorems}{section.4.4}{}}
+\newlabel{thm:iw_bw_ratio@cref}{{[section][4][4]4.4}{[1][29][]29}{}{}{}}
+\newlabel{thm:sops_flops_ratio}{{4.4}{29}{Key Theorems}{section.4.4}{}}
+\newlabel{thm:sops_flops_ratio@cref}{{[section][4][4]4.4}{[1][29][]29}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.5}SOPS Unit Scales}{30}{section.4.5}\protected@file@percent }
+\newlabel{sec:sops_scales}{{4.5}{30}{SOPS Unit Scales}{section.4.5}{}}
+\newlabel{sec:sops_scales@cref}{{[section][5][4]4.5}{[1][29][]30}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.6}Current Measurements}{30}{section.4.6}\protected@file@percent }
+\newlabel{sec:current_measurements}{{4.6}{30}{Current Measurements}{section.4.6}{}}
+\newlabel{sec:current_measurements@cref}{{[section][6][4]4.6}{[1][30][]30}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.7}Theoretical Maximum SOPS}{30}{section.4.7}\protected@file@percent }
+\newlabel{sec:theoretical_max}{{4.7}{30}{Theoretical Maximum SOPS}{section.4.7}{}}
+\newlabel{sec:theoretical_max@cref}{{[section][7][4]4.7}{[1][30][]30}{}{}{}}
+\newlabel{eq:max_sops}{{4.2}{30}{Theoretical Maximum SOPS}{equation.4.2}{}}
+\newlabel{eq:max_sops@cref}{{[equation][2][4]4.2}{[1][30][]30}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.8}Memory Bandwidth Analysis}{30}{section.4.8}\protected@file@percent }
+\newlabel{sec:bw_analysis}{{4.8}{30}{Memory Bandwidth Analysis}{section.4.8}{}}
+\newlabel{sec:bw_analysis@cref}{{[section][8][4]4.8}{[1][30][]30}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.1}Bandwidth Requirements for 1 SOPS}{30}{subsection.4.8.1}\protected@file@percent }
+\newlabel{eq:bw_1sops}{{4.3}{30}{Bandwidth Requirements for 1 SOPS}{equation.4.3}{}}
+\newlabel{eq:bw_1sops@cref}{{[equation][3][4]4.3}{[1][30][]30}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.2}CPU Memory Hierarchy Impact}{31}{subsection.4.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.9}SIMD Independence}{31}{section.4.9}\protected@file@percent }
+\newlabel{sec:simd_independence}{{4.9}{31}{SIMD Independence}{section.4.9}{}}
+\newlabel{sec:simd_independence@cref}{{[section][9][4]4.9}{[1][31][]31}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.10}Path to 1 SOPS}{31}{section.4.10}\protected@file@percent }
+\newlabel{sec:path_to_sops}{{4.10}{31}{Path to 1 SOPS}{section.4.10}{}}
+\newlabel{sec:path_to_sops@cref}{{[section][10][4]4.10}{[1][31][]31}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.10.1}Landauer's Limit}{32}{subsection.4.10.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.11}What 1 SOPS Enables}{32}{section.4.11}\protected@file@percent }
+\newlabel{sec:what_1sops_enables}{{4.11}{32}{What 1 SOPS Enables}{section.4.11}{}}
+\newlabel{sec:what_1sops_enables@cref}{{[section][11][4]4.11}{[1][32][]32}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.12}SopsCounter API}{32}{section.4.12}\protected@file@percent }
+\newlabel{sec:sops_api}{{4.12}{32}{SopsCounter API}{section.4.12}{}}
+\newlabel{sec:sops_api@cref}{{[section][12][4]4.12}{[1][32][]32}{}{}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {4.1}{\ignorespaces SopsCounter basic usage}}{32}{lstlisting.4.1}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {4.2}{\ignorespaces Multi-threaded SOPS measurement}}{32}{lstlisting.4.2}\protected@file@percent }
+\abx@aux@cite{0}{bengio2013}
+\abx@aux@segm{0}{0}{bengio2013}
+\@writefile{toc}{\contentsline {chapter}{\numberline {5}Native Training Without FP32 Master Weights}{33}{chapter.5}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:native_training}{{5}{33}{Native Training Without FP32 Master Weights}{chapter.5}{}}
+\newlabel{ch:native_training@cref}{{[chapter][5][]5}{[1][33][]33}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.1}The Training Paradigm Shift}{33}{section.5.1}\protected@file@percent }
+\newlabel{sec:paradigm_shift}{{5.1}{33}{The Training Paradigm Shift}{section.5.1}{}}
+\newlabel{sec:paradigm_shift@cref}{{[section][1][5]5.1}{[1][33][]33}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.2}Straight-Through Estimator (STE)}{33}{section.5.2}\protected@file@percent }
+\newlabel{sec:ste}{{5.2}{33}{Straight-Through Estimator (STE)}{section.5.2}{}}
+\newlabel{sec:ste@cref}{{[section][2][5]5.2}{[1][33][]33}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.1}Forward Pass}{33}{subsection.5.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.2}Backward Pass}{33}{subsection.5.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.3}Index Update}{33}{subsection.5.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.4}Scale Update}{33}{subsection.5.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.5}Codebook Update}{34}{subsection.5.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.3}The Quantization Barrier Mechanism}{34}{section.5.3}\protected@file@percent }
+\newlabel{sec:qb_mechanism}{{5.3}{34}{The Quantization Barrier Mechanism}{section.5.3}{}}
+\newlabel{sec:qb_mechanism@cref}{{[section][3][5]5.3}{[1][34][]34}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.1}Formal Analysis}{34}{subsection.5.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.2}Fixed Points}{34}{subsection.5.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.3}Exponential Convergence}{34}{subsection.5.3.3}\protected@file@percent }
+\newlabel{thm:exp_convergence}{{5.3.3}{34}{Exponential Convergence}{subsection.5.3.3}{}}
+\newlabel{thm:exp_convergence@cref}{{[subsection][3][5,3]5.3.3}{[1][34][]34}{}{}{}}
+\newlabel{thm:finite_freeze}{{5.3.3}{34}{Exponential Convergence}{subsection.5.3.3}{}}
+\newlabel{thm:finite_freeze@cref}{{[subsection][3][5,3]5.3.3}{[1][34][]34}{}{}{}}
+\abx@aux@cite{0}{jacot2018}
+\abx@aux@segm{0}{0}{jacot2018}
+\@writefile{toc}{\contentsline {section}{\numberline {5.4}Diagonal Dominance}{35}{section.5.4}\protected@file@percent }
+\newlabel{sec:diag_dominance}{{5.4}{35}{Diagonal Dominance}{section.5.4}{}}
+\newlabel{sec:diag_dominance@cref}{{[section][4][5]5.4}{[1][35][]35}{}{}{}}
+\newlabel{thm:diag_dominance}{{5.4}{35}{Diagonal Dominance}{section.5.4}{}}
+\newlabel{thm:diag_dominance@cref}{{[section][4][5]5.4}{[1][35][]35}{}{}{}}
+\newlabel{thm:offdiag_negligible}{{5.4}{35}{Diagonal Dominance}{section.5.4}{}}
+\newlabel{thm:offdiag_negligible@cref}{{[section][4][5]5.4}{[1][35][]35}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.5}PAC-Bayes Bounds}{35}{section.5.5}\protected@file@percent }
+\newlabel{sec:pac_bayes}{{5.5}{35}{PAC-Bayes Bounds}{section.5.5}{}}
+\newlabel{sec:pac_bayes@cref}{{[section][5][5]5.5}{[1][35][]35}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.1}Risk Decomposition}{35}{subsection.5.5.1}\protected@file@percent }
+\newlabel{lem:risk_decomposition}{{5.2}{35}{Risk Decomposition Identity}{theorem.5.2}{}}
+\newlabel{lem:risk_decomposition@cref}{{[theorem][2][5]5.2}{[1][35][]35}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.2}KL Divergence: Mixed Format}{35}{subsection.5.5.2}\protected@file@percent }
+\abx@aux@cite{0}{dziugaite2017}
+\abx@aux@segm{0}{0}{dziugaite2017}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.3}KL Divergence: FP32}{36}{subsection.5.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.4}Explicit Constants}{36}{subsection.5.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.6}The Confidence Interval}{36}{section.5.6}\protected@file@percent }
+\newlabel{sec:confidence_interval}{{5.6}{36}{The Confidence Interval}{section.5.6}{}}
+\newlabel{sec:confidence_interval@cref}{{[section][6][5]5.6}{[1][36][]36}{}{}{}}
+\newlabel{thm:bounded_gap}{{5.6}{36}{The Confidence Interval}{section.5.6}{}}
+\newlabel{thm:bounded_gap@cref}{{[section][6][5]5.6}{[1][36][]36}{}{}{}}
+\newlabel{thm:empirical_superiority}{{5.6}{36}{The Confidence Interval}{section.5.6}{}}
+\newlabel{thm:empirical_superiority@cref}{{[section][6][5]5.6}{[1][36][]36}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.7}Stability Analysis}{36}{section.5.7}\protected@file@percent }
+\newlabel{sec:stability}{{5.7}{36}{Stability Analysis}{section.5.7}{}}
+\newlabel{sec:stability@cref}{{[section][7][5]5.7}{[1][36][]36}{}{}{}}
+\newlabel{thm:sensitivity_preservation}{{5.7}{36}{Stability Analysis}{section.5.7}{}}
+\newlabel{thm:sensitivity_preservation@cref}{{[section][7][5]5.7}{[1][36][]36}{}{}{}}
+\abx@aux@cite{0}{jacot2018}
+\abx@aux@segm{0}{0}{jacot2018}
+\abx@aux@cite{0}{rahaman2019}
+\abx@aux@segm{0}{0}{rahaman2019}
+\newlabel{thm:tightened_delta}{{5.7}{37}{Stability Analysis}{section.5.7}{}}
+\newlabel{thm:tightened_delta@cref}{{[section][7][5]5.7}{[1][37][]37}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.1}Algorithmic Stability via Dead Zone}{37}{subsection.5.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.8}The CID Assumption}{37}{section.5.8}\protected@file@percent }
+\newlabel{sec:cid}{{5.8}{37}{The CID Assumption}{section.5.8}{}}
+\newlabel{sec:cid@cref}{{[section][8][5]5.8}{[1][37][]37}{}{}{}}
+\newlabel{thm:cid_from_covariance}{{5.8}{37}{The CID Assumption}{section.5.8}{}}
+\newlabel{thm:cid_from_covariance@cref}{{[section][8][5]5.8}{[1][37][]37}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.9}Empirical Validation}{37}{section.5.9}\protected@file@percent }
+\newlabel{sec:empirical_validation}{{5.9}{37}{Empirical Validation}{section.5.9}{}}
+\newlabel{sec:empirical_validation@cref}{{[section][9][5]5.9}{[1][37][]37}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.10}Information Ratio}{38}{section.5.10}\protected@file@percent }
+\newlabel{sec:info_ratio}{{5.10}{38}{Information Ratio}{section.5.10}{}}
+\newlabel{sec:info_ratio@cref}{{[section][10][5]5.10}{[1][37][]38}{}{}{}}
+\newlabel{thm:info_ratio}{{5.10}{38}{Information Ratio}{section.5.10}{}}
+\newlabel{thm:info_ratio@cref}{{[section][10][5]5.10}{[1][38][]38}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.11}Summary of Theoretical Guarantees}{38}{section.5.11}\protected@file@percent }
+\newlabel{sec:theory_summary}{{5.11}{38}{Summary of Theoretical Guarantees}{section.5.11}{}}
+\newlabel{sec:theory_summary@cref}{{[section][11][5]5.11}{[1][38][]38}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {6}Continual Learning with Stability-Plasticity Balance}{39}{chapter.6}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:continual_learning}{{6}{39}{Continual Learning with Stability-Plasticity Balance}{chapter.6}{}}
+\newlabel{ch:continual_learning@cref}{{[chapter][6][]6}{[1][39][]39}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.1}The Continual Learning Problem}{39}{section.6.1}\protected@file@percent }
+\newlabel{sec:continual_learning_intro}{{6.1}{39}{The Continual Learning Problem}{section.6.1}{}}
+\newlabel{sec:continual_learning_intro@cref}{{[section][1][6]6.1}{[1][39][]39}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.2}Quantization as Implicit Regularization}{39}{section.6.2}\protected@file@percent }
+\newlabel{sec:quant_as_regularization}{{6.2}{39}{Quantization as Implicit Regularization}{section.6.2}{}}
+\newlabel{sec:quant_as_regularization@cref}{{[section][2][6]6.2}{[1][39][]39}{}{}{}}
+\newlabel{lem:fisher_proxy}{{6.2}{40}{Quantization as Implicit Regularization}{Item.32}{}}
+\newlabel{lem:fisher_proxy@cref}{{[section][2][6]6.2}{[1][40][]40}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.3}The Stability-Plasticity Equilibrium}{40}{section.6.3}\protected@file@percent }
+\newlabel{sec:sp_equilibrium}{{6.3}{40}{The Stability-Plasticity Equilibrium}{section.6.3}{}}
+\newlabel{sec:sp_equilibrium@cref}{{[section][3][6]6.3}{[1][40][]40}{}{}{}}
+\newlabel{thm:stability_plasticity}{{6.3}{40}{The Stability-Plasticity Equilibrium}{section.6.3}{}}
+\newlabel{thm:stability_plasticity@cref}{{[section][3][6]6.3}{[1][40][]40}{}{}{}}
+\abx@aux@cite{0}{kirkpatrick2017}
+\abx@aux@segm{0}{0}{kirkpatrick2017}
+\newlabel{lem:tightened_plasticity}{{6.3}{41}{The Stability-Plasticity Equilibrium}{section.6.3}{}}
+\newlabel{lem:tightened_plasticity@cref}{{[section][3][6]6.3}{[1][41][]41}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.4}Elastic Weight Consolidation in OIL}{41}{section.6.4}\protected@file@percent }
+\newlabel{sec:ewc_oil}{{6.4}{41}{Elastic Weight Consolidation in OIL}{section.6.4}{}}
+\newlabel{sec:ewc_oil@cref}{{[section][4][6]6.4}{[1][41][]41}{}{}{}}
+\newlabel{cor:ewc_free}{{6.4}{41}{Elastic Weight Consolidation in OIL}{Item.34}{}}
+\newlabel{cor:ewc_free@cref}{{[section][4][6]6.4}{[1][41][]41}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.5}Task-Incremental Learning Protocol}{41}{section.6.5}\protected@file@percent }
+\newlabel{sec:task_incremental}{{6.5}{41}{Task-Incremental Learning Protocol}{section.6.5}{}}
+\newlabel{sec:task_incremental@cref}{{[section][5][6]6.5}{[1][41][]41}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {3}{\ignorespaces OIL Continual Learning}}{42}{algorithm.3}\protected@file@percent }
+\newlabel{alg:continual_learning}{{3}{42}{OIL Continual Learning}{algorithm.3}{}}
+\newlabel{alg:continual_learning@cref}{{[algorithm][3][]3}{[1][41][]42}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.6}Catastrophic Forgetting Mitigation}{42}{section.6.6}\protected@file@percent }
+\newlabel{sec:forgetting_mitigation}{{6.6}{42}{Catastrophic Forgetting Mitigation}{section.6.6}{}}
+\newlabel{sec:forgetting_mitigation@cref}{{[section][6][6]6.6}{[1][42][]42}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.1}Format-Based Anchoring}{42}{subsection.6.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.2}Progressive Plasticity}{42}{subsection.6.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.3}Codebook Stability}{42}{subsection.6.6.3}\protected@file@percent }
+\newlabel{lem:codebook_inertia}{{6.6.3}{42}{Codebook Stability}{subsection.6.6.3}{}}
+\newlabel{lem:codebook_inertia@cref}{{[subsection][3][6,6]6.6.3}{[1][42][]42}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.7}Multi-Task OIL Architecture}{43}{section.6.7}\protected@file@percent }
+\newlabel{sec:multi_task}{{6.7}{43}{Multi-Task OIL Architecture}{section.6.7}{}}
+\newlabel{sec:multi_task@cref}{{[section][7][6]6.7}{[1][42][]43}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.8}Practical Continual Learning with OIL}{43}{section.6.8}\protected@file@percent }
+\newlabel{sec:practical_cl}{{6.8}{43}{Practical Continual Learning with OIL}{section.6.8}{}}
+\newlabel{sec:practical_cl@cref}{{[section][8][6]6.8}{[1][43][]43}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.1}Checkpoint-Based Resume}{43}{subsection.6.8.1}\protected@file@percent }
+\newlabel{sec:checkpoint_resume}{{6.8.1}{43}{Checkpoint-Based Resume}{subsection.6.8.1}{}}
+\newlabel{sec:checkpoint_resume@cref}{{[subsection][1][6,8]6.8.1}{[1][43][]43}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.2}Format Migration During Training}{43}{subsection.6.8.2}\protected@file@percent }
+\newlabel{sec:format_migration}{{6.8.2}{43}{Format Migration During Training}{subsection.6.8.2}{}}
+\newlabel{sec:format_migration@cref}{{[subsection][2][6,8]6.8.2}{[1][43][]43}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {4}{\ignorespaces OIL Format Migration During Continual Learning}}{44}{algorithm.4}\protected@file@percent }
+\newlabel{alg:format_migration}{{4}{44}{OIL Format Migration During Continual Learning}{algorithm.4}{}}
+\newlabel{alg:format_migration@cref}{{[algorithm][4][]4}{[1][43][]44}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.3}Adaptive Learning Rate Schedules}{44}{subsection.6.8.3}\protected@file@percent }
+\newlabel{sec:adaptive_lr}{{6.8.3}{44}{Adaptive Learning Rate Schedules}{subsection.6.8.3}{}}
+\newlabel{sec:adaptive_lr@cref}{{[subsection][3][6,8]6.8.3}{[1][44][]44}{}{}{}}
+\newlabel{thm:adaptive_lr_convergence}{{6.8.3}{45}{Adaptive Learning Rate Schedules}{subsection.6.8.3}{}}
+\newlabel{thm:adaptive_lr_convergence@cref}{{[subsection][3][6,8]6.8.3}{[1][44][]45}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.9}Empirical Continual Learning Results}{45}{section.6.9}\protected@file@percent }
+\newlabel{sec:cl_empirical}{{6.9}{45}{Empirical Continual Learning Results}{section.6.9}{}}
+\newlabel{sec:cl_empirical@cref}{{[section][9][6]6.9}{[1][45][]45}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {7}Multi-Token Prediction and Speculative Decoding}{46}{chapter.7}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:mtp}{{7}{46}{Multi-Token Prediction and Speculative Decoding}{chapter.7}{}}
+\newlabel{ch:mtp@cref}{{[chapter][7][]7}{[1][46][]46}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7.1}The Autoregressive Bottleneck}{46}{section.7.1}\protected@file@percent }
+\newlabel{sec:autoregressive_bottleneck}{{7.1}{46}{The Autoregressive Bottleneck}{section.7.1}{}}
+\newlabel{sec:autoregressive_bottleneck@cref}{{[section][1][7]7.1}{[1][46][]46}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7.2}Multi-Token Prediction (MTP)}{46}{section.7.2}\protected@file@percent }
+\newlabel{sec:mtp}{{7.2}{46}{Multi-Token Prediction (MTP)}{section.7.2}{}}
+\newlabel{sec:mtp@cref}{{[section][2][7]7.2}{[1][46][]46}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.1}Concept}{46}{subsection.7.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.2}Architecture}{46}{subsection.7.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.3}OIL Integration}{47}{subsection.7.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.3}Draft-Verify Architecture}{47}{section.7.3}\protected@file@percent }
+\newlabel{sec:draft_verify}{{7.3}{47}{Draft-Verify Architecture}{section.7.3}{}}
+\newlabel{sec:draft_verify@cref}{{[section][3][7]7.3}{[1][47][]47}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.1}Design Overview}{47}{subsection.7.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.2}Acceptance Probability Analysis}{47}{subsection.7.3.2}\protected@file@percent }
+\abx@aux@cite{0}{leviathan2023}
+\abx@aux@segm{0}{0}{leviathan2023}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.3}Implementation Details}{48}{subsection.7.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.4}Multi-Token Prediction Training}{48}{section.7.4}\protected@file@percent }
+\newlabel{sec:mtp_training}{{7.4}{48}{Multi-Token Prediction Training}{section.7.4}{}}
+\newlabel{sec:mtp_training@cref}{{[section][4][7]7.4}{[1][48][]48}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.1}Head Architecture}{48}{subsection.7.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.2}Loss Formulation}{48}{subsection.7.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.3}Head Sharing Strategy}{48}{subsection.7.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.4}Training Procedure}{49}{subsection.7.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.5}Empirical Speedup Analysis}{49}{section.7.5}\protected@file@percent }
+\newlabel{sec:empirical_speedup}{{7.5}{49}{Empirical Speedup Analysis}{section.7.5}{}}
+\newlabel{sec:empirical_speedup@cref}{{[section][5][7]7.5}{[1][49][]49}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.1}Benchmark Configuration}{49}{subsection.7.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.2}Speedup by Format Combination}{49}{subsection.7.5.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.1}{\ignorespaces Speculative decoding speedup across OIL format combinations ($K=4$, 64M model, single-thread CPU).}}{49}{table.7.1}\protected@file@percent }
+\newlabel{tab:spec_speedup_formats}{{7.1}{49}{Speculative decoding speedup across OIL format combinations ($K=4$, 64M model, single-thread CPU)}{table.7.1}{}}
+\newlabel{tab:spec_speedup_formats@cref}{{[table][1][7]7.1}{[1][49][]49}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.3}Speedup by Draft Length}{50}{subsection.7.5.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.2}{\ignorespaces Effect of draft length $K$ on throughput (OIL2/OIL4, 64M model).}}{50}{table.7.2}\protected@file@percent }
+\newlabel{tab:spec_speedup_K}{{7.2}{50}{Effect of draft length $K$ on throughput (OIL2/OIL4, 64M model)}{table.7.2}{}}
+\newlabel{tab:spec_speedup_K@cref}{{[table][2][7]7.2}{[1][50][]50}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.4}Quality Verification}{50}{subsection.7.5.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.3}{\ignorespaces Perplexity is invariant to draft model quality---only the verification model determines output quality.}}{50}{table.7.3}\protected@file@percent }
+\newlabel{tab:spec_quality}{{7.3}{50}{Perplexity is invariant to draft model quality---only the verification model determines output quality}{table.7.3}{}}
+\newlabel{tab:spec_quality@cref}{{[table][3][7]7.3}{[1][50][]50}{}{}{}}
+\newlabel{thm:draft_quality_indep}{{7.3}{50}{Perplexity is invariant to draft model quality---only the verification model determines output quality}{table.7.3}{}}
+\newlabel{thm:draft_quality_indep@cref}{{[table][3][7]7.3}{[1][50][]50}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7.6}Connection to OIL Format System}{51}{section.7.6}\protected@file@percent }
+\newlabel{sec:format_speculative_connection}{{7.6}{51}{Connection to OIL Format System}{section.7.6}{}}
+\newlabel{sec:format_speculative_connection@cref}{{[section][6][7]7.6}{[1][50][]51}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6.1}Format-Aware Speculative Decoding}{51}{subsection.7.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6.2}Memory Bandwidth Analysis}{51}{subsection.7.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6.3}Format Selection Heuristics}{51}{subsection.7.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6.4}GRP Format Compatibility}{52}{subsection.7.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.7}KV Cache Compression}{52}{section.7.7}\protected@file@percent }
+\newlabel{sec:kv_cache}{{7.7}{52}{KV Cache Compression}{section.7.7}{}}
+\newlabel{sec:kv_cache@cref}{{[section][7][7]7.7}{[1][52][]52}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7.8}Streaming Generation}{52}{section.7.8}\protected@file@percent }
+\newlabel{sec:streaming}{{7.8}{52}{Streaming Generation}{section.7.8}{}}
+\newlabel{sec:streaming@cref}{{[section][8][7]7.8}{[1][52][]52}{}{}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {7.1}{\ignorespaces Speculative decoding with OIL}}{52}{lstlisting.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.9}Performance Characteristics}{52}{section.7.9}\protected@file@percent }
+\newlabel{sec:mtp_performance}{{7.9}{52}{Performance Characteristics}{section.7.9}{}}
+\newlabel{sec:mtp_performance@cref}{{[section][9][7]7.9}{[1][52][]52}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {8}Thread Safety and Lock-Free Design}{53}{chapter.8}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:thread_safety}{{8}{53}{Thread Safety and Lock-Free Design}{chapter.8}{}}
+\newlabel{ch:thread_safety@cref}{{[chapter][8][]8}{[1][53][]53}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.1}The Concurrency Challenge}{53}{section.8.1}\protected@file@percent }
+\newlabel{sec:concurrency_challenge}{{8.1}{53}{The Concurrency Challenge}{section.8.1}{}}
+\newlabel{sec:concurrency_challenge@cref}{{[section][1][8]8.1}{[1][53][]53}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.2}Lock-Free Ring Buffer}{53}{section.8.2}\protected@file@percent }
+\newlabel{sec:ring_buffer}{{8.2}{53}{Lock-Free Ring Buffer}{section.8.2}{}}
+\newlabel{sec:ring_buffer@cref}{{[section][2][8]8.2}{[1][53][]53}{}{}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {8.1}{\ignorespaces Lock-free ring buffer}}{53}{lstlisting.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.3}Atomic SOPS Counter}{54}{section.8.3}\protected@file@percent }
+\newlabel{sec:atomic_sops}{{8.3}{54}{Atomic SOPS Counter}{section.8.3}{}}
+\newlabel{sec:atomic_sops@cref}{{[section][3][8]8.3}{[1][53][]54}{}{}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {8.2}{\ignorespaces Thread-safe SOPS counter}}{54}{lstlisting.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.4}Stack Allocator}{54}{section.8.4}\protected@file@percent }
+\newlabel{sec:stack_allocator}{{8.4}{54}{Stack Allocator}{section.8.4}{}}
+\newlabel{sec:stack_allocator@cref}{{[section][4][8]8.4}{[1][54][]54}{}{}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {8.3}{\ignorespaces Thread-local stack allocator}}{54}{lstlisting.8.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.5}Memory Pool}{54}{section.8.5}\protected@file@percent }
+\newlabel{sec:memory_pool}{{8.5}{54}{Memory Pool}{section.8.5}{}}
+\newlabel{sec:memory_pool@cref}{{[section][5][8]8.5}{[1][54][]54}{}{}{}}
+\newlabel{thm:lock_free_read}{{8.5}{54}{Memory Pool}{section.8.5}{}}
+\newlabel{thm:lock_free_read@cref}{{[section][5][8]8.5}{[1][54][]54}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.6}Parameter Server Architecture}{55}{section.8.6}\protected@file@percent }
+\newlabel{sec:parameter_server}{{8.6}{55}{Parameter Server Architecture}{section.8.6}{}}
+\newlabel{sec:parameter_server@cref}{{[section][6][8]8.6}{[1][55][]55}{}{}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {8.4}{\ignorespaces Sharded parameter server}}{55}{lstlisting.8.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.7}Autograd Engine Thread Safety}{55}{section.8.7}\protected@file@percent }
+\newlabel{sec:autograd_threading}{{8.7}{55}{Autograd Engine Thread Safety}{section.8.7}{}}
+\newlabel{sec:autograd_threading@cref}{{[section][7][8]8.7}{[1][55][]55}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.8}Benchmark: Multi-Threaded SOPS}{56}{section.8.8}\protected@file@percent }
+\newlabel{sec:threaded_sops_benchmark}{{8.8}{56}{Benchmark: Multi-Threaded SOPS}{section.8.8}{}}
+\newlabel{sec:threaded_sops_benchmark@cref}{{[section][8][8]8.8}{[1][55][]56}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.9}Thread Safety Guarantees}{56}{section.8.9}\protected@file@percent }
+\newlabel{sec:safety_guarantees}{{8.9}{56}{Thread Safety Guarantees}{section.8.9}{}}
+\newlabel{sec:safety_guarantees@cref}{{[section][9][8]8.9}{[1][56][]56}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {9}Empirical Results}{57}{chapter.9}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:empirical_results}{{9}{57}{Empirical Results}{chapter.9}{}}
+\newlabel{ch:empirical_results@cref}{{[chapter][9][]9}{[1][57][]57}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.1}Implementation Overview}{57}{section.9.1}\protected@file@percent }
+\newlabel{sec:implementation_overview}{{9.1}{57}{Implementation Overview}{section.9.1}{}}
+\newlabel{sec:implementation_overview@cref}{{[section][1][9]9.1}{[1][57][]57}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.2}Build System}{57}{section.9.2}\protected@file@percent }
+\newlabel{sec:build_system}{{9.2}{57}{Build System}{section.9.2}{}}
+\newlabel{sec:build_system@cref}{{[section][2][9]9.2}{[1][57][]57}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.3}GPT-2 Weight Matrix Analysis}{57}{section.9.3}\protected@file@percent }
+\newlabel{sec:gpt2_analysis}{{9.3}{57}{GPT-2 Weight Matrix Analysis}{section.9.3}{}}
+\newlabel{sec:gpt2_analysis@cref}{{[section][3][9]9.3}{[1][57][]57}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.4}SPARK\_Q0 Benchmarks}{58}{section.9.4}\protected@file@percent }
+\newlabel{sec:spark_benchmarks}{{9.4}{58}{SPARK\_Q0 Benchmarks}{section.9.4}{}}
+\newlabel{sec:spark_benchmarks@cref}{{[section][4][9]9.4}{[1][58][]58}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.5}OIL vs Industrial Formats}{58}{section.9.5}\protected@file@percent }
+\newlabel{sec:oil_vs_industrial}{{9.5}{58}{OIL vs Industrial Formats}{section.9.5}{}}
+\newlabel{sec:oil_vs_industrial@cref}{{[section][5][9]9.5}{[1][58][]58}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.6}Multi-Scale Linear Regression}{58}{section.9.6}\protected@file@percent }
+\newlabel{sec:multiscale}{{9.6}{58}{Multi-Scale Linear Regression}{section.9.6}{}}
+\newlabel{sec:multiscale@cref}{{[section][6][9]9.6}{[1][58][]58}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.6.1}Uniform Weights Counterexample}{58}{subsection.9.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9.7}Memory and Storage at Scale}{59}{section.9.7}\protected@file@percent }
+\newlabel{sec:storage_scale}{{9.7}{59}{Memory and Storage at Scale}{section.9.7}{}}
+\newlabel{sec:storage_scale@cref}{{[section][7][9]9.7}{[1][58][]59}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.8}Kernel Performance}{59}{section.9.8}\protected@file@percent }
+\newlabel{sec:kernel_perf}{{9.8}{59}{Kernel Performance}{section.9.8}{}}
+\newlabel{sec:kernel_perf@cref}{{[section][8][9]9.8}{[1][59][]59}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.9}Per-Layer Format Distribution}{59}{section.9.9}\protected@file@percent }
+\newlabel{sec:per_layer_results}{{9.9}{59}{Per-Layer Format Distribution}{section.9.9}{}}
+\newlabel{sec:per_layer_results@cref}{{[section][9][9]9.9}{[1][59][]59}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.10}SOPS Measurements}{59}{section.9.10}\protected@file@percent }
+\newlabel{sec:sops_measurements}{{9.10}{59}{SOPS Measurements}{section.9.10}{}}
+\newlabel{sec:sops_measurements@cref}{{[section][10][9]9.10}{[1][59][]59}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.11}Claim Verification Summary}{60}{section.9.11}\protected@file@percent }
+\newlabel{sec:claims_summary}{{9.11}{60}{Claim Verification Summary}{section.9.11}{}}
+\newlabel{sec:claims_summary@cref}{{[section][11][9]9.11}{[1][59][]60}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {10}Future Directions}{61}{chapter.10}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:future_directions}{{10}{61}{Future Directions}{chapter.10}{}}
+\newlabel{ch:future_directions@cref}{{[chapter][10][]10}{[1][61][]61}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.1}GPU Acceleration}{61}{section.10.1}\protected@file@percent }
+\newlabel{sec:gpu_future}{{10.1}{61}{GPU Acceleration}{section.10.1}{}}
+\newlabel{sec:gpu_future@cref}{{[section][1][10]10.1}{[1][61][]61}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.1.1}Vulkan Compute Backend}{61}{subsection.10.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.1.2}DirectX 12 Compute}{61}{subsection.10.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.2}Distributed Training}{61}{section.10.2}\protected@file@percent }
+\newlabel{sec:distributed_future}{{10.2}{61}{Distributed Training}{section.10.2}{}}
+\newlabel{sec:distributed_future@cref}{{[section][2][10]10.2}{[1][61][]61}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.2.1}ZeRO-3 Sharding}{61}{subsection.10.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.2.2}Pipeline Parallelism}{62}{subsection.10.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.3}Out-of-Core Training}{62}{section.10.3}\protected@file@percent }
+\newlabel{sec:out_of_core}{{10.3}{62}{Out-of-Core Training}{section.10.3}{}}
+\newlabel{sec:out_of_core@cref}{{[section][3][10]10.3}{[1][62][]62}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3.1}Memory-Mapped Models}{62}{subsection.10.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3.2}iGPU VRAM Zero-Copy}{62}{subsection.10.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.4}Scaling to 48T+ Parameters}{62}{section.10.4}\protected@file@percent }
+\newlabel{sec:scaling_48t}{{10.4}{62}{Scaling to 48T+ Parameters}{section.10.4}{}}
+\newlabel{sec:scaling_48t@cref}{{[section][4][10]10.4}{[1][62][]62}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.5}Custom Silicon}{62}{section.10.5}\protected@file@percent }
+\newlabel{sec:custom_silicon}{{10.5}{62}{Custom Silicon}{section.10.5}{}}
+\newlabel{sec:custom_silicon@cref}{{[section][5][10]10.5}{[1][62][]62}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5.1}OIL-Native ASIC}{62}{subsection.10.5.1}\protected@file@percent }
+\abx@aux@cite{0}{dao2022}
+\abx@aux@segm{0}{0}{dao2022}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5.2}Path to 1 SOPS}{63}{subsection.10.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.6}Algorithmic Improvements}{63}{section.10.6}\protected@file@percent }
+\newlabel{sec:algorithmic_future}{{10.6}{63}{Algorithmic Improvements}{section.10.6}{}}
+\newlabel{sec:algorithmic_future@cref}{{[section][6][10]10.6}{[1][63][]63}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.6.1}FlashAttention for OIL4}{63}{subsection.10.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.6.2}Mixture of Experts (MoE)}{63}{subsection.10.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.6.3}Multi-Token Prediction}{63}{subsection.10.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.7}Open Problems}{63}{section.10.7}\protected@file@percent }
+\newlabel{sec:open_problems}{{10.7}{63}{Open Problems}{section.10.7}{}}
+\newlabel{sec:open_problems@cref}{{[section][7][10]10.7}{[1][63][]63}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.8}Publication Roadmap}{64}{section.10.8}\protected@file@percent }
+\newlabel{sec:publication_roadmap}{{10.8}{64}{Publication Roadmap}{section.10.8}{}}
+\newlabel{sec:publication_roadmap@cref}{{[section][8][10]10.8}{[1][63][]64}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.9}Safety and Alignment}{64}{section.10.9}\protected@file@percent }
+\newlabel{sec:safety_future}{{10.9}{64}{Safety and Alignment}{section.10.9}{}}
+\newlabel{sec:safety_future@cref}{{[section][9][10]10.9}{[1][64][]64}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9.1}Air-Gapped Training}{64}{subsection.10.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9.2}Value Preservation}{64}{subsection.10.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9.3}Capability Control}{64}{subsection.10.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.10}The 60,000 Tokens/Param Goal}{64}{section.10.10}\protected@file@percent }
+\newlabel{sec:60k_goal}{{10.10}{64}{The 60,000 Tokens/Param Goal}{section.10.10}{}}
+\newlabel{sec:60k_goal@cref}{{[section][10][10]10.10}{[1][64][]64}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.11}Conclusion}{64}{section.10.11}\protected@file@percent }
+\newlabel{sec:conclusion_final}{{10.11}{64}{Conclusion}{section.10.11}{}}
+\newlabel{sec:conclusion_final@cref}{{[section][11][10]10.11}{[1][64][]64}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {11}GPU Backend and Vulkan Compute}{65}{chapter.11}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:gpu_backend}{{11}{65}{GPU Backend and Vulkan Compute}{chapter.11}{}}
+\newlabel{ch:gpu_backend@cref}{{[chapter][11][]11}{[1][65][]65}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.1}Design Philosophy}{65}{section.11.1}\protected@file@percent }
+\newlabel{sec:gpu_design}{{11.1}{65}{Design Philosophy}{section.11.1}{}}
+\newlabel{sec:gpu_design@cref}{{[section][1][11]11.1}{[1][65][]65}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.2}Vulkan Compute Pipeline}{65}{section.11.2}\protected@file@percent }
+\newlabel{sec:vulkan_pipeline}{{11.2}{65}{Vulkan Compute Pipeline}{section.11.2}{}}
+\newlabel{sec:vulkan_pipeline@cref}{{[section][2][11]11.2}{[1][65][]65}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2.1}Instance and Device Initialization}{65}{subsection.11.2.1}\protected@file@percent }
+\newlabel{eq:gpu_score}{{11.1}{65}{Instance and Device Initialization}{equation.11.1}{}}
+\newlabel{eq:gpu_score@cref}{{[equation][1][11]11.1}{[1][65][]65}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2.2}Memory Management}{65}{subsection.11.2.2}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {5}{\ignorespaces GPU Weight Upload}}{66}{algorithm.5}\protected@file@percent }
+\newlabel{alg:gpu_upload}{{5}{66}{GPU Weight Upload}{algorithm.5}{}}
+\newlabel{alg:gpu_upload@cref}{{[algorithm][5][]5}{[1][65][]66}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2.3}Compute Shader Dispatch}{66}{subsection.11.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.3}Zero-Copy Weight Promotion}{66}{section.11.3}\protected@file@percent }
+\newlabel{sec:zero_copy}{{11.3}{66}{Zero-Copy Weight Promotion}{section.11.3}{}}
+\newlabel{sec:zero_copy@cref}{{[section][3][11]11.3}{[1][66][]66}{}{}{}}
+\newlabel{thm:gpu_zerocopy}{{11.3}{66}{Zero-Copy Weight Promotion}{section.11.3}{}}
+\newlabel{thm:gpu_zerocopy@cref}{{[section][3][11]11.3}{[1][66][]66}{}{}{}}
+\gdef \LT@ii {\LT@entry 
+    {2}{159.21707pt}\LT@entry 
+    {1}{85.02737pt}\LT@entry 
+    {2}{103.40201pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.4}Mixed-Precision GPU Kernels}{67}{section.11.4}\protected@file@percent }
+\newlabel{sec:gpu_mixed}{{11.4}{67}{Mixed-Precision GPU Kernels}{section.11.4}{}}
+\newlabel{sec:gpu_mixed@cref}{{[section][4][11]11.4}{[1][66][]67}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4.1}The 2-Mix GPU Kernel}{67}{subsection.11.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4.2}SIMD Width Adaptation}{67}{subsection.11.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.5}iGPU Performance Characteristics}{67}{section.11.5}\protected@file@percent }
+\newlabel{sec:igpu_perf}{{11.5}{67}{iGPU Performance Characteristics}{section.11.5}{}}
+\newlabel{sec:igpu_perf@cref}{{[section][5][11]11.5}{[1][67][]67}{}{}{}}
+\gdef \LT@iii {\LT@entry 
+    {2}{71.61679pt}\LT@entry 
+    {1}{72.92546pt}\LT@entry 
+    {1}{72.59494pt}\LT@entry 
+    {1}{61.30089pt}}
+\gdef \LT@iv {\LT@entry 
+    {1}{46.88037pt}\LT@entry 
+    {1}{51.86742pt}\LT@entry 
+    {1}{52.43831pt}\LT@entry 
+    {1}{64.05615pt}\LT@entry 
+    {1}{44.05939pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.6}Memory Bandwidth Analysis}{68}{section.11.6}\protected@file@percent }
+\newlabel{sec:gpu_bandwidth}{{11.6}{68}{Memory Bandwidth Analysis}{section.11.6}{}}
+\newlabel{sec:gpu_bandwidth@cref}{{[section][6][11]11.6}{[1][67][]68}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.7}Vulkan Extension Requirements}{68}{section.11.7}\protected@file@percent }
+\newlabel{sec:vulkan_ext}{{11.7}{68}{Vulkan Extension Requirements}{section.11.7}{}}
+\newlabel{sec:vulkan_ext@cref}{{[section][7][11]11.7}{[1][68][]68}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.8}Benchmark Results on Integrated GPU}{68}{section.11.8}\protected@file@percent }
+\newlabel{sec:gpu_benchmarks}{{11.8}{68}{Benchmark Results on Integrated GPU}{section.11.8}{}}
+\newlabel{sec:gpu_benchmarks@cref}{{[section][8][11]11.8}{[1][68][]68}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.9}Future GPU Work}{68}{section.11.9}\protected@file@percent }
+\newlabel{sec:gpu_future}{{11.9}{68}{Future GPU Work}{section.11.9}{}}
+\newlabel{sec:gpu_future@cref}{{[section][9][11]11.9}{[1][68][]68}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {12}Distributed Training and Multi-Node Inference}{70}{chapter.12}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:distributed}{{12}{70}{Distributed Training and Multi-Node Inference}{chapter.12}{}}
+\newlabel{ch:distributed@cref}{{[chapter][12][]12}{[1][70][]70}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.1}The Bandwidth Bottleneck in Distributed Training}{70}{section.12.1}\protected@file@percent }
+\newlabel{sec:dist_bandwidth}{{12.1}{70}{The Bandwidth Bottleneck in Distributed Training}{section.12.1}{}}
+\newlabel{sec:dist_bandwidth@cref}{{[section][1][12]12.1}{[1][70][]70}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.2}OIL-Optimized Gradient Compression}{70}{section.12.2}\protected@file@percent }
+\newlabel{sec:oil_gradient_compression}{{12.2}{70}{OIL-Optimized Gradient Compression}{section.12.2}{}}
+\newlabel{sec:oil_gradient_compression@cref}{{[section][2][12]12.2}{[1][70][]70}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.3}Topology-Aware Communication}{70}{section.12.3}\protected@file@percent }
+\newlabel{sec:topology}{{12.3}{70}{Topology-Aware Communication}{section.12.3}{}}
+\newlabel{sec:topology@cref}{{[section][3][12]12.3}{[1][70][]70}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.1}Ring All-Reduce with Format Awareness}{70}{subsection.12.3.1}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {6}{\ignorespaces Format-Aware Ring All-Reduce}}{71}{algorithm.6}\protected@file@percent }
+\newlabel{alg:ring_allreduce}{{6}{71}{Format-Aware Ring All-Reduce}{algorithm.6}{}}
+\newlabel{alg:ring_allreduce@cref}{{[algorithm][6][]6}{[1][70][]71}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.2}Hierarchical All-Reduce}{71}{subsection.12.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.4}Gradient Quantization for Communication}{71}{section.12.4}\protected@file@percent }
+\newlabel{sec:grad_quant}{{12.4}{71}{Gradient Quantization for Communication}{section.12.4}{}}
+\newlabel{sec:grad_quant@cref}{{[section][4][12]12.4}{[1][71][]71}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4.1}The Double-Quantization Insight}{71}{subsection.12.4.1}\protected@file@percent }
+\newlabel{thm:comm_quant}{{12.4.1}{71}{The Double-Quantization Insight}{Item.92}{}}
+\newlabel{thm:comm_quant@cref}{{[subsection][1][12,4]12.4.1}{[1][71][]71}{}{}{}}
+\gdef \LT@v {\LT@entry 
+    {1}{118.50343pt}\LT@entry 
+    {1}{72.39993pt}\LT@entry 
+    {1}{76.04207pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.5}Fault Tolerance}{72}{section.12.5}\protected@file@percent }
+\newlabel{sec:dist_fault}{{12.5}{72}{Fault Tolerance}{section.12.5}{}}
+\newlabel{sec:dist_fault@cref}{{[section][5][12]12.5}{[1][72][]72}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5.1}Weight Checkpointing with OIL Snapshots}{72}{subsection.12.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5.2}Elastic Scaling}{72}{subsection.12.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.6}Multi-Node Inference}{72}{section.12.6}\protected@file@percent }
+\newlabel{sec:multi_node_inference}{{12.6}{72}{Multi-Node Inference}{section.12.6}{}}
+\newlabel{sec:multi_node_inference@cref}{{[section][6][12]12.6}{[1][72][]72}{}{}{}}
+\gdef \LT@vi {\LT@entry 
+    {2}{84.01096pt}\LT@entry 
+    {1}{51.86742pt}\LT@entry 
+    {1}{52.89052pt}\LT@entry 
+    {1}{57.89232pt}\LT@entry 
+    {1}{64.8806pt}}
+\gdef \LT@vii {\LT@entry 
+    {1}{123.53809pt}\LT@entry 
+    {1}{92.2391pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.7}Distributed Benchmarks}{73}{section.12.7}\protected@file@percent }
+\newlabel{sec:dist_benchmarks}{{12.7}{73}{Distributed Benchmarks}{section.12.7}{}}
+\newlabel{sec:dist_benchmarks@cref}{{[section][7][12]12.7}{[1][73][]73}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.8}Network Requirements}{73}{section.12.8}\protected@file@percent }
+\newlabel{sec:network_reqs}{{12.8}{73}{Network Requirements}{section.12.8}{}}
+\newlabel{sec:network_reqs@cref}{{[section][8][12]12.8}{[1][73][]73}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {13}Conclusion and Open Problems}{74}{chapter.13}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:conclusion}{{13}{74}{Conclusion and Open Problems}{chapter.13}{}}
+\newlabel{ch:conclusion@cref}{{[chapter][13][]13}{[1][74][]74}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {13.1}Summary of Contributions}{74}{section.13.1}\protected@file@percent }
+\newlabel{sec:summary}{{13.1}{74}{Summary of Contributions}{section.13.1}{}}
+\newlabel{sec:summary@cref}{{[section][1][13]13.1}{[1][74][]74}{}{}{}}
+\abx@aux@cite{0}{frankle2019}
+\abx@aux@segm{0}{0}{frankle2019}
+\@writefile{toc}{\contentsline {section}{\numberline {13.2}Theoretical Implications}{75}{section.13.2}\protected@file@percent }
+\newlabel{sec:theoretical_implications}{{13.2}{75}{Theoretical Implications}{section.13.2}{}}
+\newlabel{sec:theoretical_implications@cref}{{[section][2][13]13.2}{[1][74][]75}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.2.1}Quantization as Regularization}{75}{subsection.13.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.2.2}The Information-Theoretic Perspective}{75}{subsection.13.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.2.3}Connection to Lottery Ticket Hypothesis}{75}{subsection.13.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13.3}Practical Impact}{75}{section.13.3}\protected@file@percent }
+\newlabel{sec:practical_impact}{{13.3}{75}{Practical Impact}{section.13.3}{}}
+\newlabel{sec:practical_impact@cref}{{[section][3][13]13.3}{[1][75][]75}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.3.1}Deployment Efficiency}{75}{subsection.13.3.1}\protected@file@percent }
+\gdef \LT@viii {\LT@entry 
+    {2}{114.35129pt}\LT@entry 
+    {1}{46.88037pt}\LT@entry 
+    {1}{51.86742pt}\LT@entry 
+    {1}{58.35661pt}\LT@entry 
+    {1}{61.30089pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.3.2}Training Accessibility}{76}{subsection.13.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13.4}Open Problems}{76}{section.13.4}\protected@file@percent }
+\newlabel{sec:open_problems}{{13.4}{76}{Open Problems}{section.13.4}{}}
+\newlabel{sec:open_problems@cref}{{[section][4][13]13.4}{[1][76][]76}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.4.1}C-040: GPT-4 Quality Comparison}{76}{subsection.13.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.4.2}The 1.0 BPW Barrier}{76}{subsection.13.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.4.3}Theoretical Gaps}{76}{subsection.13.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13.5}Final Remarks}{77}{section.13.5}\protected@file@percent }
+\newlabel{sec:final}{{13.5}{77}{Final Remarks}{section.13.5}{}}
+\newlabel{sec:final@cref}{{[section][5][13]13.5}{[1][76][]77}{}{}{}}
+\@writefile{toc}{\contentsline {chapter}{References}{78}{chapter*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{References}{78}{chapter*.29}\protected@file@percent }
+\gdef \LT@ix {\LT@entry 
+    {1}{40.3484pt}\LT@entry 
+    {2}{54.59488pt}\LT@entry 
+    {2}{46.15813pt}\LT@entry 
+    {1}{154.26378pt}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {A}Complete OIL Format Binary Specification}{79}{appendix.A}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{app:format_spec}{{A}{79}{Complete OIL Format Binary Specification}{appendix.A}{}}
+\newlabel{app:format_spec@cref}{{[chapter][1][]A}{[1][79][]79}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {A.1}File Header Layout}{79}{section.A.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {A.2}Block Data Layout Per Format}{79}{section.A.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {A.3}Format Registry Enumeration}{80}{section.A.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {B}Theorem Reference Index}{81}{appendix.B}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{app:theorem_index}{{B}{81}{Theorem Reference Index}{appendix.B}{}}
+\newlabel{app:theorem_index@cref}{{[chapter][2][]B}{[1][81][]81}{}{}{}}
+\gdef \LT@x {\LT@entry 
+    {2}{58.56pt}\LT@entry 
+    {1}{239.62204pt}}
+\@writefile{toc}{\contentsline {chapter}{\numberline {C}Notation Reference}{82}{appendix.C}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{app:notation}{{C}{82}{Notation Reference}{appendix.C}{}}
+\newlabel{app:notation@cref}{{[chapter][3][]C}{[1][82][]82}{}{}{}}
+\abx@aux@cite{0}{mcallester2003}
+\abx@aux@segm{0}{0}{mcallester2003}
+\abx@aux@cite{0}{hardt2016}
+\abx@aux@segm{0}{0}{hardt2016}
+\abx@aux@cite{0}{xu2017}
+\abx@aux@segm{0}{0}{xu2017}
+\abx@aux@cite{0}{jacot2018}
+\abx@aux@segm{0}{0}{jacot2018}
+\abx@aux@cite{0}{rahaman2019}
+\abx@aux@segm{0}{0}{rahaman2019}
+\@writefile{toc}{\contentsline {chapter}{Acknowledgments}{83}{appendix*.30}\protected@file@percent }
+\abx@aux@read@bbl@mdfivesum{3D7AF2E4A9CA24E0471B737D95E5C674}
+\abx@aux@defaultrefcontext{0}{bengio2013}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{dao2022}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{dettmers2022}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{dziugaite2017}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{frantar2023}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{hardt2016}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{jacot2018}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{kim2024}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{kirkpatrick2017}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{leviathan2023}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{ma2024}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{ma2023awq}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{mcallester2003}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{rahaman2019}{nyt/global//global/global/global}
+\abx@aux@defaultrefcontext{0}{xu2017}{nyt/global//global/global/global}
+\gdef \@abspage@last{83}

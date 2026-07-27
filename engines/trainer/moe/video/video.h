@@ -18,6 +18,8 @@ public:
     std::vector<TransformerBlock> blocks;
     int64_t hidden_size;
     int64_t num_tubes;
+    int64_t patch_size;
+    int64_t tube_size;
 };
 
 } // namespace multimodal

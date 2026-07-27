@@ -21,7 +21,7 @@ struct OILHeader {
 
 struct FormatBlockEntry {
     uint32_t block_id;
-    uint8_t format;    // 0=binary, 1=ternary, 2=oil4, 3=oil8
+    uint8_t format;    // 0=OIL1, 1=SPARK, 2=oil4, 3=oil8
     uint32_t cb_bytes; // codebook size in bytes
 };
 

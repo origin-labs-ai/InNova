@@ -8,7 +8,7 @@ namespace oil {
 // Computes O = softmax(Q*K^T/sqrt(d)) * V using tiling over SRAM
 // Memory: O(n) instead of O(n²)
 Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V,
-                               const Tensor& mask, float dropout_p = 0.0f);
+                               const Tensor& mask, float dropout_p = 0.0f, bool causal = true);
 
 struct FlashAttentionConfig {
     int64_t block_size = 64;
@@ -23,8 +23,6 @@ public:
                    const Tensor& mask);
 private:
     FlashAttentionConfig cfg_;
-    void online_softmax_tile(const float* qk, float* row_max, float* row_sum,
-                              float* out, int64_t cols, int64_t block_start);
 };
 
 } // namespace oil

@@ -179,4 +179,83 @@ private:
     float rho_, eps_, momentum_;
 };
 
+// ============================================================
+// Ranger — RAdam + LookAhead wrapper
+// ============================================================
+class Ranger : public Optimizer {
+public:
+    Ranger(float lr = 1e-3f, float beta1 = 0.9f, float beta2 = 0.999f,
+           float eps = 1e-8f, float weight_decay = 0.0f,
+           int lookahead_k = 6, float lookahead_alpha = 0.5f);
+    ~Ranger() override = default;
+    void step() override;
+    void zero_grad() override;
+    void reset();
+private:
+    std::unique_ptr<RAdam> radam_;
+    int lookahead_k_, slow_step_;
+    float lookahead_alpha_;
+    std::vector<Tensor> slow_weights_;
+    void sync_slow_weights();
+    void lookahead_step();
+};
+
+// ============================================================
+// Adabound — Dynamic bounds on Adam learning rate
+// ============================================================
+class Adabound : public Optimizer {
+public:
+    Adabound(float lr = 1e-3f, float beta1 = 0.9f, float beta2 = 0.999f,
+             float eps = 1e-8f, float weight_decay = 0.0f,
+             float final_lr = 0.1f, float gamma = 1e-3f);
+    void step() override;
+    void zero_grad() override;
+    void reset();
+private:
+    float beta1_, beta2_, eps_, final_lr_, gamma_;
+};
+
+// ============================================================
+// Lamb — Trust ratio clipping, layer-wise adaptation
+// ============================================================
+class Lamb : public Optimizer {
+public:
+    Lamb(float lr = 1e-3f, float beta1 = 0.9f, float beta2 = 0.999f,
+         float eps = 1e-8f, float weight_decay = 0.0f,
+         float max_trust_ratio = 10.0f);
+    void step() override;
+    void zero_grad() override;
+    void reset();
+private:
+    float beta1_, beta2_, eps_, max_trust_ratio_;
+};
+
+// ============================================================
+// LARS — Layer-wise adaptive rate scaling
+// ============================================================
+class LARS : public Optimizer {
+public:
+    LARS(float lr = 1e-3f, float momentum = 0.9f, float weight_decay = 1e-4f,
+         float trust_coefficient = 0.001f, float eps = 1e-8f);
+    void step() override;
+    void zero_grad() override;
+    void reset();
+private:
+    float momentum_, trust_coefficient_, eps_;
+};
+
+// ============================================================
+// NovoGrad — Normalized gradient with Adam-style moments
+// ============================================================
+class NovoGrad : public Optimizer {
+public:
+    NovoGrad(float lr = 1e-3f, float beta1 = 0.9f, float beta2 = 0.999f,
+             float eps = 1e-8f, float weight_decay = 0.0f);
+    void step() override;
+    void zero_grad() override;
+    void reset();
+private:
+    float beta1_, beta2_, eps_;
+};
+
 } // namespace oil

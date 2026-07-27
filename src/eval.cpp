@@ -95,7 +95,7 @@ EvalResult eval_accuracy(Model* model, const std::vector<int>& tokens,
             const float* row = logits.data<float>() + j * logit_dim;
             int best = 0;
             for (int64_t v = 1; v < min_i(logit_dim, V); v++)
-                if (row[v] > row[best]) best = v;
+                if (row[v] > row[best]) best = static_cast<int>(v);
             r.total++;
             if (best == target) r.correct++;
         }
@@ -114,7 +114,7 @@ EvalResult eval_classification(const Tensor& predictions,
 
     std::vector<int> tp, fp, fn;
     int n_classes = 0;
-    for (int l : labels) n_classes = max_i(n_classes, l + 1);
+    for (int l : labels) n_classes = static_cast<int>(max_i(n_classes, l + 1));
     tp.resize((size_t)n_classes, 0);
     fp.resize((size_t)n_classes, 0);
     fn.resize((size_t)n_classes, 0);
@@ -123,7 +123,7 @@ EvalResult eval_classification(const Tensor& predictions,
         const float* row = predictions.data<float>() + i * predictions.dim(1);
         int pred = 0;
         for (int64_t v = 1; v < predictions.dim(1); v++)
-            if (row[v] > row[pred]) pred = v;
+            if (row[v] > row[pred]) pred = static_cast<int>(v);
         int true_label = labels[(size_t)i];
         if (pred == true_label) r.correct++;
         if (true_label < n_classes) {
@@ -188,7 +188,7 @@ double compute_bleu(const std::vector<int>& candidate,
         int match = 0, cand_total = 0;
         for (auto& [g, cnt] : c_count) {
             int max_ref = r_count.count(g) ? r_count[g] : 0;
-            match += min_i(cnt, max_ref);
+            match += static_cast<int>(min_i(cnt, max_ref));
             cand_total += cnt;
         }
         if (match > 0) {
@@ -214,8 +214,8 @@ double compute_rouge_l(const std::vector<int>& candidate,
             if (candidate[(size_t)(i - 1)] == reference[(size_t)(j - 1)])
                 dp[(size_t)i][(size_t)j] = dp[(size_t)(i - 1)][(size_t)(j - 1)] + 1;
             else
-                dp[(size_t)i][(size_t)j] = max_i(dp[(size_t)(i - 1)][(size_t)j],
-                                                  dp[(size_t)i][(size_t)(j - 1)]);
+                dp[(size_t)i][(size_t)j] = static_cast<int>(max_i(dp[(size_t)(i - 1)][(size_t)j],
+                                                   dp[(size_t)i][(size_t)(j - 1)]));
         }
     }
     int lcs = dp[(size_t)m][(size_t)n];
@@ -264,7 +264,7 @@ EvalResult ModelEvaluator::evaluate_generation(
         int best = 0;
         const float* row = logits.data<float>() + (prompt_len - 1) * (logit_dim / prompt_len);
         for (int64_t v = 1; v < logit_dim / prompt_len; v++)
-            if (row[v] > row[best]) best = v;
+            if (row[v] > row[best]) best = static_cast<int>(v);
         input.data<float>()[(size_t)i] = (float)best;
     }
     auto end = std::chrono::steady_clock::now();

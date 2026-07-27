@@ -291,11 +291,13 @@ OILReader::OILReader(const std::string& path)
     data_ = mapped_file_->ptr();
     file_size_ = mapped_file_->size();
 
+    if (file_size_ < sizeof(OILHeader)) return;
     memcpy(&header_, data_, sizeof(OILHeader));
 
     if (memcmp(header_.magic, "OIL1", 4) != 0) return;
 
     format_table_offset_ = 16 + header_.config_size;
+    if (format_table_offset_ + sizeof(uint32_t) > file_size_) return;
 
     const uint8_t* p = data_ + format_table_offset_;
     memcpy(&num_format_blocks_, p, sizeof(num_format_blocks_)); p += sizeof(uint32_t);
@@ -303,12 +305,16 @@ OILReader::OILReader(const std::string& path)
     size_t ft_bytes = sizeof(uint32_t) + (size_t)num_format_blocks_ * sizeof(FormatBlockEntry);
     tensor_table_offset_ = format_table_offset_ + ft_bytes;
 
+    if (tensor_table_offset_ + sizeof(uint32_t) > file_size_) return;
     p = data_ + tensor_table_offset_;
     memcpy(&num_tensors_, p, sizeof(num_tensors_)); p += sizeof(uint32_t);
 
     const uint8_t* tt_start = p;
+    const uint8_t* tt_end = data_ + file_size_;
     for (uint32_t i = 0; i < num_tensors_; i++) {
+        if (tt_start + sizeof(uint16_t) > tt_end) { num_tensors_ = i; break; }
         uint16_t name_len; memcpy(&name_len, tt_start, sizeof(name_len)); tt_start += sizeof(name_len);
+        if (tt_start + name_len + sizeof(uint32_t) + sizeof(uint32_t) > tt_end) { num_tensors_ = i; break; }
         tt_start += name_len;
         tt_start += sizeof(uint32_t) + sizeof(uint32_t);
     }
@@ -349,38 +355,47 @@ size_t OILReader::num_blocks() const {
 
 BlockData OILReader::read_block(uint32_t block_id) const {
     BlockData bd;
-    bd.format = Format::TERNARY;
+    bd.format = Format::SPARK_Q0;
 
     size_t block_offset = data_offset_;
+    const uint8_t* file_end = data_ + file_size_;
     for (uint32_t i = 0; i < block_id && i < num_format_blocks_; i++) {
         const uint8_t* p = data_ + block_offset;
+        if (p + sizeof(uint32_t) * 2 > file_end) return bd;
         uint32_t nw; memcpy(&nw, p, sizeof(nw));
         uint32_t cb_bytes; memcpy(&cb_bytes, p + sizeof(nw), sizeof(cb_bytes));
+        if (p + sizeof(nw) + sizeof(cb_bytes) + cb_bytes + sizeof(uint32_t) > file_end) return bd;
         uint32_t idx_bytes; memcpy(&idx_bytes, p + sizeof(nw) + sizeof(cb_bytes) + cb_bytes, sizeof(idx_bytes));
         block_offset += sizeof(nw) + sizeof(cb_bytes) + cb_bytes + sizeof(idx_bytes) + idx_bytes;
     }
 
     const uint8_t* p = data_ + block_offset;
+    if (p + sizeof(uint32_t) * 2 > file_end) return bd;
     uint32_t nw; memcpy(&nw, p, sizeof(nw)); p += sizeof(nw);
     bd.num_weights = nw;
     uint32_t cb_bytes; memcpy(&cb_bytes, p, sizeof(cb_bytes)); p += sizeof(cb_bytes);
     if (cb_bytes > 0) {
+        if (p + cb_bytes > file_end) return bd;
         bd.codebook.resize(cb_bytes);
         memcpy(bd.codebook.data(), p, cb_bytes); p += cb_bytes;
     }
     uint32_t idx_bytes; memcpy(&idx_bytes, p, sizeof(idx_bytes)); p += sizeof(idx_bytes);
     if (idx_bytes > 0) {
+        if (p + idx_bytes > file_end) return bd;
         bd.indices.resize(idx_bytes);
         memcpy(bd.indices.data(), p, idx_bytes);
     }
 
     if (block_id < (uint32_t)cached_ft_.size()) {
         switch (cached_ft_[block_id].format) {
-            case 0: bd.format = Format::BINARY; break;
-            case 1: bd.format = Format::TERNARY; break;
-            case 2: bd.format = Format::OIL4; break;
-            case 3: bd.format = Format::OIL8; break;
-            default: bd.format = Format::FP32; break;
+            case 0: bd.format = Format::OIL1; break;
+            case 1: bd.format = Format::SPARK_Q0; break;
+            case 2: bd.format = Format::OIL2; break;
+            case 3: bd.format = Format::OIL4; break;
+            case 4: bd.format = Format::OIL8; break;
+            case 5: bd.format = Format::OIL16; break;
+            case 6: bd.format = Format::OIL32; break;
+            default: bd.format = Format::OIL32; break;
         }
     }
 
@@ -389,11 +404,15 @@ BlockData OILReader::read_block(uint32_t block_id) const {
 
 Tensor OILReader::read_tensor(const std::string& name) const {
     if (!data_) return Tensor();
+    const uint8_t* end = data_ + file_size_;
     const uint8_t* p = data_ + tensor_table_offset_;
+    if (p + sizeof(uint32_t) > end) return Tensor();
     uint32_t num_tensors; memcpy(&num_tensors, p, sizeof(num_tensors)); p += sizeof(uint32_t);
 
     for (uint32_t i = 0; i < num_tensors; i++) {
+        if (p + sizeof(uint16_t) > end) return Tensor();
         uint16_t name_len; memcpy(&name_len, p, sizeof(name_len)); p += sizeof(name_len);
+        if (p + name_len + sizeof(uint32_t) * 2 > end) return Tensor();
         std::string tensor_name((const char*)p, name_len); p += name_len;
         uint32_t block_start; memcpy(&block_start, p, sizeof(block_start)); p += sizeof(block_start);
         uint32_t num_blocks; memcpy(&num_blocks, p, sizeof(num_blocks)); p += sizeof(num_blocks);
@@ -431,17 +450,17 @@ Tensor OILReader::read_tensor(const std::string& name) const {
                 SHA256Hash block_hash = sha256(raw_start, block_len); (void)block_hash;
 
                 BlockData bd = read_block((uint32_t)blk_id);
-                if (bd.format == Format::FP32 && bd.indices.size() >= bd.num_weights * 4) {
+                if (bd.format == Format::OIL32 && bd.indices.size() >= bd.num_weights * 4) {
                     memcpy(td, bd.indices.data(), bd.num_weights * 4);
                 } else if (bd.format == Format::OIL8 && bd.codebook.size() >= 256 * 4) {
                     size_t tmp_off = 0;
-                    CodebookOIL8 cb8 = CodebookOIL8::deserialize(bd.codebook.data(), tmp_off);
+                    CodebookOIL8 cb8 = CodebookOIL8::deserialize(bd.codebook.data(), tmp_off, bd.codebook.size());
                     for (uint32_t j = 0; j < bd.num_weights; j++) {
                         td[j] = cb8.dequantize(bd.indices[j]);
                     }
                 } else if (bd.format == Format::OIL4 && bd.codebook.size() >= 16 * 2) {
                     size_t tmp_off = 0;
-                    CodebookOIL4 cb4 = CodebookOIL4::deserialize(bd.codebook.data(), tmp_off);
+                    CodebookOIL4 cb4 = CodebookOIL4::deserialize(bd.codebook.data(), tmp_off, bd.codebook.size());
                     for (uint32_t j = 0; j < bd.num_weights; j++) {
                         uint8_t idx;
                         if (j % 2 == 0) idx = bd.indices[j / 2] & 0x0F;
@@ -491,13 +510,14 @@ std::vector<Format> OILReader::tensor_formats(const std::string& name) const {
                 uint32_t bid = block_start + b;
                 uint8_t fmt = cached_ft_[bid].format;
                 switch (fmt) {
-                    case 0: fmts.push_back(Format::BINARY); break;
-                    case 1: fmts.push_back(Format::TERNARY); break;
-                    case 2: fmts.push_back(Format::OIL4); break;
-                    case 3: fmts.push_back(Format::OIL8); break;
-                    case 4: fmts.push_back(Format::FP16); break;
-                    case 5: fmts.push_back(Format::FP32); break;
-                    default: fmts.push_back(Format::FP32); break;
+                    case 0: fmts.push_back(Format::OIL1); break;
+                    case 1: fmts.push_back(Format::SPARK_Q0); break;
+                    case 2: fmts.push_back(Format::OIL2); break;
+                    case 3: fmts.push_back(Format::OIL4); break;
+                    case 4: fmts.push_back(Format::OIL8); break;
+                    case 5: fmts.push_back(Format::OIL16); break;
+                    case 6: fmts.push_back(Format::OIL32); break;
+                    default: fmts.push_back(Format::OIL32); break;
                 }
             }
             return fmts;

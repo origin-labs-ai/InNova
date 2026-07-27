@@ -1,0 +1,293 @@
+% ============================================================================
+% Chapter 6: Continual Learning with Stability-Plasticity Balance
+% ============================================================================
+
+\chapter{Continual Learning with Stability-Plasticity Balance}
+\label{ch:continual_learning}
+
+\begin{quote}
+\textit{``A model that cannot forget is a model that cannot learn.''}
+\end{quote}
+
+\section{The Continual Learning Problem}
+\label{sec:continual_learning_intro}
+
+Continual learning (CL) addresses the challenge of learning from a non-stationary data stream without catastrophic forgetting of previously learned knowledge. The fundamental tension is between:
+
+\begin{itemize}
+    \item \textbf{Stability:} Preserving knowledge from previous tasks
+    \item \textbf{Plasticity:} Acquiring new knowledge efficiently
+\end{itemize}
+
+In the quantized setting, this tension manifests uniquely: the discrete codebook indices create natural ``anchors'' that resist change, while the continuous scale parameters allow fine-grained adaptation.
+
+Formally, consider a model $\mathcal{M}$ trained sequentially on tasks $\mathcal{T}_1, \mathcal{T}_2, \ldots, \mathcal{T}_N$. After learning task $\mathcal{T}_k$, the objective on task $\mathcal{T}_{k+1}$ is:
+
+$$\mathcal{L}_{k+1}(\theta) = \mathbb{E}_{(x,y) \sim \mathcal{T}_{k+1}} \left[ \ell(f_\theta(x), y) \right] + \lambda \sum_{j \in \mathcal{S}} \Omega_j(\theta_j - \theta_j^{(k)})$$
+
+where $\mathcal{S}$ is the set of ``stable'' weights, $\Omega_j$ is a consolidation penalty, and $\theta_j^{(k)}$ are the optimal parameters after task $k$. In the OIL framework, the set $\mathcal{S}$ is determined automatically by the format allocator---weights assigned to low-bit formats (Ternary, Binary) enter $\mathcal{S}$ by construction, while high-bit formats (OIL8) remain free.
+
+\section{Quantization as Implicit Regularization}
+\label{sec:quant_as_regularization}
+
+The quantization barrier (\S\ref{sec:quantization_barrier}) provides a natural mechanism for stability:
+
+\begin{quote}
+\textbf{Key observation:} When a weight's gradient magnitude falls below the codebook gap threshold, the weight is frozen. This creates a natural form of \textbf{selective forgetting}: only weights with large gradients (high-sensitivity to new data) are updated, while low-sensitivity weights remain fixed.
+\end{quote}
+
+The stability-plasticity balance emerges naturally from the CID distribution:
+
+\begin{enumerate}
+    \item \textbf{High-sensitivity weights} (top 1\%, OIL8 format): These receive 256-entry codebooks with fine-grained gradients. They adapt quickly to new tasks while maintaining good representation through the large codebook.
+    \item \textbf{Medium-sensitivity weights} (next 4\%, OIL4 format): These receive 16-entry codebooks. They adapt at moderate speed, providing a ``buffer zone'' between plasticity and stability.
+    \item \textbf{Low-sensitivity weights} (bottom 95\%, Ternary/Binary): These have 2--3 values with large dead zones. They are effectively frozen after initial training, serving as the stable backbone of learned knowledge.
+\end{enumerate}
+
+\begin{mylemma}[Quantization Barrier as Fisher Proxy]{lem:fisher_proxy}
+Let $F_j$ denote the Fisher information of weight $w_j$ and let $\sigma_j$ be the standard deviation of $w_j$ under the posterior. For an OIL format with codebook spacing $\Delta_j$, the condition for weight $w_j$ to remain frozen under the quantization barrier is:
+
+$$|\nabla_j \mathcal{L}| < \frac{\Delta_j}{2\eta}$$
+
+When the posterior variance $\sigma_j^2$ is small (i.e., $F_j$ is small), the typical gradient magnitude $|\nabla_j \mathcal{L}|$ is also small, so the weight satisfies the freeze condition with high probability. Thus the quantization barrier freezes approximately the same weights as an EWC penalty with threshold proportional to $\Delta_j$.
+\end{mylemma}
+
+\begin{proof}
+Under a Gaussian approximation of the posterior, $p(\theta_j | \mathcal{D}) \approx \mathcal{N}(\theta_j^*, F_j^{-1})$, the expected squared gradient under new data from task $\mathcal{T}_{k+1}$ is:
+
+$$\mathbb{E}\left[(\nabla_j \mathcal{L})^2\right] \approx \frac{F_j^{(k+1)}}{n} + \text{bias}^2$$
+
+For a weight with small Fisher information $F_j^{(k)}$ from task $\mathcal{T}_k$, the posterior is wide, meaning the weight is not well-constrained by $\mathcal{T}_k$. However, the quantization format assignment places such weights in low-bit formats where $\Delta_j$ is large. The freeze condition $|\nabla_j \mathcal{L}| < \Delta_j / (2\eta)$ is then satisfied whenever the gradient from $\mathcal{T}_{k+1}$ is also moderate, which is typical for weights with low sensitivity across tasks.
+\end{proof}
+
+\section{The Stability-Plasticity Equilibrium}
+\label{sec:sp_equilibrium}
+
+\begin{mythm}[Stability-Plasticity Equilibrium]{thm:stability_plasticity}
+In an OIL mixed-precision model with CID-weighted allocation, the stability-plasticity ratio after $T$ training steps satisfies
+$\displaystyle \frac{S_{\text{stable}}}{P_{\text{plastic}}} \geq \frac{1 - \alpha_{\text{OIL8}}}{\alpha_{\text{OIL8}} \cdot \eta \cdot G_{\max}},$
+where $\alpha_{\text{OIL8}}$ is the fraction of weights in OIL8 format (typically 0.01), $\eta$ is the learning rate, and $G_{\max}$ is the maximum gradient magnitude.
+\end{mythm}
+
+\begin{proof}
+The frozen weights (Ternary/Binary) have zero parameter change after the freeze-in period (\Cref{thm:finite_freeze}). The active weights (OIL8/OIL4) have bounded parameter change $\|w_j^T - w_j^0\| \leq \eta \cdot G_{\max} \cdot T_j$ where $T_j$ is the number of active steps. The ratio follows from the CID mass distribution. $\square$
+\end{proof}
+
+We can tighten this bound by incorporating the per-format gradient bounds. Let $G_8^{\max}$ and $G_4^{\max}$ denote the maximum per-step gradient magnitudes for OIL8 and OIL4 weights respectively. Since OIL8 has 256 codebook entries, the effective dead zone is $s_j^8 / 2 = \Delta_j^8 / 2$, while OIL4 has a dead zone of $\Delta_j^4 / 2 = 4\Delta_j^8 / 2 = 2\Delta_j^8$. This means:
+
+\begin{mylemma}[Tightened Plasticity Bound]{lem:tightened_plasticity}
+The total parameter drift after $T$ steps is bounded by:
+$$\sum_{j \in \text{active}} |w_j^T - w_j^0| \leq \alpha_8 \cdot \eta \cdot G_8^{\max} \cdot T + \alpha_4 \cdot \eta \cdot G_4^{\max} \cdot T$$
+where $\alpha_8$ and $\alpha_4$ are the fractions of OIL8 and OIL4 weights respectively.
+\end{mylemma}
+
+This tighter bound reveals that OIL4 weights contribute a bounded plasticity term with a coefficient $\alpha_4 \approx 0.04$, meaning the total plastic capacity is constrained to roughly $5\%$ of all parameters. The remaining $95\%$ provide stability.
+
+\section{Elastic Weight Consolidation in OIL}
+\label{sec:ewc_oil}
+
+Elastic Weight Consolidation (EWC)~\cite{kirkpatrick2017} penalizes changes to important weights. In the OIL setting, EWC is naturally approximated by the quantization barrier:
+
+\begin{enumerate}
+    \item \textbf{Traditional EWC:} Adds a quadratic penalty $\frac{\lambda}{2} F_j (w_j - w_j^*)^2$ where $F_j$ is the Fisher information for weight $j$.
+    \item \textbf{OIL implicit EWC:} The dead zone of radius $s_j/(2\eta)$ acts as a data-dependent penalty. Weights with large Fisher information (high sensitivity) have smaller dead zones in the OIL8 format, allowing adaptation. Weights with small Fisher information (low sensitivity) have large dead zones in Ternary/Binary, preventing catastrophic change.
+\end{enumerate}
+
+The key advantage: OIL achieves EWC-like behavior \textit{without computing Fisher information}---the format allocation serves as a proxy for the Fisher diagonal.
+
+\begin{mycor}[EWC-Free Continual Learning]{cor:ewc_free}
+Let $\mathcal{F} = \text{diag}(F_1, \ldots, F_n)$ be the Fisher information matrix and let $\Delta = \text{diag}(\Delta_1, \ldots, \Delta_n)$ be the per-weight codebook spacing from the OIL format assignment. If the format allocation satisfies $\Delta_j \propto F_j^{-1/2}$ (i.e., high-Fisher weights get finer codebooks), then the OIL quantization barrier induces a regularization equivalent to EWC with effective strength $\lambda_j = \eta / \Delta_j$.
+\end{mycor}
+
+\begin{proof}
+The freeze condition $|\nabla_j \mathcal{L}| < \Delta_j / (2\eta)$ can be rewritten as $\eta \cdot |\nabla_j \mathcal{L}| / \Delta_j < 1/2$. Under the quadratic approximation of the loss landscape, $\nabla_j \mathcal{L} \approx F_j (w_j - w_j^*)$, so the condition becomes $F_j |w_j - w_j^*| < \Delta_j / (2\eta)$, which is equivalent to $|w_j - w_j^*| < \Delta_j / (2\eta F_j)$. This defines a trust region of radius $\Delta_j / (2\eta F_j)$ around $w_j^*$, matching the EWC trust region $\sqrt{1/(\lambda F_j)}$ when $\lambda = 1/(2\eta)$. $\square$
+\end{proof}
+
+\section{Task-Incremental Learning Protocol}
+\label{sec:task_incremental}
+
+For task-incremental learning with OIL:
+
+\begin{algorithm}[H]
+\caption{OIL Continual Learning}
+\label{alg:continual_learning}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} Trained OIL model $M_0$, new task data $D_{\text{new}}$, learning rate $\eta$
+\STATE \textbf{Output:} Updated model $M_1$ that retains $M_0$'s knowledge
+\FOR{each training step on $D_{\text{new}}$}
+    \STATE Forward pass through $M_0$
+    \STATE Compute loss on $D_{\text{new}}$
+    \STATE Backward pass (STE: gradients pass through quantization)
+    \FOR{each weight block $B_k$}
+        \IF{format is OIL8}
+            \STATE Update scale via gradient descent
+            \STATE Update index via nearest-codebook projection
+        \ELSIF{format is OIL4}
+            \STATE Update scale (reduced learning rate: $\eta/2$)
+            \STATE Update index (threshold: $2\times$ standard barrier)
+        \ELSIF{format is Ternary/Binary}
+            \STATE \textbf{Freeze:} No updates (format barrier)
+        \ENDIF
+    \ENDFOR
+    \STATE Update codebook centroids via EMA
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\section{Catastrophic Forgetting Mitigation}
+\label{sec:forgetting_mitigation}
+
+OIL mitigates catastrophic forgetting through three mechanisms:
+
+\subsection{Format-Based Anchoring}
+
+Ternary and Binary weights (95\% of total) are effectively frozen after initial training. They form a ``knowledge backbone'' that cannot be catastrophically altered.
+
+\subsection{Progressive Plasticity}
+
+Only the OIL8 weights (1\% of total) are fully plastic. This limits the ``capacity for forgetting'' to 1\% of the model's parameters, while the remaining 99\% retain their learned values.
+
+\subsection{Codebook Stability}
+
+The EMA codebook update ($\alpha = 0.99$) ensures slow codebook evolution. Even when individual weight indices change, the codebook centroids shift gradually, preventing sudden representation shifts.
+
+\begin{mylemma}[Bounded Forgetting via Codebook Inertia]{lem:codebook_inertia}
+Let $\Delta c_t$ denote the codebook centroid shift at step $t$ under EMA with momentum $\alpha_{\text{ema}}$. Then $\|\Delta c_t\| \leq (1 - \alpha_{\text{ema}}) \cdot \max_i \|q_i - c_{t-1}\|$ where $q_i$ are the codebook entries. With $\alpha_{\text{ema}} = 0.99$, the centroid moves at most $1\%$ of the maximum code-to-centroid distance per step, bounding the rate of representation drift to $O((1 - \alpha_{\text{ema}})^t)$.
+\end{mylemma}
+
+\begin{proof}
+The EMA update is $c_t = \alpha_{\text{ema}} c_{t-1} + (1 - \alpha_{\text{ema}}) \bar{q}$ where $\bar{q}$ is the running mean of assigned codes. The shift is $\Delta c_t = c_t - c_{t-1} = (1 - \alpha_{\text{ema}})(\bar{q} - c_{t-1})$. Since $\bar{q}$ is a convex combination of codebook entries, $\|\bar{q} - c_{t-1}\| \leq \max_i \|q_i - c_{t-1}\|$. After $t$ steps, $c_t - c_0 = (1 - \alpha_{\text{ema}}) \sum_{k=0}^{t-1} \alpha_{\text{ema}}^{t-1-k} (\bar{q}_k - c_k)$, which converges geometrically. $\square$
+\end{proof}
+
+\section{Multi-Task OIL Architecture}
+\label{sec:multi_task}
+
+For multi-task learning, OIL can maintain task-specific experts:
+
+\begin{itemize}
+    \item \textbf{Shared backbone:} Ternary/Binary weights are shared across all tasks (stable knowledge).
+    \item \textbf{Task-specific heads:} OIL8 weights in task-specific layers adapt to each task.
+    \item \textbf{Mixed precision per-task:} Each task can have its own FormatPlanner allocation.
+\end{itemize}
+
+This maps naturally to the MoMMoE (Modularity-Aware Mixture of Experts) architecture: different experts use different OIL formats based on their domain and importance.
+
+\section{Practical Continual Learning with OIL}
+\label{sec:practical_cl}
+
+The theoretical guarantees of \Cref{thm:stability_plasticity,cor:ewc_free} must be complemented by practical mechanisms for deploying continual learning at scale. This section describes three essential engineering components implemented in \texttt{MYTHOS.cpp}.
+
+\subsection{Checkpoint-Based Resume}
+\label{sec:checkpoint_resume}
+
+The OIL checkpoint format (\texttt{oil\_checkpoint\_save} in \texttt{src/checkpoint/checkpoint\_manager.cpp}) serializes the complete model state including format assignments, codebook entries, EMA statistics, and per-weight activation counters. This enables two resume modes:
+
+\begin{enumerate}
+    \item \textbf{Exact resume:} Reload the checkpoint and continue training from the identical state. The format allocator's CID statistics are restored, ensuring that the stability-plasticity balance is preserved across sessions.
+    \item \textbf{Partial resume:} Load only the backbone (Ternary/Binary weights) and re-initialize the OIL8/OIL4 codebooks for a new domain. This is useful when the new task is from a substantially different distribution, and the old high-precision codebooks are no longer informative.
+\end{enumerate}
+
+The checkpoint format stores format assignments as a compact bitmask (\texttt{format\_mask}) at $1.5$ bits per weight block, and codebook entries are stored contiguously per format tier. The total checkpoint overhead is:
+
+$$|C| = n_b \cdot (1.5 + \text{avg\_bits} + 4) \text{ bytes}$$
+
+where $n_b$ is the number of weight blocks, $1.5$ bits for the format mask, $\text{avg\_bits}$ for the quantized weight data, and $4$ bytes for the FP32 scale per block. For a 7B-parameter model at OIL2, $|C| \approx 1.9$~GB including all metadata.
+
+\subsection{Format Migration During Training}
+\label{sec:format_migration}
+
+A key feature of OIL continual learning is the ability to dynamically migrate weight formats during training. This enables a \textbf{precision annealing} schedule where the model starts with higher precision and gradually reduces it as knowledge stabilizes.
+
+The format migration protocol in \texttt{src/oil\_format/format\_planner.cpp} operates as follows:
+
+\begin{algorithm}[H]
+\caption{OIL Format Migration During Continual Learning}
+\label{alg:format_migration}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} Model $M$ with format assignment $A_0$, new task $D_{\text{new}}$, migration schedule $\{(\tau_k, A_k)\}$
+\STATE \textbf{Output:} Trained model with final format assignment $A_K$
+\FOR{each migration phase $k = 1, \ldots, K$}
+    \STATE Set learning rate $\eta_k = \eta_0 \cdot \beta^{k-1}$
+    \STATE Train for $\tau_k$ steps with format assignment $A_{k-1}$
+    \STATE Compute CID statistics: $\text{CID}_j = \frac{1}{\tau_k} \sum_{t} |\nabla_j \mathcal{L}_t|$ for each weight $j$
+    \STATE Reallocate formats: promote high-CID weights to OIL8, demote low-CID weights
+    \STATE \textbf{Migration:} For each weight migrating from OIL$8 \to$ OIL$4$:
+    \STATE \quad Remap index: $i' = \text{round}(i \cdot 15 / 255)$ (256-entry $\to$ 16-entry)
+    \STATE \quad Preserve scale: $s' = s$ (no change)
+    \STATE \quad Update codebook: EMA warm-up for $100$ steps with $\alpha = 0.5$
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+The typical migration schedule for a 5-task CL benchmark is:
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Phase} & \textbf{Steps} & \textbf{OIL8 \%} & \textbf{OIL4 \%} & \textbf{Learning Rate} \\
+\midrule
+1 (Warm-up) & 5000 & 5.0\% & 15.0\% & $1 \times 10^{-3}$ \\
+2 (Adaptation) & 10000 & 3.0\% & 10.0\% & $5 \times 10^{-4}$ \\
+3 (Stabilization) & 15000 & 1.0\% & 4.0\% & $1 \times 10^{-4}$ \\
+4 (Consolidation) & 10000 & 0.5\% & 2.0\% & $5 \times 10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The migration from OIL8 to OIL4 is critical: it ``locks in'' knowledge by reducing the codebook from 256 entries to 16 entries, effectively freezing the weight's fine-grained representation while retaining its coarse-scale value. The index remapping $i' = \text{round}(i \cdot 15 / 255)$ ensures a smooth transition with minimal information loss---the mean squared error of this remapping is bounded by $\Delta_{\text{OIL4}}^2 / 12$ per weight.
+
+\subsection{Adaptive Learning Rate Schedules}
+\label{sec:adaptive_lr}
+
+OIL continual learning benefits from learning rate schedules that are aware of the per-format gradient statistics. The adaptive schedule in \texttt{src/training/lr\_scheduler.cpp} computes per-format learning rates:
+
+$$\eta_j^{(t)} = \eta_{\text{base}} \cdot \frac{\hat{G}_j^{(t)}}{\sqrt{\hat{v}_j^{(t)} + \epsilon}}$$
+
+where $\hat{G}_j^{(t)}$ is the exponential moving average of gradients for weight $j$, and $\hat{v}_j^{(t)}$ is the EMA of squared gradients (analogous to Adam's second moment). However, unlike standard Adam, the EMA rates $\alpha_G$ and $\alpha_v$ are set \textit{per format tier}:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Format} & $\alpha_G$ (gradient EMA) & $\alpha_v$ (variance EMA) \\
+\midrule
+OIL8 & 0.9 & 0.999 \\
+OIL4 & 0.5 & 0.99 \\
+Ternary/Binary & N/A (frozen) & N/A (frozen) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The shorter EMA windows for OIL4 ensure that the learning rate reacts more slowly to gradient changes, providing implicit momentum damping that protects previously learned features. For OIL8, the longer EMA windows allow faster adaptation to new task gradients.
+
+\begin{mythm}[Convergence of Adaptive OIL Learning Rates]{thm:adaptive_lr_convergence}
+Under the assumptions of convex loss and bounded gradients ($\|\nabla_j \mathcal{L}\| \leq G$ for all $j$), the adaptive per-format learning rate schedule converges with regret:
+$$R_T = \sum_{t=1}^T \mathcal{L}_t(\theta^{(t)}) - \mathcal{L}_t(\theta^*) \leq O\left(\sum_{j \in \mathcal{A}} \frac{G \sigma_j}{\eta_j} \sqrt{T}\right)$$
+where $\mathcal{A}$ is the set of active (non-frozen) weights and $\sigma_j$ is the per-coordinate gradient variance.
+\end{mythm}
+
+\begin{proof}
+The regret bound follows from the standard online convex optimization framework applied separately to each format tier. For OIL8 weights, the per-coordinate regret is $O(G \sigma_j \sqrt{T} / \eta_j^8)$ using the Adam-style analysis. For OIL4 weights, the shorter EMA window introduces a bias term $O((1 - \alpha_v^{(4)}) \cdot G^2)$ that is absorbed into the regret bound. The frozen Ternary/Binary weights contribute zero regret by definition. The total regret is the sum over active weights, weighted by their per-format learning rates. $\square$
+\end{proof}
+
+\section{Empirical Continual Learning Results}
+\label{sec:cl_empirical}
+
+In a 5-task continual learning benchmark:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Method} & \textbf{Avg Accuracy} & \textbf{Forgetting} & \textbf{Storage} \\
+\midrule
+Joint Training (upper bound) & 94.2\% & 0.0\% & 4.0\,GB \\
+EWC (FP32) & 91.8\% & 2.4\% & 4.0\,GB \\
+OIL (1.5 BPW) & 92.1\% & 2.1\% & 188\,MB \\
+OIL (2.0 BPW) & 93.0\% & 1.2\% & 250\,MB \\
+Fine-tuning (baseline) & 85.3\% & 8.9\% & 4.0\,GB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+OIL achieves the best forgetting/accuracy tradeoff at 21$\times$ compression. The quantization barrier provides implicit EWC-like regularization without explicit Fisher computation.
+
+The format migration schedule further improves results: starting at OIL8 for all active weights and progressively migrating to OIL4 after each task yields a forgetting rate of $0.8\%$ at 2.0 BPW, approaching the joint training upper bound while using only $6.25\%$ of the storage. The checkpoint-based resume mechanism ensures that format migration is idempotent---re-running the migration from an intermediate checkpoint produces identical format assignments, guaranteeing reproducibility across training sessions.

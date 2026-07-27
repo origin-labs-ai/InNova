@@ -9,32 +9,6 @@
 
 namespace oil {
 
-static void collect_params(DenseModel* dm, std::vector<Tensor*>& params) {
-    if (!dm) return;
-    params.push_back(&dm->tok_embeddings->weight);
-    for (auto& layer : dm->layers) {
-        params.push_back(&layer->attention_norm.weight);
-        params.push_back(&layer->attention.q_proj.weight);
-        params.push_back(&layer->attention.q_proj.bias);
-        params.push_back(&layer->attention.k_proj.weight);
-        params.push_back(&layer->attention.k_proj.bias);
-        params.push_back(&layer->attention.v_proj.weight);
-        params.push_back(&layer->attention.v_proj.bias);
-        params.push_back(&layer->attention.o_proj.weight);
-        params.push_back(&layer->attention.o_proj.bias);
-        params.push_back(&layer->ffn_norm.weight);
-        params.push_back(&layer->ffn.gate_proj.weight);
-        params.push_back(&layer->ffn.gate_proj.bias);
-        params.push_back(&layer->ffn.up_proj.weight);
-        params.push_back(&layer->ffn.up_proj.bias);
-        params.push_back(&layer->ffn.down_proj.weight);
-        params.push_back(&layer->ffn.down_proj.bias);
-    }
-    params.push_back(&dm->norm->weight);
-    params.push_back(&dm->lm_head->weight);
-    params.push_back(&dm->lm_head->bias);
-}
-
 FineTuner::FineTuner(Model* m, Tokenizer* t) : model_(m), tokenizer_(t), optimizer_(1e-5f) {}
 
 void FineTuner::configure(const FineTuneConfig& cfg) {
@@ -46,7 +20,7 @@ void FineTuner::configure(const FineTuneConfig& cfg) {
     DenseModel* dm = dynamic_cast<DenseModel*>(model_);
     if (dm) {
         std::vector<Tensor*> params;
-        collect_params(dm, params);
+        collect_dense_params(dm, params);
         optimizer_.add_param_group(params);
     }
 }
@@ -68,7 +42,12 @@ void FineTuner::fine_tune(DataLoader& dataloader) {
         dataloader.reset();
         int batch_idx = 0;
     while (dataloader.next_batch(input_ids, labels)) {
-            Tensor logits = model_->forward(input_ids, input_ids);
+            Tensor positions(Shape{cfg_.batch_size, cfg_.seq_length}, DType::F32);
+            float* pd = positions.data<float>();
+            for (int64_t i = 0; i < cfg_.batch_size * cfg_.seq_length; i++)
+                pd[i] = (float)(i % cfg_.seq_length);
+
+            Tensor logits = model_->forward(input_ids, positions);
             Tensor loss = cross_entropy_loss(logits, labels);
 
             optimizer_.zero_grad();
@@ -78,7 +57,7 @@ void FineTuner::fine_tune(DataLoader& dataloader) {
             DenseModel* dm = dynamic_cast<DenseModel*>(model_);
             if (dm) {
                 std::vector<Tensor*> params;
-                collect_params(dm, params);
+                collect_dense_params(dm, params);
                 for (auto* p : params) {
                     if (p->requires_grad() && p->has_grad()) {
                         const float* g = (const float*)p->grad().data<float>();
@@ -88,6 +67,23 @@ void FineTuner::fine_tune(DataLoader& dataloader) {
                 }
             }
             grad_norm = std::sqrt(grad_norm);
+
+            if (cfg_.max_grad_norm > 0 && grad_norm > cfg_.max_grad_norm) {
+                float scale = cfg_.max_grad_norm / (grad_norm + 1e-8f);
+                if (dm) {
+                    std::vector<Tensor*> params;
+                    collect_dense_params(dm, params);
+                    for (auto* p : params) {
+                        if (p->requires_grad() && p->has_grad()) {
+                            float* g = p->grad().data<float>();
+                            for (int64_t i = 0; i < p->numel(); ++i)
+                                g[i] *= scale;
+                        }
+                    }
+                }
+                grad_norm = cfg_.max_grad_norm;
+            }
+
             if (grad_norm < cfg_.grad_threshold) {
                 batch_idx++;
                 continue;
@@ -152,14 +148,14 @@ void FineTuner::apply_oil_update(const Tensor& fp32_grad, Tensor& oil_weight, Fo
         cb.train(wd, (size_t)n);
         Tensor quantized = ste.quantize_with_codebook(updated, cb);
         quantized.copy_to(oil_weight);
-    } else if (fmt == Format::TERNARY) {
+    } else if (fmt == Format::SPARK_Q0) {
         uint8_t* dst = (uint8_t*)oil_weight.data();
         float scale;
-        ste.quantize_ternary(wd, dst, &scale, n);
-    } else if (fmt == Format::BINARY) {
+        ste.quantize_spark(wd, dst, &scale, n);
+    } else if (fmt == Format::OIL1) {
         uint8_t* dst = (uint8_t*)oil_weight.data();
         float scale;
-        ste.quantize_binary(wd, dst, &scale, n);
+        ste.quantize_oil1(wd, dst, &scale, n);
     }
 }
 
@@ -171,7 +167,7 @@ void FineTuner::freeze_base_model() {
     DenseModel* dm = dynamic_cast<DenseModel*>(model_);
     if (dm) {
         std::vector<Tensor*> params;
-        collect_params(dm, params);
+        collect_dense_params(dm, params);
         for (auto* p : params) p->requires_grad(false);
     }
 }
@@ -180,7 +176,7 @@ void FineTuner::unfreeze_for_finetune() {
     DenseModel* dm = dynamic_cast<DenseModel*>(model_);
     if (dm) {
         std::vector<Tensor*> params;
-        collect_params(dm, params);
+        collect_dense_params(dm, params);
         for (auto* p : params) p->requires_grad(true);
     }
 }

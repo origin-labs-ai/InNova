@@ -1,0 +1,6 @@
+\contentsline {algorithm}{\numberline {1}{\ignorespaces Lloyd-Max Codebook Training}}{21}{algorithm.1}%
+\contentsline {algorithm}{\numberline {2}{\ignorespaces FormatPlanner Allocation}}{26}{algorithm.2}%
+\contentsline {algorithm}{\numberline {3}{\ignorespaces OIL Continual Learning}}{42}{algorithm.3}%
+\contentsline {algorithm}{\numberline {4}{\ignorespaces OIL Format Migration During Continual Learning}}{44}{algorithm.4}%
+\contentsline {algorithm}{\numberline {5}{\ignorespaces GPU Weight Upload}}{66}{algorithm.5}%
+\contentsline {algorithm}{\numberline {6}{\ignorespaces Format-Aware Ring All-Reduce}}{71}{algorithm.6}%

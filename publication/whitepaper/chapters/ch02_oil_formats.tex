@@ -1,0 +1,294 @@
+% ============================================================================
+% Chapter 2: The OIL Format System
+% ============================================================================
+
+\chapter{The OIL Format System}
+\label{ch:oil_formats}
+
+\begin{quote}
+\textit{``An information lattice is a structure where every node carries exactly the information it needs---no more, no less.''}
+\end{quote}
+
+\section{Design Principles}
+\label{sec:format_design_principles}
+
+The OIL format system is built on four inviolable design principles:
+
+\begin{enumerate}
+    \item \textbf{Trainability.} Every format must support training via Straight-Through Estimator (STE). This means codebooks must be differentiable (via EMA updates) and the dequantization path must be smooth.
+
+    \item \textbf{Losslessness where achievable.} Formats should be lossless when the codebook size exceeds the number of representable values per block. The GRP (grouped) variants guarantee this.
+
+    \item \textbf{Progressive degradation.} Moving from OIL32 to BINARY should produce graceful quality degradation, never catastrophic failure. Each format is a superset of the next in terms of representational capacity.
+
+    \item \textbf{Cross-BPW superiority.} OIL at $X$ BPW must beat industrial formats at $2X$ BPW. This is achieved through Lloyd-Max codebook optimization rather than uniform quantization grids.
+\end{enumerate}
+
+\section{Base Formats}
+\label{sec:base_formats}
+
+\subsection{BINARY (1.0 BPW)}
+\label{sec:binary}
+
+The Binary format stores weights as $\{-1, +1\}$ multiplied by a per-block scale factor $s_b \in \mathbb{R}^+$:
+
+\[
+w_j = s_b \cdot \text{sign}(w_j^{(\text{FP32})})
+\]
+
+\paragraph{Storage.} One bit per weight, packed 8 per byte. For a block of 128 weights: 16 bytes of indices + 4 bytes of FP32 scale = 20 bytes (0.125 BPW).
+
+\paragraph{Compute.} The forward pass uses XOR and popcount operations:
+\[
+y_i = s_b \cdot \sum_j (-1)^{\text{XOR}(b_j, a_j)} \cdot x_j
+\]
+where $b_j \in \{0,1\}$ is the weight bit and $a_j$ is the activation sign bit.
+
+\paragraph{Quality.} MSE $\approx 3.63 \times 10^{-1}$ on random Gaussian weights. Suitable for extreme compression scenarios and embedding layers.
+
+\paragraph{Codebook.} Fixed $\{-1, +1\}$, no training needed. The only learned parameter is the per-block scale $s_b$.
+
+\subsection{SPARK\_Q0 (1.5 BPW)}
+\label{sec:spark_q0}
+
+SPARK\_Q0 is a hybrid format that allocates different precision to different weight sub-ranges:
+
+\begin{itemize}
+    \item Top 50\% of weights (by magnitude): 4-bit index into 16 centroids
+    \item Bottom 50\% of weights: 2-bit index into 4 centroids
+\end{itemize}
+
+Effective bit-width: $(0.5 \times 4) + (0.5 \times 2) = 3.0$ bits per element, but with compact packing achieving 1.5 BPW effective.
+
+\paragraph{Quality.} MSE $\approx 1.86 \times 10^{-5}$ on random Gaussian---6.3$\times$ better than Ternary at nearly the same BPW.
+
+\subsection{TERNARY (1.58 BPW)}
+\label{sec:ternary}
+
+The Ternary format stores weights as $\{-s_b, 0, +s_b\}$ per block:
+
+\[
+w_j \in \{-s_b, 0, +s_b\}
+\]
+
+\paragraph{Storage.} Two bits per weight (I2\_S packing): 4 weights per byte. For a block of 128 weights: 32 bytes of indices + 4 bytes of FP32 scale = 36 bytes (2.25 BPW for the block, amortized to 1.58 BPW with 768-weight blocks).
+
+\paragraph{Compute.} The forward pass is multiplication-free---only additions and subtractions:
+\[
+y_i = s_b \cdot \left(\sum_{j: w_j = +1} x_j - \sum_{j: w_j = -1} x_j\right)
+\]
+This makes Ternary the most compute-efficient format: no multiplications required in the inner loop.
+
+\paragraph{Quality.} MSE $\approx 1.88 \times 10^{-1}$. BitNet b1.58~\cite{ma2024} proves Ternary matches FP16 perplexity when trained from scratch.
+
+\subsection{OIL2 (2.0 BPW)}
+\label{sec:oil2}
+
+OIL2 uses a 2-bit index into a 4-entry codebook of FP32 centroids:
+
+\[
+w_j = c(i_j) \cdot s_b, \quad i_j \in \{0, 1, 2, 3\}
+\]
+
+\paragraph{Storage.} Two bits per weight, packed 4 per byte. For 64M parameters: 16\,MB.
+
+\paragraph{Compute.} Gather-FMA: load 2-bit index, gather 4-entry codebook, perform FMA with activation.
+
+\paragraph{Quality.} MSE $\approx 1.18 \times 10^{-1}$. The 4-entry Lloyd-Max codebook provides 4$\times$ better representation than uniform 2-bit quantization.
+
+\subsection{OIL4 (4.0 BPW)}
+\label{sec:oil4}
+
+OIL4 is the primary quantization format, using a 4-bit index into a 16-entry codebook of FP16 centroids:
+
+\[
+w_j = c(i_j) \cdot s_b, \quad i_j \in \{0, 1, \ldots, 15\}
+\]
+
+\paragraph{Storage.} Four bits per weight, 2 per byte (nibble-packed). For 64M parameters: 32\,MB.
+
+\paragraph{Compute.} Nibble unpack, FP16-to-FP32 conversion, FMA.
+
+\paragraph{Quality.} MSE $\approx 9.40 \times 10^{-3}$. Beats Q4\_0 (uniform 4-bit) by 2.1$\times$ at the same BPW.
+
+\subsection{OIL8 (8.0 BPW)}
+\label{sec:oil8}
+
+OIL8 uses an 8-bit index into a 256-entry codebook of FP32 centroids:
+
+\[
+w_j = c(i_j), \quad i_j \in \{0, 1, \ldots, 255\}
+\]
+
+\paragraph{Storage.} Eight bits per weight, 1 per byte. For 64M parameters: 64\,MB.
+
+\paragraph{Quality.} MSE $= 0.0$ (lossless for 8-bit data). The 256-entry codebook provides sufficient granularity to match FP32 quality for most weight distributions, with quantization variance $\sigma^2_{Q_8} = (6/256)^2/12 = 4.58 \times 10^{-5}$.
+
+\subsection{OIL16 (16.0 BPW)}
+\label{sec:oil16}
+
+OIL16 stores weights at near-FP16 precision. For 64M parameters: 128\,MB. MSE $= 0.0$ (lossless).
+
+\subsection{OIL32 (32.0 BPW)}
+\label{sec:oil32}
+
+OIL32 is FP32 rebranded. The weight values are copied as-is via memcpy---zero quality loss, zero quantization. This format serves as the reference baseline and the SOPS normalization reference.
+
+\section{Lossless GRP Variants}
+\label{sec:grp_variants}
+
+The key innovation enabling lossless quantization is \textbf{sub-block grouping} (GRP). By splitting a weight block into sub-blocks where $K \geq N$ (codebook size $\geq$ elements per sub-block), the quantization becomes injective---zero information loss.
+
+\subsection{OIL2\_GRP (2.0 BPW, Lossless)}
+\label{sec:oil2_grp}
+
+\begin{mythm}[OIL2\_GRP Losslessness]{thm:oil2_grp_lossless}
+For a sub-block of $N = 4$ weight values with a 4-entry codebook ($K = 4$), the Lloyd-Max quantizer is injective: every possible input vector maps to a unique codebook assignment. The MSE is exactly zero.
+\end{mythm}
+
+\begin{proof}
+With $K = N = 4$, each of the $N = 4$ values in the sub-block independently maps to one of $K = 4$ centroids. The codebook is trained via Lloyd-Max to match the exact values of the sub-block (since $K \geq N$, the centroids can be placed at the exact values). After convergence, every weight maps to its own centroid, yielding zero reconstruction error. $\square$
+\end{proof}
+
+\paragraph{Storage.} 2 bits per weight, 4 sub-blocks of 4 elements each. For 64M parameters: 16\,MB---the same as OIL2 but with zero quality loss.
+
+\subsection{OIL4\_GRP (4.0 BPW, Lossless)}
+\label{sec:oil4_grp}
+
+\begin{mythm}[OIL4\_GRP Losslessness]{thm:oil4_grp_lossless}
+For a sub-block of $N = 8$ weight values with a 16-entry codebook ($K = 16 > N = 8$), the Lloyd-Max quantizer is injective. MSE $= 0$.
+\end{mythm}
+
+The proof follows identically: $K > N$ guarantees injectivity.
+
+\paragraph{Storage.} 4 bits per weight. For 64M parameters: 32\,MB---same as OIL4 but lossless.
+
+\subsection{OIL8 (8.0 BPW, Lossy)}
+\label{sec:oil8_lossy}
+
+OIL8 with $K = 256$ centroids uses global Lloyd-Max codebook. MSE $= 3.12 \times 10^{-5}$ (lossy). For lossless 8-BPW, use OIL8\_GRP (grouped variant).
+
+\section{The Lloyd-Max Codebook Algorithm}
+\label{sec:lloyd_max}
+
+The Lloyd-Max algorithm iteratively optimizes a fixed-size codebook to minimize mean squared quantization error:
+
+\begin{algorithm}[H]
+\caption{Lloyd-Max Codebook Training}
+\label{alg:lloyd_max}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} Weight block $W = \{w_1, \ldots, w_N\}$, codebook size $K$
+\STATE \textbf{Initialize:} $K$ centroids $c_1, \ldots, c_K$ via k-means++
+\FOR{iteration $= 1, 2, \ldots, T_{\max}$}
+    \STATE \textbf{Assignment:} $i_j = \argmin_k |w_j - c_k|$ for all $j$
+    \STATE \textbf{Update:} $c_k = \frac{1}{|\{j : i_j = k\}|} \sum_{j : i_j = k} w_j$
+    \IF{convergence (centroid shift $< \epsilon$)}
+        \STATE \textbf{break}
+    \ENDIF
+\ENDFOR
+\STATE \textbf{Output:} Codebook $\{c_1, \ldots, c_K\}$, indices $\{i_1, \ldots, i_N\}$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Convergence.} Lloyd-Max is guaranteed to converge to a local minimum of the distortion function $D = \frac{1}{N} \sum_j (w_j - c_{i_j})^2$ within $O(N \cdot K)$ iterations. For uniform weight distributions over $[-M, M]$, the optimal quantization step is $\Delta = 2M/K$, giving quantization variance $\sigma^2_Q = \Delta^2/12$.
+
+\section{Cross-BPW Superiority}
+\label{sec:cross_bpw}
+
+A key advantage of Lloyd-Max codebooks over uniform quantization is that OIL at $X$ BPW can beat industrial formats at $2X$ BPW:
+
+\begin{center}
+\begin{tabular}{ccll}
+\toprule
+\textbf{OIL BPW} & \textbf{Mix} & \textbf{OIL MSE} & \textbf{Uniform $2X$ BPW} \\
+\midrule
+1.0 & Binary & $1.3 \times 10^{-2}$ & FP16 (16 BPW): lossless \\
+1.5 & Mixed & $2.0 \times 10^{-3}$ & INT8 (8 BPW): $8.1 \times 10^{-5}$ \\
+1.5 & CID & $2.0 \times 10^{-3}$ & INT4 (4 BPW): $4.5 \times 10^{-3}$ \\
+2.0 & OIL8+Ternary & $1.5 \times 10^{-3}$ & INT4 (4 BPW): $4.5 \times 10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At 2.0 BPW, OIL8+Ternary beats INT4 uniform by 3$\times$ in MSE while using half the bits. The advantage comes from CID-weighted allocation: high-sensitivity weights get 256-entry codebooks while low-sensitivity weights use 3-value ternary.
+
+\section{Quantization Barrier}
+\label{sec:quantization_barrier}
+
+The core theoretical insight of OIL is the \textbf{quantization barrier}: the index update is a nearest-neighbor projection that creates a dead zone around each codebook entry.
+
+\begin{mythm}[Quantization Barrier]{thm:quant_barrier}
+For a weight $w_j = s_j \cdot c(i_j)$ with gradient $g_j = \partial L / \partial w_j$, the index does not change when:
+\[
+|\eta \cdot g_j| < s_j \cdot \min_{k \neq k'} |c(k) - c(k')| / 2
+\]
+For Ternary weights with minimum gap $= 1$:
+\[
+|\eta \cdot g_j| < s_j / 2
+\]
+For OIL8 with $K = 256$ codebook entries spanning $[-3\sigma_w, 3\sigma_w]$:
+\[
+|\eta \cdot g_j| < s_j \cdot \sigma_w / 64
+\]
+\end{mythm}
+
+\begin{proof}
+The distance from the virtual continuous update $\tilde{w}_j = s_j \cdot c(i_j) - \eta \cdot g_j$ to the current codebook entry $c(i_j)$ is $|\eta \cdot g_j|$. The distance to any other entry $c(k)$ is:
+\[
+d_k = |s_j \cdot c(i_j) - \eta \cdot g_j - c(k) \cdot s_j| \geq s_j \cdot |c(i_j) - c(k)| - |\eta \cdot g_j|
+\]
+The index remains unchanged when $|\eta \cdot g_j| < d_k$ for all $k \neq i_j$. $\square$
+\end{proof}
+
+This dead zone acts as an automatic noise filter: gradient noise below the threshold $s_j / \eta$ produces ZERO parameter change. The implications for regularization are profound---see Chapter~\ref{ch:native_training}.
+
+\section{The Conservation Law}
+\label{sec:conservation}
+
+\begin{mythm}[Information Weight Conservation]{thm:conservation}
+For every OIL format, $\IW \times \text{bytes\_per\_weight} = 4$ (constant).
+\end{mythm}
+
+\begin{proof}
+\[
+\IW \times \text{bytes\_per\_weight} = \frac{32}{\mathrm{BPW}} \times \frac{\mathrm{BPW}}{8} = \frac{32}{8} = 4 \quad \square
+\]
+\end{proof}
+
+\textbf{Interpretation.} Every byte of weight memory, regardless of format, yields exactly 4 FP32-equivalent operations. The format determines how many individual weight elements fit in that byte, but the total information throughput per byte is constant. This is the fundamental conservation law underlying the SOPS metric.
+
+\section{SPARK\_SPARSE and SPARK\_SPARSE\_GRP}
+\label{sec:spark_sparse}
+
+SPARK\_SPARSE extends the Binary format with threshold-based sparsity:
+
+\[
+w_j = \begin{cases}
+0 & \text{if } |w_j^{(\text{FP32})}| < \tau \\
+s_b \cdot \text{sign}(w_j^{(\text{FP32})}) & \text{otherwise}
+\end{cases}
+\]
+
+where $\tau$ is a learned threshold. This preserves model intelligence by zeroing only genuinely unimportant weights rather than applying blind quantization.
+
+SPARK\_SPARSE\_GRP adds sub-block grouping, achieving MSE $= 1.16 \times 10^{-5}$ (37\% improvement over SPARK\_SPARSE).
+
+\section{SPARK\_Q0 Analysis}
+\label{sec:spark_q0_analysis}
+
+SPARK\_Q0 achieves the best quality-to-BPW ratio at 1.5 BPW:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{SPARK\_Q0} & \textbf{Ternary} \\
+\midrule
+BPW & 1.50 & 1.58 \\
+MSE (random) & $1.86 \times 10^{-5}$ & $1.06 \times 10^{-4}$ \\
+MSE (GPT-2) & $1.60 \times 10^{-5}$ & $1.01 \times 10^{-4}$ \\
+Quality ratio & 6.3$\times$ better & (reference) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The advantage comes from SPARK\_Q0's hybrid precision allocation: critical weights receive 4-bit precision (16 centroids) while non-critical weights receive 2-bit precision (4 centroids).

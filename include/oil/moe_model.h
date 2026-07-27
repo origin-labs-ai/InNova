@@ -1,0 +1,105 @@
+#pragma once
+#include "oil/model.h"
+#include "oil/transformer.h"
+#include "oil/moe_variants.h"
+#include "oil/distributed.h"
+#include <vector>
+#include <memory>
+
+namespace oil {
+
+class MoEModel;
+
+// ── MoEBlock — Transformer block with MoE FFN ──
+class MoEBlock {
+public:
+    RMSNorm attention_norm;
+    Attention attention;
+    RMSNorm ffn_norm;
+
+    std::unique_ptr<moe::SparseMoE> moe;
+    std::unique_ptr<moe::ExpertFFN> shared_expert;
+
+    float load_balance_loss = 0.0f;
+    float z_loss = 0.0f;
+
+    moe::MoEAllConfig moe_config;
+
+    MoEBlock() = default;
+    MoEBlock(const TransformerConfig& cfg, const moe::MoEAllConfig& moe_cfg);
+
+    Tensor forward(const Tensor& x, const Tensor& positions,
+                   const Tensor& mask, KVCache& cache, int layer_idx,
+                   bool training = true);
+
+    int64_t param_count() const;
+    int64_t activated_param_count() const;
+    int64_t num_stored_experts() const;
+};
+
+// ── MoEModel — Full MoE model with 48T+ scaling support ──
+class MoEModel : public Model {
+public:
+    MoEModel() = default;
+    MoEModel(const TransformerConfig& cfg, const moe::MoEAllConfig& moe_cfg);
+
+    Tensor forward(const Tensor& input_ids, const Tensor& positions,
+                   KVCache* cache = nullptr) override;
+    void load(const std::string& oil_path) override;
+    void save(const std::string& oil_path) const override;
+    int64_t param_count() const override;
+    int64_t vocab_size() const override;
+    int64_t stored_param_count() const;
+
+    std::unique_ptr<Embedding> tok_embeddings;
+    std::vector<MoEBlock> layers;
+    std::unique_ptr<RMSNorm> norm;
+    std::unique_ptr<Linear> lm_head;
+
+    moe::MoEAllConfig moe_config;
+
+    float total_load_balance_loss = 0.0f;
+    float total_z_loss = 0.0f;
+
+    // Scaling config presets
+    static TransformerConfig config_48T();
+    static TransformerConfig config_1T();
+    static TransformerConfig config_100B();
+
+    static moe::MoEAllConfig moe_config_48T();
+    static moe::MoEAllConfig moe_config_1T();
+    static moe::MoEAllConfig moe_config_100B();
+
+private:
+    void build_layers();
+};
+
+// ── ExpertParallel — Distribute experts across devices ──
+class ExpertParallel {
+public:
+    ExpertParallel(int num_experts, int num_ranks, int rank,
+                   DistributedContext* ctx = nullptr);
+    ~ExpertParallel();
+
+    std::vector<int> local_experts() const;
+    void alltoall_experts(const Tensor& input, Tensor& output) const;
+    Tensor forward_with_parallel(MoEModel* model, const Tensor& input,
+                                  const Tensor& positions, KVCache* cache) const;
+    void sync_gradients(MoEModel* model) const;
+
+    int num_experts() const { return num_experts_; }
+    int num_ranks() const { return num_ranks_; }
+    int rank() const { return rank_; }
+    int num_local_experts() const { return (int)local_experts_.size(); }
+
+private:
+    int num_experts_;
+    int num_ranks_;
+    int rank_;
+    std::vector<int> local_experts_;
+    DistributedContext* ctx_;
+    bool owns_ctx_;
+    void build_expert_distribution();
+};
+
+} // namespace oil

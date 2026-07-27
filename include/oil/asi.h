@@ -2,6 +2,7 @@
 #include "oil/tensor.h"
 #include "oil/model.h"
 #include "oil/trainer.h"
+#include "oil/reward.h"
 #include <string>
 #include <vector>
 #include <functional>
@@ -305,6 +306,7 @@ private:
     bool apply_improvement(const std::string& original, const std::string& improved, const std::string& target_file);
     bool rollback(const std::string& file_path, const std::string& backup_path);
     void log_iteration(const FlywheelIteration& iter);
+    std::string generate_fallback_solution(const std::string& task);
     std::string generate_test_program(const std::string& code, const std::string& task);
     std::string extract_proof(const std::string& solution);
     bool run_with_timeout(const std::string& binary, double timeout_sec, std::string& stdout_out, std::string& stderr_out, int& exit_code);
@@ -328,6 +330,15 @@ private:
     int no_improvement_count_ = 0;
     int converged_count_ = 0;
     std::vector<FlywheelIteration> history_;
+};
+
+// G26: RLHF integration — wire the RLHF pipeline into the ASI flywheel
+struct RLHFIntegration {
+    static void run_with_flywheel(Model* model, Model* ref_model,
+                                   Tokenizer* tokenizer, Trainer* trainer,
+                                   RewardModel* reward_model,
+                                   Optimizer* policy_opt, Optimizer* rm_opt,
+                                   int n_rounds = 3, int n_prompts = 50);
 };
 
 } // namespace asi

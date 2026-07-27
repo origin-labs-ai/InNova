@@ -9,8 +9,6 @@
 
 namespace oil {
 
-enum class Activation { ReLU, GELU, SiLU };
-
 struct TransformerConfig {
     int64_t vocab_size = 32000;
     int64_t hidden_size = 768;
@@ -39,7 +37,7 @@ class Linear {
 public:
     Tensor weight;
     Tensor bias;
-    Format weight_format = Format::FP32;
+    Format weight_format = Format::OIL32;
     Linear() = default;
     Linear(int64_t in_features, int64_t out_features);
     Tensor forward(const Tensor& input) const;
@@ -95,6 +93,7 @@ public:
     Attention attention;
     RMSNorm ffn_norm;
     FFN ffn;
+    bool use_parallel_residual = false;  // GPT-NeoX style: attn+ffn run on same pre-norm input
     TransformerBlock() = default;
     explicit TransformerBlock(const TransformerConfig& cfg);
     Tensor forward(const Tensor& x, const Tensor& positions,

@@ -66,7 +66,7 @@ Tensor Tensor::to_dtype(DType dtype) const {
     return result;
 }
 
-Tensor::Tensor()
+Tensor::Tensor() noexcept
     : shape_(), dtype_(DType::F32), requires_grad_(false),
       grad_(nullptr), offset_(0), is_transposed_(false)
 {}
@@ -88,22 +88,15 @@ Tensor::Tensor(Shape shape, std::shared_ptr<Buffer> buffer, DType dtype)
     compute_strides();
 }
 
-Tensor::~Tensor() {
-    delete grad_;
-}
+Tensor::~Tensor() noexcept = default;
 
 Tensor::Tensor(const Tensor& other)
     : shape_(other.shape_), dtype_(other.dtype_), buffer_(other.buffer_),
       requires_grad_(other.requires_grad_),
+      grad_(other.grad_ ? std::make_unique<Tensor>(*other.grad_) : nullptr),
       offset_(other.offset_), is_transposed_(other.is_transposed_),
       strides_(other.strides_)
-{
-    if (other.grad_) {
-        grad_ = new Tensor(*other.grad_);
-    } else {
-        grad_ = nullptr;
-    }
-}
+{}
 
 Tensor& Tensor::operator=(const Tensor& other) {
     if (this != &other) {
@@ -114,12 +107,7 @@ Tensor& Tensor::operator=(const Tensor& other) {
         strides_ = other.strides_;
         requires_grad_ = other.requires_grad_;
         is_transposed_ = other.is_transposed_;
-        delete grad_;
-        if (other.grad_) {
-            grad_ = new Tensor(*other.grad_);
-        } else {
-            grad_ = nullptr;
-        }
+        grad_ = other.grad_ ? std::make_unique<Tensor>(*other.grad_) : nullptr;
     }
     return *this;
 }
@@ -127,11 +115,10 @@ Tensor& Tensor::operator=(const Tensor& other) {
 Tensor::Tensor(Tensor&& other) noexcept
     : shape_(other.shape_), dtype_(other.dtype_),
       buffer_(std::move(other.buffer_)),
-      requires_grad_(other.requires_grad_), grad_(other.grad_),
+      requires_grad_(other.requires_grad_), grad_(std::move(other.grad_)),
       offset_(other.offset_), is_transposed_(other.is_transposed_),
       strides_(std::move(other.strides_))
 {
-    other.grad_ = nullptr;
     other.offset_ = 0;
     other.is_transposed_ = false;
 }
@@ -145,9 +132,7 @@ Tensor& Tensor::operator=(Tensor&& other) noexcept {
         strides_ = std::move(other.strides_);
         requires_grad_ = other.requires_grad_;
         is_transposed_ = other.is_transposed_;
-        delete grad_;
-        grad_ = other.grad_;
-        other.grad_ = nullptr;
+        grad_ = std::move(other.grad_);
         other.offset_ = 0;
         other.is_transposed_ = false;
     }
@@ -231,9 +216,17 @@ Tensor Tensor::transpose(int dim1, int dim2) const {
 }
 
 void Tensor::fill(float val) {
-    float* d = data<float>();
     int64_t n = numel();
-    for (int64_t i = 0; i < n; i++) d[i] = val;
+    if (dtype_ == DType::F32) {
+        float* d = data<float>();
+        for (int64_t i = 0; i < n; i++) d[i] = val;
+    } else if (dtype_ == DType::F16) {
+        uint16_t h = float_to_half(val);
+        uint16_t* d = data<uint16_t>();
+        for (int64_t i = 0; i < n; i++) d[i] = h;
+    } else {
+        OIL_CHECK(false, "fill: unsupported dtype");
+    }
 }
 
 void Tensor::zero_() {
@@ -256,14 +249,14 @@ Tensor Tensor::clone() const {
     return t;
 }
 
-Tensor Tensor::zeros(const Shape& shape) {
-    Tensor t(shape, DType::F32);
+Tensor Tensor::zeros(const Shape& shape, DType dtype) {
+    Tensor t(shape, dtype);
     t.zero_();
     return t;
 }
 
-Tensor Tensor::ones(const Shape& shape) {
-    Tensor t(shape, DType::F32);
+Tensor Tensor::ones(const Shape& shape, DType dtype) {
+    Tensor t(shape, dtype);
     t.fill(1.0f);
     return t;
 }
@@ -317,6 +310,7 @@ size_t Tensor::serialize(uint8_t* dst) const {
 Tensor Tensor::deserialize(const uint8_t* src, size_t& offset) {
     const uint8_t* p = src + offset;
     int32_t r; memcpy(&r, p, sizeof(r)); p += sizeof(r);
+    OIL_CHECK(r >= 0 && r <= 8, "deserialize: invalid rank");
     Shape shape;
     shape.rank = r;
     for (int i = 0; i < r; i++) {

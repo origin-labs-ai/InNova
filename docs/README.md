@@ -108,7 +108,7 @@ Detailed documentation for each major component:
 | **Transformer** | Transformer architecture implementation | `transformer.h`, `transformer.cpp` |
 | **Quantization** | OIL4, OIL8, Ternary, Binary formats | `kernel_oil4.cpp`, `kernel_oil8.cpp`, `int8_quant.cpp`, etc. |
 | **MoE** | Mixture of Experts implementation | `moe_variants.h`, `moe_variants.cpp` |
-| **GPU Compute** | DirectX 12 GPU acceleration | `gpu_compute.h`, `gpu_compute.cpp` |
+| **GPU Compute** | Vulkan GPU acceleration | `gpu_compute.h`, `gpu_compute.cpp`, `gpu_compute_vulkan.cpp` |
 | **Model** | Model loading, saving, and management | `model.h`, `model.cpp` |
 | **Tokenizer** | BPE tokenizer implementation | `bpe_tokenizer.h`, `bpe_tokenizer.cpp` |
 | **Trainer** | Training loop and optimization | `trainer.h`, `trainer.cpp` |
@@ -159,12 +159,12 @@ Want to contribute or extend MYTHOS.cpp?
 | OIL Format | ✅ Stable | ✅ | ✅ |
 | Quantization Kernels | ✅ Stable | ✅ | ⏳ |
 | MoE Variants | ✅ Stable | ✅ | ⏳ |
-| GPU Compute | ✅ Experimental | ⚠️ | ⏳ |
+| GPU Compute | ✅ Stable (Vulkan) | ✅ | ⏳ |
 | Training | ✅ Stable | ✅ | ⏳ |
 | Inference | ✅ Stable | ✅ | ⏳ |
 
-**Last Updated:** July 12, 2026
-**Version:** v0.1
+**Last Updated:** July 26, 2026
+**Version:** v0.1.02
 
 ---
 

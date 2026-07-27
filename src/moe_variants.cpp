@@ -1,8 +1,15 @@
 #include "oil/moe_variants.h"
 #include "oil/random.h"
+#include "oil/autograd_functions.h"
+#include "oil/simd_math.h"
 #include <cstring>
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+#include <random>
 #include <unordered_map>
 #include <memory>
+#include <atomic>
 
 namespace oil {
 namespace moe {
@@ -16,6 +23,71 @@ int64_t hash_token(int64_t token_id, int64_t range) {
     h ^= h >> 37;
     h *= 0xBF58476D1CE4E5B9ULL;
     return (int64_t)(h % (uint64_t)range);
+}
+
+// ========================================================================
+// MoE variant name lookup
+// ========================================================================
+
+const char* moe_variant_name(MoEVariant v) {
+    switch (v) {
+        case MoEVariant::SPARSE_TOP1: return "SPARSE_TOP1";
+        case MoEVariant::SPARSE_TOP2: return "SPARSE_TOP2";
+        case MoEVariant::SPARSE_TOPK: return "SPARSE_TOPK";
+        case MoEVariant::SOFT_MIXTURE: return "SOFT_MIXTURE";
+        case MoEVariant::HIERARCHICAL: return "HIERARCHICAL";
+        case MoEVariant::MOMOE: return "MOMOE";
+        case MoEVariant::EXPERT_CHOICE: return "EXPERT_CHOICE";
+        case MoEVariant::HASH_ROUTED: return "HASH_ROUTED";
+        case MoEVariant::CROSS_LAYER: return "CROSS_LAYER";
+        case MoEVariant::MULTIMODAL: return "MULTIMODAL";
+        case MoEVariant::MMOE: return "MMOE";
+        case MoEVariant::DEEPSEEK_MOE: return "DEEPSEEK_MOE";
+        case MoEVariant::BASE_LAYER: return "BASE_LAYER";
+        case MoEVariant::DENSE_MOE: return "DENSE_MOE";
+        case MoEVariant::SHARED_EXPERT: return "SHARED_EXPERT";
+        case MoEVariant::RESIDUAL_MOE: return "RESIDUAL_MOE";
+        case MoEVariant::GATING_DROPOUT: return "GATING_DROPOUT";
+        case MoEVariant::DOMAIN_MOE: return "DOMAIN_MOE";
+        case MoEVariant::PRODUCT_KEY: return "PRODUCT_KEY";
+        case MoEVariant::ATTENTION_MOE: return "ATTENTION_MOE";
+        case MoEVariant::MLA_MOE: return "MLA_MOE";
+        case MoEVariant::MAMBA_MOE: return "MAMBA_MOE";
+        case MoEVariant::QUANTIZED_INT8_MOE: return "QUANTIZED_INT8_MOE";
+        case MoEVariant::SPARK_MOE: return "SPARK_MOE";
+        case MoEVariant::OIL1_MOE: return "OIL1_MOE";
+        case MoEVariant::OIL8_MOE: return "OIL8_MOE";
+        case MoEVariant::OIL4_MOE: return "OIL4_MOE";
+        default: return "UNKNOWN";
+    }
+}
+
+// ========================================================================
+// ExpertFFN
+// ========================================================================
+
+ExpertFFN::ExpertFFN() : activation(Activation::SiLU) {}
+
+ExpertFFN::ExpertFFN(int64_t hidden_size, int64_t ffn_hidden, Activation act)
+    : gate_proj(hidden_size, ffn_hidden),
+      up_proj(hidden_size, ffn_hidden),
+      down_proj(ffn_hidden, hidden_size),
+      activation(act) {}
+
+Tensor ExpertFFN::forward(const Tensor& x) const {
+    Tensor gate = gate_proj.forward(x);
+    Tensor up = up_proj.forward(x);
+    Tensor act_out({gate.shape()});
+    if (activation == Activation::SiLU) {
+        math::silu(gate, act_out);
+    } else if (activation == Activation::GELU) {
+        math::gelu(gate, act_out);
+    } else {
+        math::relu(gate, act_out);
+    }
+    Tensor gated({gate.shape()});
+    math::mul(act_out, up, gated);
+    return down_proj.forward(gated);
 }
 
 // ========================================================================
@@ -102,7 +174,7 @@ float compute_z_loss(const Tensor& expert_output_norms) {
 // ExpertFFN loader
 // ========================================================================
 
-static std::vector<ExpertFFN> create_experts(int64_t count, int64_t hidden, int64_t ffn_hidden, Activation act) {
+std::vector<ExpertFFN> create_experts(int64_t count, int64_t hidden, int64_t ffn_hidden, Activation act) {
     std::vector<ExpertFFN> exps;
     exps.reserve(count);
     for (int64_t i = 0; i < count; ++i)
@@ -783,19 +855,37 @@ void moe_softmax_topk(float* probs, int64_t* indices, float* weights,
         float maxv = row[0];
         for (int64_t e = 1; e < E; ++e)
             if (row[e] > maxv) maxv = row[e];
+
         float sum = 0.0f;
-        for (int64_t e = 0; e < E; ++e) {
+        int64_t e = 0;
+#if defined(OIL_AVX2) || defined(__AVX2__)
+        {
+            __m256 maxv8 = _mm256_set1_ps(maxv);
+            __m256 sumv = _mm256_setzero_ps();
+            for (; e + 8 <= E; e += 8) {
+                __m256 rv = _mm256_loadu_ps(row + e);
+                __m256 ev = oil::simd::oil_exp_ps(_mm256_sub_ps(rv, maxv8));
+                _mm256_storeu_ps(p + e, ev);
+                sumv = _mm256_add_ps(sumv, ev);
+            }
+            float hsum[8];
+            _mm256_storeu_ps(hsum, sumv);
+            sum = hsum[0]+hsum[1]+hsum[2]+hsum[3]+hsum[4]+hsum[5]+hsum[6]+hsum[7];
+        }
+#endif
+        for (; e < E; ++e) {
             p[e] = std::exp(row[e] - maxv);
             sum += p[e];
         }
+
         float inv = 1.0f / sum;
-        for (int64_t e = 0; e < E; ++e)
-            p[e] *= inv;
+        for (int64_t e2 = 0; e2 < E; ++e2)
+            p[e2] *= inv;
 
         std::vector<std::pair<float, int64_t>> scored;
         scored.reserve(E);
-        for (int64_t e = 0; e < E; ++e)
-            scored.push_back({p[e], e});
+        for (int64_t e2 = 0; e2 < E; ++e2)
+            scored.push_back({p[e2], e2});
         std::partial_sort(scored.begin(), scored.begin() + K, scored.end(),
             [](auto& a, auto& b) { return a.first > b.first; });
         for (int64_t k = 0; k < K; ++k) {
@@ -1363,14 +1453,14 @@ MoEOutput QuantizedINT8MoE::forward(const Tensor& x) {
     return out;
 }
 
-// 22. Ternary MoE
-TernaryMoE::TernaryMoE(int64_t hidden, const MoEAllConfig& cfg)
+// 22. Spark MoE
+SparkMoE::SparkMoE(int64_t hidden, const MoEAllConfig& cfg)
     : config(cfg), hidden_size(hidden), router(hidden, cfg.num_experts) {
     experts = create_experts(cfg.num_experts, hidden, cfg.expert_hidden_size, Activation::SiLU);
-    ternary_scales.resize(cfg.num_experts, 1.0f);
+    spark_scales.resize(cfg.num_experts, 1.0f);
 }
 
-MoEOutput TernaryMoE::forward(const Tensor& x) {
+MoEOutput SparkMoE::forward(const Tensor& x) {
     int64_t B = x.dim(0), S = x.dim(1), D = hidden_size;
     int64_t T = B * S, E = config.num_experts, K = config.top_k;
     Tensor x_flat = x.reshape({T, D});
@@ -1382,7 +1472,7 @@ MoEOutput TernaryMoE::forward(const Tensor& x) {
         indices.data<int64_t>(), weights.data<float>(), T, K, E, D, &zl);
     float* od = output.data<float>();
     for (int64_t e = 0; e < E; ++e) {
-        float scale = ternary_scales[(size_t)e];
+        float scale = spark_scales[(size_t)e];
         for (int64_t t = 0; t < T; ++t) {
             for (int64_t d = 0; d < D; ++d) {
                 float v = od[t * D + d] * scale;
@@ -1399,14 +1489,14 @@ MoEOutput TernaryMoE::forward(const Tensor& x) {
     return out;
 }
 
-// 23. Binary MoE
-BinaryMoE::BinaryMoE(int64_t hidden, const MoEAllConfig& cfg)
+// 23. OIL1 MoE
+Oil1MoE::Oil1MoE(int64_t hidden, const MoEAllConfig& cfg)
     : config(cfg), hidden_size(hidden), router(hidden, cfg.num_experts) {
     experts = create_experts(cfg.num_experts, hidden, cfg.expert_hidden_size, Activation::SiLU);
-    binary_scales.resize(cfg.num_experts, 1.0f);
+    oil1_scales.resize(cfg.num_experts, 1.0f);
 }
 
-MoEOutput BinaryMoE::forward(const Tensor& x) {
+MoEOutput Oil1MoE::forward(const Tensor& x) {
     int64_t B = x.dim(0), S = x.dim(1), D = hidden_size;
     int64_t T = B * S, E = config.num_experts, K = config.top_k;
     Tensor x_flat = x.reshape({T, D});
@@ -1418,7 +1508,7 @@ MoEOutput BinaryMoE::forward(const Tensor& x) {
         indices.data<int64_t>(), weights.data<float>(), T, K, E, D, &zl);
     float* od = output.data<float>();
     for (int64_t e = 0; e < E; ++e) {
-        float scale = binary_scales[(size_t)e];
+        float scale = oil1_scales[(size_t)e];
         for (int64_t t = 0; t < T; ++t) {
             for (int64_t d = 0; d < D; ++d) {
                 float v = od[t * D + d] * scale;
@@ -1533,8 +1623,110 @@ const char* moe_variant_name_by_index(int64_t index) {
 }
 
 std::unique_ptr<void, void(*)(void*)> create_moe_variant(MoEVariant variant, int64_t hidden, const MoEAllConfig& cfg) {
-    (void)variant; (void)hidden; (void)cfg;
-    return std::unique_ptr<void, void(*)(void*)>(nullptr, [](void*){});
+    switch (variant) {
+        case MoEVariant::SPARSE_TOP1: case MoEVariant::SPARSE_TOP2: case MoEVariant::SPARSE_TOPK: {
+            auto* p = new SparseMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<SparseMoE*>(v); }};
+        }
+        case MoEVariant::SOFT_MIXTURE: {
+            auto* p = new SoftMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<SoftMoE*>(v); }};
+        }
+        case MoEVariant::HIERARCHICAL: {
+            auto* p = new HierarchicalMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<HierarchicalMoE*>(v); }};
+        }
+        case MoEVariant::MOMOE: {
+            auto* p = new MoMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<MoMoE*>(v); }};
+        }
+        case MoEVariant::EXPERT_CHOICE: {
+            auto* p = new ExpertChoiceMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<ExpertChoiceMoE*>(v); }};
+        }
+        case MoEVariant::HASH_ROUTED: {
+            auto* p = new HashMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<HashMoE*>(v); }};
+        }
+        case MoEVariant::CROSS_LAYER: {
+            auto* p = new CrossLayerMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<CrossLayerMoE*>(v); }};
+        }
+        case MoEVariant::MULTIMODAL: {
+            auto* p = new MultiModalMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<MultiModalMoE*>(v); }};
+        }
+        case MoEVariant::MMOE: {
+            auto* p = new MMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<MMoE*>(v); }};
+        }
+        case MoEVariant::DEEPSEEK_MOE: {
+            auto* p = new DeepSeekMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<DeepSeekMoE*>(v); }};
+        }
+        case MoEVariant::BASE_LAYER: {
+            auto* p = new BaseLayerMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<BaseLayerMoE*>(v); }};
+        }
+        case MoEVariant::DENSE_MOE: {
+            auto* p = new DenseMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<DenseMoE*>(v); }};
+        }
+        case MoEVariant::SHARED_EXPERT: {
+            auto* p = new SharedExpertMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<SharedExpertMoE*>(v); }};
+        }
+        case MoEVariant::RESIDUAL_MOE: {
+            auto* p = new ResidualMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<ResidualMoE*>(v); }};
+        }
+        case MoEVariant::GATING_DROPOUT: {
+            auto* p = new GatingDropoutMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<GatingDropoutMoE*>(v); }};
+        }
+        case MoEVariant::DOMAIN_MOE: {
+            auto* p = new DomainMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<DomainMoE*>(v); }};
+        }
+        case MoEVariant::PRODUCT_KEY: {
+            auto* p = new ProductKeyMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<ProductKeyMoE*>(v); }};
+        }
+        case MoEVariant::ATTENTION_MOE: {
+            auto* p = new AttentionMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<AttentionMoE*>(v); }};
+        }
+        case MoEVariant::MLA_MOE: {
+            auto* p = new MLAMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<MLAMoE*>(v); }};
+        }
+        case MoEVariant::MAMBA_MOE: {
+            auto* p = new MambaMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<MambaMoE*>(v); }};
+        }
+        case MoEVariant::QUANTIZED_INT8_MOE: {
+            auto* p = new QuantizedINT8MoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<QuantizedINT8MoE*>(v); }};
+        }
+        case MoEVariant::SPARK_MOE: {
+            auto* p = new SparkMoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<SparkMoE*>(v); }};
+        }
+        case MoEVariant::OIL1_MOE: {
+            auto* p = new Oil1MoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<Oil1MoE*>(v); }};
+        }
+        case MoEVariant::OIL8_MOE: {
+            auto* p = new OIL8MoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<OIL8MoE*>(v); }};
+        }
+        case MoEVariant::OIL4_MOE: {
+            auto* p = new OIL4MoE(hidden, cfg);
+            return {p, [](void* v) { delete static_cast<OIL4MoE*>(v); }};
+        }
+        default:
+            return std::unique_ptr<void, void(*)(void*)>(nullptr, [](void*){});
+    }
 }
 
 } // namespace moe

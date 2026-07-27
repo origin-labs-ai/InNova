@@ -20,7 +20,7 @@ oil-finetune --model <base.oil> --data <data.txt> --output <output.oil> [options
 | `--lr` | 1e-5 | Learning rate (lower for finetuning) |
 | `--epochs` | 3 | Number of epochs |
 | `--batch-size` | 4 | Batch size |
-| `--lora-r` | 0 | LoRA rank (0 = full finetune) |
+| `--target-bpw` | 1.58 | Target bits-per-weight for quantized fine-tuning |
 | `--freeze-layers` | - | Comma-separated layers to freeze |
 
 ### Example
@@ -29,6 +29,6 @@ oil-finetune --model <base.oil> --data <data.txt> --output <output.oil> [options
 # Full fine-tune
 oil-finetune --model base.oil --data data.txt --output finetuned.oil --lr 1e-5
 
-# LoRA fine-tune
-oil-finetune --model base.oil --data data.txt --output lora.oil --lora-r 8
+# Quantized fine-tune
+oil-finetune --model base.oil --data data.txt --output quant.oil --target-bpw 2.0
 ```

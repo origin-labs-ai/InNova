@@ -148,7 +148,7 @@ RouterOutput MoERouter::forward(const Tensor& x, const Tensor& modality_hints) {
         lse = (double)row_max + std::log(lse);
         z_lse += lse * lse;
     }
-    out.z_loss = config_.z_loss_coef * z_lse / (float)T;
+    out.z_loss = static_cast<float>(config_.z_loss_coef * z_lse / (float)T);
     return out;
 }
 

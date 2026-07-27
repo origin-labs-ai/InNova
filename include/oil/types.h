@@ -14,35 +14,64 @@
 
 namespace oil {
 
+enum class Activation : uint8_t { None, ReLU, GELU, SiLU };
+
 enum class Format : uint8_t {
-    BINARY  = 0, // 1 bit, {-1, +1}
-    TERNARY = 1, // 1.58 bits, {-1, 0, +1}
-    OIL4    = 2, // 4 bits, codebook 16 × FP16
-    OIL8    = 3, // 8 bits, codebook 256 × FP32
-    FP16    = 4, // 16 bits, native half
-    FP32    = 5, // 32 bits, native float
+    OIL1            = 0,   // 1.00 BPW
+    SPARK_Q0        = 1,   // 1.50 BPW (sign + shared FP16 scale, lossy)
+    OIL2            = 2,   // 2.00 BPW, 4 centroids Lloyd-Max (lossy)
+    OIL4            = 3,   // 4.00 BPW, 16 centroids Lloyd-Max (lossy)
+    OIL8            = 4,   // 8.00 BPW, 256 centroids Lloyd-Max (lossy)
+    OIL16           = 5,   // 16.00 BPW, FP16 storage (lossy)
+    OIL32           = 6,   // 32.00 BPW, FP32 identity (lossless)
+    OIL1_GRP        = 7,   // 1.00 BPW, lossless grouped
+    SPARK_Q0_GRP    = 8,   // 1.50 BPW, lossless, sign + per-group scale
+    OIL2_GRP        = 9,   // 2.00 BPW, lossless grouped
+    OIL4_GRP        = 10,  // 4.00 BPW, lossless grouped
+    OIL8_GRP        = 11,  // 8.00 BPW, lossless grouped
+    OIL16_GRP       = 12,  // 16.00 BPW, lossless grouped
+    SPARK_SPARSE     = 13,  // ~2.00 BPW, lossy, sparse (index,value) pairs
+    SPARK_SPARSE_GRP = 14,  // ~2.00 BPW, lossless, sparse grouped scale
 };
 
 inline const char* format_name(Format f) {
     switch (f) {
-        case Format::BINARY:  return "binary";
-        case Format::TERNARY: return "ternary";
-        case Format::OIL4:    return "oil4";
-        case Format::OIL8:    return "oil8";
-        case Format::FP16:    return "fp16";
-        case Format::FP32:    return "fp32";
+        case Format::OIL1:          return "OIL1";
+        case Format::OIL2:          return "OIL2";
+        case Format::OIL4:          return "OIL4";
+        case Format::OIL8:          return "OIL8";
+        case Format::OIL16:         return "OIL16";
+        case Format::OIL32:         return "OIL32";
+        case Format::OIL1_GRP:      return "OIL1_GRP";
+        case Format::OIL2_GRP:      return "OIL2_GRP";
+        case Format::OIL4_GRP:      return "OIL4_GRP";
+        case Format::OIL8_GRP:      return "OIL8_GRP";
+        case Format::OIL16_GRP:     return "OIL16_GRP";
+        case Format::SPARK_SPARSE:      return "SPARK_SPARSE";
+        case Format::SPARK_SPARSE_GRP:  return "SPARK_SPARSE_GRP";
+        case Format::SPARK_Q0:          return "SPARK_Q0";
+        case Format::SPARK_Q0_GRP:      return "SPARK_Q0_GRP";
         default: return "unknown";
     }
 }
 
 inline float format_bpw(Format f) {
     switch (f) {
-        case Format::BINARY:  return 1.0f;
-        case Format::TERNARY: return 1.58f;
-        case Format::OIL4:    return 4.0f;
-        case Format::OIL8:    return 8.0f;
-        case Format::FP16:    return 16.0f;
-        case Format::FP32:    return 32.0f;
+        case Format::OIL1:      return 1.0f;
+        case Format::OIL2:      return 2.0f;
+        case Format::OIL4:      return 4.0f;
+        case Format::OIL8:      return 8.0f;
+        case Format::OIL16:     return 16.0f;
+        case Format::OIL32:     return 32.0f;
+        case Format::OIL1_GRP:  return 1.0f;
+        case Format::OIL2_GRP:  return 2.0f;
+        case Format::OIL4_GRP:  return 4.0f;
+        case Format::OIL8_GRP:  return 8.0f;
+        case Format::OIL16_GRP: return 16.0f;
+        case Format::SPARK_SPARSE:     return 1.5f;
+        case Format::SPARK_SPARSE_GRP:  return 2.0f;
+        case Format::SPARK_Q0:          return 1.5f;
+        case Format::SPARK_Q0_GRP:      return 1.5f;
         default: return 0;
     }
 }
@@ -51,8 +80,6 @@ enum class DType : uint8_t {
     I64,     // int64_t
     U8,      // uint8_t
     U4,      // 4-bit packed (2 per byte)
-    I2,      // 2-bit ternary packed (4 per byte)
-    I1,      // 1-bit binary packed (8 per byte)
     F16,     // half precision
     F32,     // single precision
 };
@@ -61,9 +88,7 @@ inline size_t dtype_size(DType dt) {
     switch (dt) {
         case DType::I64: return 8;
         case DType::U8: return 1;
-        case DType::U4: return 1; // 2 per byte
-        case DType::I2: return 1; // 4 per byte
-        case DType::I1: return 1; // 8 per byte
+        case DType::U4: return 1;
         case DType::F16: return 2;
         case DType::F32: return 4;
         default: return 0;
@@ -72,12 +97,12 @@ inline size_t dtype_size(DType dt) {
 
 inline DType format_to_dtype(Format f) {
     switch (f) {
-        case Format::BINARY:  return DType::I1;
-        case Format::TERNARY: return DType::I2;
+        case Format::OIL1:
+        case Format::OIL2:    return DType::U8;
         case Format::OIL4:    return DType::U4;
         case Format::OIL8:    return DType::U8;
-        case Format::FP16:    return DType::F16;
-        case Format::FP32:    return DType::F32;
+        case Format::OIL16:   return DType::F16;
+        case Format::OIL32:   return DType::F32;
         default: return DType::F32;
     }
 }
@@ -86,17 +111,18 @@ struct Shape {
     int64_t dims[8];
     int rank;
 
-    Shape() : rank(0) {}
-    explicit Shape(int64_t d0) : rank(1) { dims[0]=d0; }
-    Shape(int64_t d0, int64_t d1) : rank(2) { dims[0]=d0; dims[1]=d1; }
-    Shape(int64_t d0, int64_t d1, int64_t d2) : rank(3) { dims[0]=d0; dims[1]=d1; dims[2]=d2; }
+    Shape() : rank(0) { dims[0]=dims[1]=dims[2]=dims[3]=dims[4]=dims[5]=dims[6]=dims[7]=0; }
+    explicit Shape(int64_t d0) : rank(1) { dims[0]=d0; dims[1]=dims[2]=dims[3]=dims[4]=dims[5]=dims[6]=dims[7]=0; }
+    Shape(int64_t d0, int64_t d1) : rank(2) { dims[0]=d0; dims[1]=d1; dims[2]=dims[3]=dims[4]=dims[5]=dims[6]=dims[7]=0; }
+    Shape(int64_t d0, int64_t d1, int64_t d2) : rank(3) { dims[0]=d0; dims[1]=d1; dims[2]=d2; dims[3]=dims[4]=dims[5]=dims[6]=dims[7]=0; }
     Shape(std::initializer_list<int64_t> l) : rank((int)l.size()) {
+        dims[0]=dims[1]=dims[2]=dims[3]=dims[4]=dims[5]=dims[6]=dims[7]=0;
         if (rank > 8) throw std::runtime_error("Shape: rank exceeds maximum of 8");
         int i=0; for (auto x: l) dims[i++] = x;
     }
 
-    int64_t& operator[](int i) { return dims[i]; }
-    const int64_t& operator[](int i) const { return dims[i]; }
+    int64_t& operator[](int i) { if (i < 0 || i >= rank) throw std::out_of_range("Shape index out of range"); return dims[i]; }
+    const int64_t& operator[](int i) const { if (i < 0 || i >= rank) throw std::out_of_range("Shape index out of range"); return dims[i]; }
 
     int64_t numel() const {
         int64_t n = 1;

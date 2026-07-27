@@ -7,26 +7,17 @@
 #include "oil/tensor.h"
 #include "oil/math.h"
 #include "oil/gpu_compute.h"
+#include "oil/test.h"
 #include "oil/backend.h"
 
 using namespace oil;
 using namespace oil::gpu;
 using namespace oil::backend;
 
-int tests_passed = 0;
-int tests_total = 0;
 bool has_dx = false;
 
-#define CHECK(cond, msg) do { \
-    tests_total++; \
-    if (!(cond)) { printf("  FAIL: %s\n", msg); } \
-    else { tests_passed++; } \
-} while(0)
-
-#define CHECK_FLOAT_EQ(a, b, eps, msg) CHECK(std::fabs((a)-(b)) < (eps), msg)
-
 static void test_gpu_init() {
-    printf("\n=== GPU INIT ===\n");
+    TEST_SUITE("GPU INIT");
 
     has_dx = is_directx_available();
     printf("  DirectX available at compile time: %s\n", has_dx ? "yes" : "no");
@@ -41,23 +32,23 @@ static void test_gpu_init() {
     }
 
     if (gpu_ok) {
-        CHECK(gpu_ok, "GPU compute initialized successfully");
+        TEST_CHECK(gpu_ok, "GPU compute initialized successfully");
         auto& dx = gpu::get_dx_compute();
-        CHECK(dx.is_initialized(), "DirectXCompute::is_initialized()");
+        TEST_CHECK(dx.is_initialized(), "DirectXCompute::is_initialized()");
         int64_t mem_free = dx.memory_free();
         int64_t mem_total = dx.memory_total();
         printf("  GPU memory: free=%lld MB total=%lld MB\n",
                (long long)(mem_free / (1024*1024)),
                (long long)(mem_total / (1024*1024)));
-        CHECK(mem_total > 0, "GPU memory_total > 0");
-        CHECK(mem_free > 0, "GPU memory_free > 0");
+        TEST_CHECK(mem_total > 0, "GPU memory_total > 0");
+        TEST_CHECK(mem_free > 0, "GPU memory_free > 0");
     } else {
         printf("  SKIP: GPU initialization not available\n");
     }
 }
 
 static void test_gpu_memory() {
-    printf("\n=== GPU MEMORY ===\n");
+    TEST_SUITE("GPU MEMORY");
     if (!gpu::gpu_available()) { printf("  SKIP (no GPU)\n"); return; }
 
     auto& dx = gpu::get_dx_compute();
@@ -65,7 +56,7 @@ static void test_gpu_memory() {
     // Allocate
     const int64_t N = 256;
     void* gpu_buf = dx.allocate(N * sizeof(float));
-    CHECK(gpu_buf != nullptr, "gpu allocate");
+    TEST_CHECK(gpu_buf != nullptr, "gpu allocate");
 
     // Upload
     Tensor src({N}, DType::F32);
@@ -80,7 +71,7 @@ static void test_gpu_memory() {
     bool ok = true;
     for (int64_t i = 0; i < N && ok; i++)
         if (std::fabs(dst.data<float>()[i] - (float)i) > 1e-4f) ok = false;
-    CHECK(ok, "gpu upload/download roundtrip");
+    TEST_CHECK(ok, "gpu upload/download roundtrip");
 
     // Copy
     void* gpu_buf2 = dx.allocate(N * sizeof(float));
@@ -90,14 +81,14 @@ static void test_gpu_memory() {
     ok = true;
     for (int64_t i = 0; i < N && ok; i++)
         if (std::fabs(dst2.data<float>()[i] - (float)i) > 1e-4f) ok = false;
-    CHECK(ok, "gpu copy");
+    TEST_CHECK(ok, "gpu copy");
 
     dx.free(gpu_buf);
     dx.free(gpu_buf2);
 }
 
 static void test_gpu_relu() {
-    printf("\n=== GPU RELU ===\n");
+    TEST_SUITE("GPU RELU");
     if (!gpu::gpu_available()) { printf("  SKIP (no GPU)\n"); return; }
 
     auto& dx = gpu::get_dx_compute();
@@ -120,14 +111,14 @@ static void test_gpu_relu() {
         float expected = (x.data<float>()[i] > 0) ? x.data<float>()[i] : 0.0f;
         if (std::fabs(y.data<float>()[i] - expected) > 1e-4f) ok = false;
     }
-    CHECK(ok, "gpu relu correct");
+    TEST_CHECK(ok, "gpu relu correct");
 
     dx.free(gpu_x);
     dx.free(gpu_y);
 }
 
 static void test_gpu_elementwise() {
-    printf("\n=== GPU ELEMENT-WISE ===\n");
+    TEST_SUITE("GPU ELEMENT-WISE");
     if (!gpu::gpu_available()) { printf("  SKIP (no GPU)\n"); return; }
 
     auto& dx = gpu::get_dx_compute();
@@ -153,7 +144,7 @@ static void test_gpu_elementwise() {
     bool ok = true;
     for (int64_t i = 0; i < N && ok; i++)
         if (std::fabs(c_add.data<float>()[i] - (float)(i + (N - i))) > 1e-3f) ok = false;
-    CHECK(ok, "gpu add correct");
+    TEST_CHECK(ok, "gpu add correct");
 
     // Test mul
     dx.mul(gpu_a, gpu_b, gpu_c, N);
@@ -162,7 +153,7 @@ static void test_gpu_elementwise() {
     ok = true;
     for (int64_t i = 0; i < N && ok; i++)
         if (std::fabs(c_mul.data<float>()[i] - (float)(i * (N - i))) > 1e-2f) ok = false;
-    CHECK(ok, "gpu mul correct");
+    TEST_CHECK(ok, "gpu mul correct");
 
     // Test scale
     dx.scale(2.5f, gpu_a, gpu_c, N);
@@ -171,7 +162,7 @@ static void test_gpu_elementwise() {
     ok = true;
     for (int64_t i = 0; i < N && ok; i++)
         if (std::fabs(c_scale.data<float>()[i] - 2.5f * i) > 1e-3f) ok = false;
-    CHECK(ok, "gpu scale correct");
+    TEST_CHECK(ok, "gpu scale correct");
 
     dx.free(gpu_a);
     dx.free(gpu_b);
@@ -179,7 +170,7 @@ static void test_gpu_elementwise() {
 }
 
 static void test_gpu_softmax() {
-    printf("\n=== GPU SOFTMAX ===\n");
+    TEST_SUITE("GPU SOFTMAX");
     if (!gpu::gpu_available()) { printf("  SKIP (no GPU)\n"); return; }
 
     auto& dx = gpu::get_dx_compute();
@@ -207,14 +198,14 @@ static void test_gpu_softmax() {
             sum += y.data<float>()[r * COLS + c];
         if (std::fabs(sum - 1.0f) > 1e-3f) ok = false;
     }
-    CHECK(ok, "gpu softmax rows sum to 1");
+    TEST_CHECK(ok, "gpu softmax rows sum to 1");
 
     dx.free(gpu_x);
     dx.free(gpu_y);
 }
 
 static void test_gpu_rms_norm() {
-    printf("\n=== GPU RMS NORM ===\n");
+    TEST_SUITE("GPU RMS NORM");
     if (!gpu::gpu_available()) { printf("  SKIP (no GPU)\n"); return; }
 
     auto& dx = gpu::get_dx_compute();
@@ -246,7 +237,7 @@ static void test_gpu_rms_norm() {
         double rms = std::sqrt(ss / D);
         if (std::fabs(rms - 1.0) > 1e-3) ok = false;
     }
-    CHECK(ok, "gpu rms_norm rows have RMS ~1");
+    TEST_CHECK(ok, "gpu rms_norm rows have RMS ~1");
 
     dx.free(gpu_x);
     dx.free(gpu_g);
@@ -254,7 +245,7 @@ static void test_gpu_rms_norm() {
 }
 
 static void test_gpu_gemm() {
-    printf("\n=== GPU GEMM ===\n");
+    TEST_SUITE("GPU GEMM");
     if (!gpu::gpu_available()) { printf("  SKIP (no GPU)\n"); return; }
 
     auto& dx = gpu::get_dx_compute();
@@ -297,7 +288,7 @@ static void test_gpu_gemm() {
                    (long long)i, C_gpu.data<float>()[i], C_ref.data<float>()[i]);
         }
     }
-    CHECK(ok, "gpu gemm matches cpu gemm");
+    TEST_CHECK(ok, "gpu gemm matches cpu gemm");
 
     dx.free(gpu_A);
     dx.free(gpu_B);
@@ -305,12 +296,12 @@ static void test_gpu_gemm() {
 }
 
 static void test_gpu_shutdown() {
-    printf("\n=== GPU SHUTDOWN ===\n");
+    TEST_SUITE("GPU SHUTDOWN");
     if (!gpu::gpu_available()) {
         printf("  SKIP (no GPU)\n");
         return;
     }
-    CHECK(gpu::gpu_available(), "gpu still available");
+    TEST_CHECK(gpu::gpu_available(), "gpu still available");
 }
 
 int main() {
@@ -331,9 +322,6 @@ int main() {
     test_gpu_shutdown();
 
     printf("\n====================================\n");
-    printf("Results: %d / %d tests passed", tests_passed, tests_total);
-    if (tests_passed == tests_total) printf(" -- ALL PASSED\n");
-    else printf(" (%d FAILED)\n", tests_total - tests_passed);
 
-    return (tests_passed == tests_total) ? 0 : 1;
+    return TEST_REPORT() > 0 ? 1 : 0;
 }

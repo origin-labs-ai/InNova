@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include "oil/test.h"
 
 int main() {
     // Create a tiny transformer config

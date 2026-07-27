@@ -19,7 +19,8 @@ struct FineTuneConfig {
     int log_interval = 10;
     int save_interval = 100;
     bool update_codebooks = true;
-    float grad_threshold = 1e-6f;  // skip updates below this
+    float grad_threshold = 1e-6f;
+    float max_grad_norm = 1.0f;
     std::string output_path = "finetuned.oil";
 };
 

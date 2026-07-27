@@ -4,6 +4,8 @@
             "name": "Win32",
             "includePath": [
                 "${workspaceFolder}/include",
+                "${workspaceFolder}/src/adapters/include",
+                "${workspaceFolder}/src",
                 "${workspaceFolder}/engines/inference",
                 "${workspaceFolder}/engines/trainer/dense",
                 "${workspaceFolder}/engines/trainer/moe",

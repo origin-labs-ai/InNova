@@ -6,6 +6,7 @@
 #include <cstring>
 #include <chrono>
 #include <algorithm>
+#include <cstdio>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -162,7 +163,9 @@ public:
 
 #if defined(OIL_AVX2) && defined(OIL_AVX512)
 class CPUAVX512Backend : public ComputeBackend {
-    // TODO: full AVX-512 implementation
+    // AVX-512 specific kernels — currently delegates to AVX2 fallback
+    // for correctness; AVX-512 intrinsics (_mm512_*) can be added per-kernel
+    // for further throughput when OIL_AVX512 is defined.
     CPUAVX2Backend fallback;
 public:
     BackendType type() const override { return BackendType::CPU_AVX512; }
@@ -256,7 +259,10 @@ public:
     GPUDirectXBackend() {
         try {
             dx_ = &gpu::get_dx_compute();
-        } catch (...) {}
+        } catch (...) {
+            std::fprintf(stderr, "[WARN] Exception caught: %s (DirectX init failed)\n", __func__);
+            dx_ = nullptr;
+        }
     }
     BackendType type() const override { return BackendType::GPU_DIRECTX; }
     const char* name() const override { return "GPU_DIRECTX"; }
@@ -285,7 +291,10 @@ public:
         dx_->upload(A, dA);
         dx_->upload(B, dB);
         if (beta != 0.0f) dx_->upload(C, dC);
-        dx_->gemm(alpha, dA, dB, beta, dC, A.dim(A.rank() - 1), B.dim(B.rank() - 1), A.dim(A.rank() - 1));
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        dx_->gemm(alpha, dA, dB, beta, dC, M, N, K);
         dx_->download(dC, C);
         dx_->free(dA);
         dx_->free(dB);
@@ -595,7 +604,10 @@ int64_t gpu_memory_free(int64_t device_id) {
             auto& dx = gpu::get_dx_compute();
             if (dx.is_initialized())
                 return dx.memory_free();
-        } catch (...) {}
+        } catch (...) {
+            std::fprintf(stderr, "[WARN] Exception caught: %s (GPU memory query failed)\n", __func__);
+            return cpu_memory_free();
+        }
     }
 #endif
     return cpu_memory_free();
@@ -606,14 +618,34 @@ int64_t igpu_memory_free() {
 }
 
 Tensor to_backend(const Tensor& t, BackendType dst) {
-    if (dst == BackendType::CPU_SCALAR || dst == BackendType::CPU_AVX2)
-        return t;
+    if (dst == BackendType::CPU_SCALAR || dst == BackendType::CPU_AVX2) {
+        if (!t.data()) return t;
+        Tensor out(t.shape());
+        std::memcpy(out.data(), t.data(), t.numel() * sizeof(float));
+        return out;
+    }
+    // GPU backends: copy to a new CPU tensor (true GPU transfer not yet implemented)
+    if (t.data()) {
+        Tensor out(t.shape());
+        std::memcpy(out.data(), t.data(), t.numel() * sizeof(float));
+        return out;
+    }
     return t;
 }
 
 Tensor from_backend(const Tensor& t, BackendType src) {
-    if (src == BackendType::CPU_SCALAR || src == BackendType::CPU_AVX2)
-        return t;
+    if (src == BackendType::CPU_SCALAR || src == BackendType::CPU_AVX2) {
+        if (!t.data()) return t;
+        Tensor out(t.shape());
+        std::memcpy(out.data(), t.data(), t.numel() * sizeof(float));
+        return out;
+    }
+    // GPU backends: copy from a source tensor to CPU (true GPU transfer not yet implemented)
+    if (t.data()) {
+        Tensor out(t.shape());
+        std::memcpy(out.data(), t.data(), t.numel() * sizeof(float));
+        return out;
+    }
     return t;
 }
 
@@ -648,6 +680,9 @@ HardwareProfile probe_hardware() {
                 hw.vram_total = dx.memory_total();
             }
         } catch (...) {
+            std::fprintf(stderr, "[WARN] Exception caught: %s (VRAM query failed)\n", __func__);
+            hw.vram_free = 0;
+            hw.vram_total = 0;
         }
     }
 #endif

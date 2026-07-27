@@ -1,0 +1,442 @@
+% ============================================================================
+% MYTHOS: Native Quantized Intelligence
+% A Framework for Lossless Sub-Byte Training on Consumer Hardware
+% ============================================================================
+\documentclass[11pt,a4paper,twoside]{report}
+
+% ---------------------------------------------------------------------------
+% PACKAGES
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=0.85in,top=0.85in,bottom=0.9in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage[nameinlink]{cleveref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{listings}
+\usepackage[table,xcdraw]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,decorations.pathreplacing,matrix,fit,backgrounds}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable,skins}
+\usepackage{csquotes}
+\usepackage{microtype}
+\usepackage[backend=biber,style=numeric,sorting=nyt]{biblatex}
+\usepackage{needspace}
+\usepackage{caption}
+
+% ---------------------------------------------------------------------------
+% PAGE BREAK CONTROL -- orphans/widows eliminated
+% ---------------------------------------------------------------------------
+\widowpenalty=10000
+\clubpenalty=10000
+\displaywidowpenalty=10000
+\raggedbottom
+\brokenpenalty=10000
+\flushbottom
+
+\usepackage{etoolbox}
+\BeforeBeginEnvironment{section}{\needspace{4\baselineskip}}
+\BeforeBeginEnvironment{subsection}{\needspace{3\baselineskip}}
+\BeforeBeginEnvironment{subsubsection}{\needspace{2\baselineskip}}
+
+% ---------------------------------------------------------------------------
+% BIBLIOGRAPHY
+% ---------------------------------------------------------------------------
+\addbibresource{references.bib}
+
+% ---------------------------------------------------------------------------
+% COLORS
+% ---------------------------------------------------------------------------
+\definecolor{oilblue}{RGB}{0,102,204}
+\definecolor{oilred}{RGB}{204,51,0}
+\definecolor{oilgreen}{RGB}{0,153,51}
+\definecolor{oilbg}{RGB}{234,243,255}
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codeframe}{RGB}{200,200,200}
+\definecolor{tableheader}{RGB}{0,82,164}
+\definecolor{tableaccent}{RGB}{220,235,255}
+\definecolor{thmbg}{RGB}{234,243,255}
+\definecolor{thmframe}{RGB}{0,102,204}
+\definecolor{lembg}{RGB}{234,255,234}
+\definecolor{lemframe}{RGB}{0,153,51}
+\definecolor{corbg}{RGB}{255,234,234}
+\definecolor{corframe}{RGB}{204,51,0}
+
+% ---------------------------------------------------------------------------
+% HYPERREF
+% ---------------------------------------------------------------------------
+\hypersetup{
+    colorlinks=true,
+    linkcolor=oilblue,
+    citecolor=oilgreen,
+    urlcolor=oilblue,
+    pdftitle={MYTHOS: Native Quantized Intelligence},
+    pdfauthor={Satyam Thakur},
+    pdfsubject={Quantized AI Training and Inference},
+    pdfkeywords={OIL, quantization, native training, C++, sub-byte, SOPS},
+    bookmarksnumbered=true,
+    bookmarksopen=true,
+}
+
+% ---------------------------------------------------------------------------
+% THEOREM ENVIRONMENTS
+% ---------------------------------------------------------------------------
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{conjecture}[theorem]{Conjecture}
+
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{remark}[theorem]{Remark}
+
+% Colored theorem boxes
+\newenvironment{mythm}[2][]{%
+  \par\needspace{4\baselineskip}%
+  \begin{tcolorbox}[
+    breakable,
+    colback=thmbg, colframe=thmframe,
+    fonttitle=\bfseries, title={Theorem~\ref{#2} \ifx&#1&\else(#1)\fi},
+    sharp corners=south,
+    boxrule=1pt, left=6pt, right=6pt, top=4pt, bottom=4pt,
+    toptitle=3pt, bottomtitle=3pt,
+  ]\label{#2}%
+}{\end{tcolorbox}\vspace{0.3\baselineskip}}
+
+\newenvironment{mylemma}[2][]{%
+  \par\needspace{4\baselineskip}%
+  \begin{tcolorbox}[
+    breakable,
+    colback=lembg, colframe=lemframe,
+    fonttitle=\bfseries, title={Lemma~\ref{#2} \ifx&#1&\else(#1)\fi},
+    sharp corners=south,
+    boxrule=1pt, left=6pt, right=6pt, top=4pt, bottom=4pt,
+    toptitle=3pt, bottomtitle=3pt,
+  ]\label{#2}%
+}{\end{tcolorbox}\vspace{0.3\baselineskip}}
+
+\newenvironment{mycor}[2][]{%
+  \par\needspace{4\baselineskip}%
+  \begin{tcolorbox}[
+    breakable,
+    colback=corbg, colframe=corframe,
+    fonttitle=\bfseries, title={Corollary~\ref{#2} \ifx&#1&\else(#1)\fi},
+    sharp corners=south,
+    boxrule=1pt, left=6pt, right=6pt, top=4pt, bottom=4pt,
+    toptitle=3pt, bottomtitle=3pt,
+  ]\label{#2}%
+}{\end{tcolorbox}\vspace{0.3\baselineskip}}
+
+% Breakable proof environment
+\renewenvironment{proof}[1][]{\par\needspace{2\baselineskip}%
+  \normalfont\itshape
+  \noindent\textbf{Proof}%
+  \ifx&#1& \else \textbf{~(#1)}\fi.\enspace%
+}{\hfill$\square$\par\vspace{0.2\baselineskip}}
+
+% ---------------------------------------------------------------------------
+% ATTABLE TABLE ENVIRONMENT
+% ---------------------------------------------------------------------------
+\newcommand{\tablestyle}{\rowcolors{2}{tableaccent}{white}\small}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% ---------------------------------------------------------------------------
+% LISTINGS
+% ---------------------------------------------------------------------------
+\lstset{
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    framerule=0.4pt,
+    rulecolor=\color{codeframe},
+    breaklines=true,
+    breakatwhitespace=true,
+    tabsize=4,
+    showstringspaces=false,
+    keywordstyle=\color{blue!80!black}\bfseries,
+    commentstyle=\color{gray}\itshape,
+    stringstyle=\color{red!70!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=6pt,
+    captionpos=b,
+    aboveskip=6pt,
+    belowskip=4pt,
+}
+
+% ---------------------------------------------------------------------------
+% CUSTOM COMMANDS
+% ---------------------------------------------------------------------------
+\newcommand{\oil}{\textsc{Oil}}
+\newcommand{\OIL}{\textsc{Oil}}
+\newcommand{\mythos}{\textsc{Mythos}}
+\newcommand{\MYTHOS}{\textsc{Mythos}}
+\newcommand{\sops}{\textsc{Sops}}
+\newcommand{\SOPS}{\textsc{SOPS}}
+\newcommand{\BPW}{\mathrm{BPW}}
+\newcommand{\IW}{\mathrm{IW}}
+\newcommand{\bperw}{\mathrm{bits/weight}}
+\newcommand{\Real}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\tr}{\mathrm{tr}}
+\newcommand{\Id}{\mathrm{Id}}
+\newcommand{\sg}{\mathrm{sg}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\argmin}{\operatornamewithlimits{arg\,min}}
+\newcommand{\argmax}{\operatornamewithlimits{arg\,max}}
+
+% ---------------------------------------------------------------------------
+% DOCUMENT
+% ---------------------------------------------------------------------------
+\begin{document}
+
+% ---- FRONT MATTER ----
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\Huge\bfseries MYTHOS}\\[0.5cm]
+{\LARGE\bfseries Native Quantized Intelligence}\\[0.3cm]
+{\Large A Framework for Lossless Sub-Byte\\[0.1cm]Training on Consumer Hardware}\\[2cm]
+
+{\large\itshape ``Where quantization is not compression---it's a better algorithm.''}
+
+\vfill
+
+\begin{tikzpicture}
+    \draw[oilblue,thick,rounded corners=8pt] (0,0) rectangle (10,1.5);
+    \node[align=center] at (5,0.75) {
+        \textbf{OIL $\cdot$ SOPS $\cdot$ Native Training $\cdot$ Pure C++20}\\[3pt]
+        {\small Optimal Information Lattice $\cdot$ Sextillion Operations Per Second}
+    };
+\end{tikzpicture}
+
+\vfill
+
+{\Large\bfseries Satyam Thakur}\\[0.3cm]
+{\large MYTHOS Research Lab}\\[0.2cm]
+{\normalsize solo developer, age 14}\\[1cm]
+
+{\large Version 0.1.02 --- July 2026}
+
+\vfill
+
+{\small
+\begin{tabular}{rl}
+\toprule
+\textbf{Document Classification} & Public Preprint \\
+\textbf{Pages} & $\sim$128 \\
+\textbf{Keywords} & Mixed-precision training, quantization barriers, \\
+& OIL formats, SOPS metric, native C++, \\
+& sub-byte inference, PAC-Bayes bounds \\
+\bottomrule
+\end{tabular}
+}
+
+\end{titlepage}
+
+% ---- ABSTRACT ----
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+We present \OIL{} (Optimal Information Lattice), a native mixed-precision training and inference framework that reframes quantization not as a post-hoc compression technique, but as a fundamentally different optimization algorithm. \OIL{} trains neural networks directly in a mixed-precision codebook space comprising formats spanning 1.0 to 32.0 bits per weight (BPW), achieving an effective rate as low as 1.5 BPW while maintaining FP32-level quality.
+
+The central theoretical contribution is the \textbf{quantization barrier mechanism}: when the gradient magnitude falls below the codebook gap divided by the learning rate, the parameter update is identically zero. This creates a discrete-continuous hybrid dynamical system whose fixed points are provably stable (Theorem~\ref{thm:exp_convergence}), and whose dead zones act as automatic noise filters that suppress low-magnitude gradient noise while preserving high-sensitivity directions. We prove that this mechanism yields 5--10$\times$ tighter algorithmic stability bounds than FP32 SGD (Corollary~\ref{cor:stability_ratio}).
+
+We introduce \textbf{SOPS} (Sextillion Operations Per Second), a new compute metric that captures information-weighted operations---addressing the fundamental limitation of FLOPS, which cannot distinguish between formats of different bit-widths. We prove the conservation law: every byte of weight memory, regardless of format, yields exactly 4 FP32-equivalent operations.
+
+Under the \textbf{Critical Importance Distribution} (CID) assumption---that weight sensitivity follows a power-law distribution with empirically universal exponent $p \approx 0.8$--$1.2$, supported by eight independent studies---we derive a PAC-Bayes confidence interval for the risk difference between \OIL{} and FP32:
+\[
+R_{\mathcal{D}}(h_m) - R_{\mathcal{D}}(h_{32}) \in [-0.0345,\; +0.0355]
+\]
+at 90\% confidence ($d = 10^9$, $n = 10^{12}$). Empirically, across 40/40 random seeds at four model scales, native \OIL{} training strictly outperforms FP32 with 15--29\% test loss reductions.
+
+At the systems level, \OIL{} achieves 21$\times$ storage reduction (188\,MB vs.\ 4\,GB for a $10^9$-parameter model) with a single-binary C++20 deployment requiring zero external dependencies. The \MYTHOS{}.cpp engine implements the complete pipeline---from tokenization through training with Straight-Through Estimator quantization and codebook updates, to inference with hand-written SIMD kernels---in 337+ source files comprising 88,000+ lines of zero-dependency C++20 code, compiling to 82 targets across Windows and Linux.
+
+\vfill
+\noindent\textbf{Keywords:} Mixed-precision training, quantization barriers, PAC-Bayes bounds, algorithmic stability, codebook learning, implicit regularization, SIMD inference, native C++ deep learning, OIL formats, SOPS metric.
+
+% ---- TABLE OF CONTENTS ----
+\tableofcontents
+\listoffigures
+\listoftables
+\listofalgorithms
+\addcontentsline{toc}{chapter}{List of Algorithms}
+
+% ---- MAIN MATTER ----
+\input{chapters/ch01_introduction}
+\input{chapters/ch02_oil_formats}
+\input{chapters/ch03_mixed_precision}
+\input{chapters/ch04_sops}
+\input{chapters/ch05_native_training}
+\input{chapters/ch06_continual_learning}
+\input{chapters/ch07_mtp_speculative}
+\input{chapters/ch08_thread_safety}
+\input{chapters/ch09_empirical_results}
+\input{chapters/ch10_future_directions}
+\input{chapters/ch11_gpu_backend}
+\input{chapters/ch12_distributed}
+\input{chapters/ch13_conclusion}
+
+% ---- BACK MATTER ----
+
+% ---- BIBLIOGRAPHY ----
+\printbibliography[heading=bibintoc,title={References}]
+\addcontentsline{toc}{chapter}{References}
+
+% ---- APPENDICES ----
+\appendix
+
+\chapter{Complete OIL Format Binary Specification}
+\label{app:format_spec}
+
+\section{File Header Layout}
+
+\begin{longtable}{>{\ttfamily}l l l P{5cm}}
+\toprule
+\textnormal{Offset} & \textnormal{Size} & \textnormal{Type} & \textnormal{Description} \\
+\midrule
+\endhead
+0x00 & 4 & char[4] & Magic: \texttt{OIL1} (0x314C494F) \\
+0x04 & 4 & uint32 & Version: major$<<16$ $\vert$ minor$<<8$ $\vert$ patch \\
+0x08 & 4 & uint32 & Flags: bit0=train, bit1=inference, bit2+=format \\
+0x0C & 4 & uint32 & Config size in bytes \\
+0x10 & var & uint8[] & Model config (vocab\_size, hidden\_size, layers, etc.) \\
+var & 4 & uint32 & Number of format blocks \\
+var & $N\times 9$ & struct[] & Format block table \\
+var & 4 & uint32 & Number of named tensors \\
+var & $T\times(\ldots)$ & struct[] & Tensor table \\
+var & varies & uint8[] & Block data (codebooks + packed indices) \\
+\bottomrule
+\end{longtable}
+
+\section{Block Data Layout Per Format}
+
+\begin{verbatim}
+OIL8:    [codebook: 256 x f32 bytes] [indices: 1 byte per weight]
+OIL4:    [codebook: 16 x f16 bytes]  [indices: nibble-packed, 2 per byte]
+OIL2:    [codebook: 4 x f32 bytes]   [indices: 2-bit packed, 4 per byte]
+Ternary: [scale: f32 bytes]           [indices: 2-bit packed, 4 per byte]
+Binary:  [scale: f32 bytes]           [indices: 1-bit packed, 8 per byte]
+\end{verbatim}
+
+\section{Format Registry Enumeration}
+
+\begin{center}
+\rowcolors{2}{tableaccent}{white}
+\begin{tabular}{cllrl}
+\toprule
+\textbf{Index} & \textbf{Format} & \textbf{BPW} & \textbf{IW} & \textbf{Codebook} \\
+\midrule
+0 & BINARY & 1.0 & 32.000 & Fixed \{-1, +1\} \\
+1 & SPARK\_Q0 & 1.5 & 21.333 & Mixed 4+2 \\
+2 & SPARK\_SPARSE & 1.5 & 21.333 & 4 centroids \\
+3 & TERNARY & 1.58 & 20.253 & \{-s, 0, +s\} \\
+4 & OIL2 & 2.0 & 16.000 & 4 centroids \\
+5 & OIL4 & 4.0 & 8.000 & 16 centroids \\
+6 & OIL8 & 8.0 & 4.000 & 256 centroids \\
+7 & OIL16 & 16.0 & 2.000 & Direct \\
+8 & OIL32 & 32.0 & 1.000 & FP32 native \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\chapter{Theorem Reference Index}
+\label{app:theorem_index}
+
+All numbered theorems in this whitepaper, cross-referenced by chapter:
+
+\begin{center}
+\rowcolors{2}{tableaccent}{white}
+\begin{tabular}{lll}
+\toprule
+\textbf{Theorem} & \textbf{Page Ref} & \textbf{Chapter} \\
+\midrule
+Thm.\ 1 (Quantization Barrier) & \Cref{thm:quant_barrier} & Ch.~2 \\
+Thm.\ 2 (Conservation Law) & \Cref{thm:conservation} & Ch.~4 \\
+Thm.\ 3 (Info Weight = BW Ratio) & \Cref{thm:iw_bw_ratio} & Ch.~4 \\
+Thm.\ 4 (SOPS/FLOPS Ratio) & \Cref{thm:sops_flops_ratio} & Ch.~4 \\
+Thm.\ 5 (Diagonal Dominance) & \Cref{thm:diag_dominance} & Ch.~5 \\
+Thm.\ 6 (Exponential Convergence) & \Cref{thm:exp_convergence} & Ch.~5 \\
+Thm.\ 7 (Sensitivity Preservation) & \Cref{thm:sensitivity_preservation} & Ch.~5 \\
+Thm.\ 8 (Bounded Gap / PAC-Bayes) & \Cref{thm:bounded_gap} & Ch.~5 \\
+Thm.\ 9 (Empirical Superiority under CID) & \Cref{thm:empirical_superiority} & Ch.~5 \\
+Thm.\ 10 (CID from Data Covariance) & \Cref{thm:cid_from_covariance} & Ch.~5 \\
+Thm.\ 11 (Stability-Plasticity Equilibrium) & \Cref{thm:stability_plasticity} & Ch.~6 \\
+Thm.\ 12 (Lock-Free Read Consistency) & \Cref{thm:lock_free_read} & Ch.~8 \\
+Thm.\ 13 (MTP Speculative Speedup) & \Cref{thm:mtp_speedup} & Ch.~7 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\chapter{Notation Reference}
+\label{app:notation}
+
+\begin{longtable}{l P{8cm}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\endhead
+$d$ & Number of model parameters (weight dimension) \\
+$n$ & Number of training samples \\
+$\mathcal{D}$ & True data distribution \\
+$S$ & Training set, $S = \{(x_i, y_i)\}_{i=1}^n$ \\
+$R_{\mathcal{D}}(h)$ & True risk of hypothesis $h$ under $\mathcal{D}$ \\
+$\hat{R}_S(h)$ & Empirical risk of hypothesis $h$ on $S$ \\
+$\ell$ & Loss function, $\ell \in [0, B]$ \\
+$\mathcal{H}$ & Hypothesis space \\
+$\mathcal{H}_m$ & Mixed-precision hypothesis space (OIL) \\
+$\mathcal{H}_{32}$ & FP32 hypothesis space ($= \mathbb{R}^d$) \\
+$K$ & Codebook size (number of centroids) \\
+$c_k$ & $k$-th codebook centroid \\
+$\mathrm{BPW}$ & Bits per weight \\
+$\IW$ & Info Weight $= 32 / \mathrm{BPW}$ \\
+$Q$ & PAC-Bayes posterior distribution \\
+$P$ & PAC-Bayes prior distribution \\
+$\KL(Q \| P)$ & KL divergence from prior $P$ to posterior $Q$ \\
+$\eta$ & Learning rate (step size) \\
+$G$ & Gradient bound, $\max_t \|\nabla \ell_t\|$ \\
+$L$ & Smoothness constant (Lipschitz constant of gradient) \\
+$\mu$ & Strong convexity parameter \\
+$\sigma_\xi^2$ & Irreducible noise variance \\
+$\alpha$ & EMA decay rate for codebook updates \\
+$\beta$ & Commitment loss weight \\
+$p$ & CID exponent (power-law decay) \\
+\bottomrule
+\end{longtable}
+
+% ---- ACKNOWLEDGMENTS ----
+\chapter*{Acknowledgments}
+\addcontentsline{toc}{chapter}{Acknowledgments}
+
+This project was developed entirely by a single developer---Satyam Thakur---beginning at age 14. The MYTHOS.cpp engine represents over 88{,}000 lines of hand-written C++20 code across 337+ source files, from SIMD kernels to autograd engines, compiled into 82 build targets, all without external dependencies.
+
+The theoretical foundations draw heavily from the PAC-Bayes framework of McAllester~\cite{mcallester2003}, the algorithmic stability theory of Hardt, Recht, and Singer~\cite{hardt2016}, and the information-theoretic generalization bounds of Xu and Raginsky~\cite{xu2017}. The CID assumption builds on the NTK spectral inheritance results of Jacot et al.~\cite{jacot2018} and the spectral bias analysis of Rahaman et al.~\cite{rahaman2019}.
+
+Special thanks to the llama.cpp community for inspiration on grouped quantization formats, and to the BitNet team for proving that ternary weights can match FP16 quality when trained from scratch.
+
+\vfill
+\begin{center}
+\textit{``The best compression is the one you never need to decompress.''}\\[0.3em]
+--- MYTHOS Research Lab, July 2026
+\end{center}
+
+\end{document}

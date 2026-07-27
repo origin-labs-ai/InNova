@@ -1,0 +1,331 @@
+% ============================================================================
+% Chapter 4: SOPS --- A New Compute Metric
+% ============================================================================
+
+\chapter{SOPS --- A New Compute Metric}
+\label{ch:sops}
+
+\begin{quote}
+\textit{``When weights are 4-bit, counting 32-bit operations is like counting apples when you're selling oranges.''}
+\end{quote}
+
+\section{The FLOPS Limitation}
+\label{sec:flops_limitation}
+
+Floating-Point Operations Per Second (FLOPS) is the standard metric for measuring computational throughput. For a General Matrix Multiply (GEMM) of size $M \times N \times K$:
+
+\[
+\text{FLOPS} = \frac{2 \times M \times N \times K}{T_{\text{seconds}}}
+\]
+
+This metric treats every multiply-add as equivalent, regardless of operand precision. But consider:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Scenario} & \textbf{FP32 GEMM} & \textbf{OIL4 GEMM} \\
+\midrule
+Weight precision & 32 bits & 4 bits \\
+Bytes per weight & 4.0 & 0.5 \\
+Weights per second (40\,GB/s) & 10B & 80B \\
+MACs per second & 10B & 80B \\
+FLOPS & 10\,GFLOPS & 80\,GFLOPS \\
+FLOPS reports & SAME FORMULA & SAME FORMULA \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+FLOPS cannot distinguish the 8$\times$ memory bandwidth advantage of OIL4 over FP32. SOPS fixes this.
+
+\section{SOPS Definition}
+\label{sec:sops_definition}
+
+\begin{definition}[SOPS]
+One SOPS equals $10^{21}$ (one sextillion) information-weighted operations per second, where each operation is normalized to FP32-equivalent information throughput.
+\end{definition}
+
+\begin{equation}
+\text{SOPS} = \frac{E \times \IW}{T \times 10^{21}}
+\label{eq:sops_definition}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $E$ = number of weight elements processed
+    \item $\IW = 32 / \BPW$ = info weight (FP32-equivalent ops per weight)
+    \item $T$ = elapsed time in seconds
+    \item $\BPW$ = bits per weight element
+\end{itemize}
+
+\section{Info Weight}
+\label{sec:info_weight}
+
+\begin{definition}[Info Weight]
+The Info Weight (IW) of a format measures how many FP32-equivalent weight operations one element of that format represents, in terms of memory subsystem throughput:
+\[
+\IW = \frac{32}{\BPW}
+\]
+\end{definition}
+
+\subsection{Physical Meaning}
+
+A BINARY weight ($\BPW = 1$) at $\IW = 32$ means: processing one BINARY weight consumes $1/32$nd the memory bandwidth of processing one FP32 weight. Therefore, you can process 32$\times$ more BINARY weights per byte of memory bandwidth.
+
+This is NOT about compute parallelism (SIMD). It is about information density in the memory subsystem. The SIMD speedup is captured in the TIME denominator (faster processing = smaller $T$ = higher SOPS).
+
+\section{Key Theorems}
+\label{sec:sops_theorems}
+
+\begin{mythm}[Info Weight = Memory Bandwidth Ratio]{thm:iw_bw_ratio}
+For format $A$ ($\BPW_a$) and format $B$ ($\BPW_b$):
+\[
+\frac{\IW(A)}{\IW(B)} = \frac{\text{Memory\_BW\_ratio}(A/B)}{}
+\]
+That is, the ratio of Info Weights equals the ratio of memory bandwidth advantages.
+\end{mythm}
+
+\begin{proof}
+\[
+\frac{\IW(A)}{\IW(B)} = \frac{32/\BPW_a}{32/\BPW_b} = \frac{\BPW_b}{\BPW_a}
+\]
+Memory bandwidth ratio:
+\[
+\frac{BW/\BPW_a}{BW/\BPW_b} = \frac{\BPW_b}{\BPW_a}
+\]
+Therefore $\IW(A)/\IW(B) = \text{Memory\_BW\_ratio}(A/B)$. $\square$
+\end{proof}
+
+\begin{mythm}[SOPS/FLOPS Ratio]{thm:sops_flops_ratio}
+For a format with $\BPW$, the ratio of SOPS to FLOPS (for a GEMM) is:
+\[
+\frac{\text{SOPS}}{\text{FLOPS}} = \frac{16}{\BPW \times 10^{21}}
+\]
+\end{mythm}
+
+\begin{proof}
+\[
+\text{SOPS} = \frac{E \times 32/\BPW}{T \times 10^{21}}
+\]
+\[
+\text{FLOPS} = \frac{2E}{T}
+\]
+\[
+\frac{\text{SOPS}}{\text{FLOPS}} = \frac{32/\BPW}{2 \times 10^{21}} = \frac{16}{\BPW \times 10^{21}}
+\]
+For OIL4 ($\BPW = 4$): ratio $= 4 \times 10^{-21}$. For FP32 ($\BPW = 32$): ratio $= 0.5 \times 10^{-21}$. The ratio is format-dependent, proving FLOPS cannot capture the format advantage. $\square$
+\end{proof}
+
+\section{SOPS Unit Scales}
+\label{sec:sops_scales}
+
+\begin{center}
+\begin{tabular}{llrl}
+\toprule
+\textbf{Scale} & \textbf{Prefix} & \textbf{Value} & \textbf{Typical Usage} \\
+\midrule
+fSOPS & femto & $10^{-15}$ & Single-core scalar \\
+pSOPS & pico & $10^{-12}$ & Single-core AVX2 \\
+nSOPS & nano & $10^{-9}$ & Multi-core optimized \\
+$\mu$SOPS & micro & $10^{-6}$ & AVX512 multi-core \\
+mSOPS & milli & $10^{-3}$ & Small CPU cluster \\
+SOPS & base & $10^{0}$ & Large cluster \\
+kSOPS & kilo & $10^{3}$ & Datacenter \\
+MSOPS & mega & $10^{6}$ & Regional compute \\
+GSOPS & giga & $10^{9}$ & National compute \\
+TSOPS & tera & $10^{12}$ & GPU cluster \\
+PSOPS & peta & $10^{15}$ & Exascale system \\
+ESOPS & exa & $10^{18}$ & Frontier-class \\
+ZSOPS & zetta & $10^{21}$ & Dream target (1 SOPS) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Current Measurements}
+\label{sec:current_measurements}
+
+On a 12-core AVX2 CPU:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Single-thread SOPS (OIL4) & 0.008 pSOPS \\
+Multi-thread SOPS (12 cores) & 0.092 pSOPS \\
+Raw GFLOPS (single thread) & 9.70 GFLOPS \\
+Raw GFLOPS (12 threads) & 11.49 GFLOPS \\
+FMA efficiency & 8.7\% \\
+Gap to 1 SOPS & $\sim$10.9 billion$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Theoretical Maximum SOPS}
+\label{sec:theoretical_max}
+
+\begin{equation}
+\text{Max\_SOPS} = \frac{\text{Cores} \times \text{GHz} \times \text{FMA\_units} \times \text{FMA\_width} \times 2 \times \IW}{10^{21}}
+\label{eq:max_sops}
+\end{equation}
+
+For a 12-core AVX2 system at 3.0\,GHz:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Format} & \textbf{IW} & \textbf{Max SOPS} \\
+\midrule
+BINARY & 32.0 & $3.686 \times 10^{-8}$ \\
+TERNARY & 20.25 & $2.333 \times 10^{-8}$ \\
+OIL2 & 16.0 & $1.843 \times 10^{-8}$ \\
+OIL4 & 8.0 & $9.216 \times 10^{-9}$ \\
+OIL8 & 4.0 & $4.608 \times 10^{-9}$ \\
+OIL16 & 2.0 & $2.304 \times 10^{-9}$ \\
+OIL32 & 1.0 & $1.152 \times 10^{-9}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Memory Bandwidth Analysis}
+\label{sec:bw_analysis}
+
+\subsection{Bandwidth Requirements for 1 SOPS}
+
+\begin{equation}
+\text{Required\_BW} = \frac{\text{SOPS} \times 10^{21} \times \BPW^2}{256}
+\label{eq:bw_1sops}
+\end{equation}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Format} & \textbf{BPW} & \textbf{BW for 1 SOPS} \\
+\midrule
+BINARY & 1.0 & 3.9\,PB/s \\
+TERNARY & 1.58 & 9.8\,PB/s \\
+OIL2 & 2.0 & 15.6\,PB/s \\
+OIL4 & 4.0 & 62.5\,PB/s \\
+OIL8 & 8.0 & 250\,PB/s \\
+OIL16 & 16.0 & 1000\,PB/s \\
+OIL32 & 32.0 & 4000\,PB/s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{CPU Memory Hierarchy Impact}
+
+For a 64M-parameter model:
+\begin{itemize}
+    \item FP32 (256\,MB) $\to$ exceeds L3, must use main RAM
+    \item OIL4 (32\,MB) $\to$ fits in L3 cache!
+    \item TERNARY (10.2\,MB) $\to$ fits in L2 cache!
+    \item BINARY (8\,MB) $\to$ fits in L2 cache!
+\end{itemize}
+
+Smaller formats access faster memory tiers, compounding the bandwidth advantage beyond the raw BPW ratio.
+
+\section{SIMD Independence}
+\label{sec:simd_independence}
+
+\begin{quote}
+\textbf{Key insight:} SIMD width does NOT affect Info Weight. This is intentional.
+\end{quote}
+
+\begin{itemize}
+    \item AVX2 processes 64 OIL4 weights per load (256 bits / 4 bits)
+    \item AVX2 processes 8 FP32 weights per load (256 bits / 32 bits)
+    \item Ratio: $64/8 = 8\times$
+    \item Memory ratio: $4/0.5 = 8\times$
+\end{itemize}
+
+Both ratios are $8\times$. The SIMD advantage IS the memory advantage. They are the same physical phenomenon viewed differently. The SIMD speedup shows up in the TIME measurement, not in the info weight.
+
+\section{Path to 1 SOPS}
+\label{sec:path_to_sops}
+
+\begin{center}
+\begin{tabular}{llr}
+\toprule
+\textbf{Step} & \textbf{Action} & \textbf{SOPS} \\
+\midrule
+1 & Current PC (12 cores, AVX2, OIL4) & 0.092 pSOPS \\
+2 & Optimize FMA (8.7\% $\to$ 80\%) & 0.85 pSOPS \\
+3 & AVX512 upgrade & 1.70 pSOPS \\
+4 & TERNARY format & 5.37 pSOPS \\
+5 & 4-node cluster & 21.5 pSOPS \\
+6 & 16-node cluster & 86.0 pSOPS \\
+7 & 64-node datacenter & 5.50 nSOPS \\
+8 & 256-node cluster & 22.0 nSOPS \\
+9 & 1024-node supercomputer & 352 nSOPS \\
+10 & Custom ASIC (10$\times$) & 3.52 $\mu$SOPS \\
+11 & Optical interconnect (10$\times$) & 35.2 $\mu$SOPS \\
+12 & Quantum-assisted (100$\times$) & 3.52 mSOPS \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Landauer's Limit}
+
+Landauer's Principle: minimum energy per bit operation $= kT \ln 2 \approx 3 \times 10^{-21}$\,J at room temperature.
+
+\[
+1 \text{ SOPS} = 10^{21} \text{ ops/sec} \implies E_{\min} = 3 \text{ watts}
+\]
+
+Physical limit: 3 watts for 1 SOPS. Current reality: 100\,watts for 0.092 pSOPS. Efficiency gap: $\sim 10^{12}$.
+
+\section{What 1 SOPS Enables}
+\label{sec:what_1sops_enables}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Model Size} & \textbf{Tokens} & \textbf{Training Time} & \textbf{vs Today} \\
+\midrule
+64M params & 1T tokens & 0.07 seconds & 100{,}000$\times$ \\
+32B params & 60T tokens & $\sim$3 minutes & 10{,}000$\times$ \\
+1T params & 1.92T tokens & $\sim$5 hours & 1{,}000$\times$ \\
+100T params & 192T tokens & $\sim$20 days & 100$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At 1 SOPS, models can learn during inference: user asks question $\to$ model generates answer $\to$ answer is evaluated $\to$ gradient computed $\to$ model updated $\to$ next answer is better---all in real-time ($< 1$ second).
+
+\section{SopsCounter API}
+\label{sec:sops_api}
+
+The implementation lives in \texttt{include/oil/sops.h}:
+
+\begin{lstlisting}[language=C++,caption={SopsCounter basic usage}]
+#include "oil/sops.h"
+using namespace oil;
+
+SopsCounter counter;
+counter.cpu_ghz = 3.0;
+
+counter.start();
+// ... perform quantized operations ...
+counter.record(5, element_count); // 5 = OIL4 format index
+counter.stop();
+
+printf("SOPS: %.4f %s\n",
+       counter.best_value(), counter.best_unit());
+\end{lstlisting}
+
+\begin{lstlisting}[language=C++,caption={Multi-threaded SOPS measurement}]
+std::atomic<double> max_sops{0.0};
+
+void worker(int thread_id, int64_t ops) {
+    SopsCounter local;
+    local.cpu_ghz = 3.0;
+    local.start();
+    // ... do quantized work ...
+    local.record(5, ops);  // OIL4
+    local.stop();
+    double s = local.sops();
+    double prev = max_sops.load();
+    while (s > prev &&
+           !max_sops.compare_exchange_weak(prev, s)) {}
+}
+\end{lstlisting}

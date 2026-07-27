@@ -1,0 +1,17 @@
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {1.1}{\ignorespaces High-level architecture of the MYTHOS.cpp engine. The forward pass flows left-to-right through quantized layers. Training feedback flows right-to-left through STE backward pass and codebook EMA updates. The C++20 engine provides SIMD kernels, Vulkan GPU acceleration, distributed training, memory-mapped loading, SOPS measurement, and lock-free threading primitives.}}{17}{figure.caption.8}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }

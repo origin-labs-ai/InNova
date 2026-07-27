@@ -53,7 +53,6 @@ MYTHOS.cpp/
 ├── tools/                # CLI tools
 ├── tests/                # Test suite
 ├── bench/                # Benchmarks
-├── python/               # Python bindings
 ├── docs/                 # Documentation
 └── wiki/                 # This wiki
 ```
@@ -62,9 +61,13 @@ MYTHOS.cpp/
 
 | Platform | Compiler | Status |
 |----------|----------|--------|
-| Windows 11 | Clang 22.1.7 (clang-cl) | ✅ All 18 executables build, 9/9 tests pass |
-| Linux (target) | GCC ≥ 12 | ⏳ Pending |
+| Windows 11 | Clang 22.1.7 (clang-cl) | ✅ All 82 targets build (25 libs + 25 executables + 32 tests), 0 errors, 0 warnings |
+| Linux | GCC ≥ 12 / Clang ≥ 16 | ✅ All 82 targets build, tests pass |
 | macOS (target) | Apple Clang | ⏳ Pending |
+
+## 📄 Whitepaper
+
+The full MYTHOS.cpp whitepaper (128 pages) is available at **[publication/whitepaper/](../publication/whitepaper/)**.
 
 ## 🔗 Links
 

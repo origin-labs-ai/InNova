@@ -35,10 +35,10 @@ static inline float dot_product_avx2(const float* a, const float* b, int64_t d) 
 }
 
 Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V,
-                               const Tensor& mask, float dropout_p) {
+                               const Tensor& mask, float dropout_p, bool causal) {
+    (void)dropout_p;
     int64_t B = Q.dim(0), H = Q.dim(1), N = Q.dim(2), D = Q.dim(3);
     float scale = 1.0f / std::sqrt((float)D);
-    bool causal = true;
 
     Tensor output({B, H, N, D});
     output.zero_();
@@ -48,7 +48,9 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
     const float* v = V.data<float>();
     const float* m = mask.data<float>();
 
-    int64_t block = 64;
+    // Block size chosen so that 2 * block * D * 4 bytes fits in ~32KB L1 cache
+    // For D=64: 2*32*64*4 = 16KB — fits in L1 comfortably
+    int64_t block = (D <= 64) ? 32 : 16;
     std::vector<float> row_max(B * H * N, -INFINITY);
     std::vector<float> row_sum(B * H * N, 0.0f);
 
@@ -160,7 +162,7 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
 
 Tensor FlashAttention::forward(const Tensor& Q, const Tensor& K,
                                 const Tensor& V, const Tensor& mask) {
-    return flash_attention_forward(Q, K, V, mask, 0.0f);
+    return flash_attention_forward(Q, K, V, mask, 0.0f, cfg_.causal);
 }
 
 } // namespace oil

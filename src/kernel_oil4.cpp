@@ -40,6 +40,12 @@ static float fp16_to_float(uint16_t h) {
             float sum = 0;
             const uint8_t* w_row = packed_indices + ((int64_t)m * N + n) * K / 2;
             const float* a_row = activations + (int64_t)n * K;
+            // Prefetch next weight row into L1 cache
+#if defined(_MSC_VER)
+            _mm_prefetch(reinterpret_cast<const char*>(w_row + K / 2), _MM_HINT_T0);
+#else
+            __builtin_prefetch(w_row + K / 2, 0, 3);
+#endif
             for (int k = 0; k < K; k++) {
                 uint8_t idx;
                 if (k % 2 == 0)
@@ -61,8 +67,6 @@ static void oil4_gemm_avx2(const uint8_t* packed_indices, const uint16_t* codebo
     for (int i = 0; i < 16; i++)
         f16_centroids[i] = fp16_to_float(codebook[i]);
 
-    __m256 cb_full = _mm256_loadu_ps(f16_centroids); (void)cb_full;
-
     for (int m = 0; m < M; m++) {
         for (int n = 0; n < N; n++) {
             __m256 sum8 = _mm256_setzero_ps();
@@ -70,31 +74,30 @@ static void oil4_gemm_avx2(const uint8_t* packed_indices, const uint16_t* codebo
             for (; k + 16 <= K; k += 16) {
                 const uint8_t* w = packed_indices + ((int64_t)m * N + n) * K / 2 + k / 2;
                 const float* a = activations + (int64_t)n * K + k;
+                // Prefetch next iteration's data into L1
+#if defined(_MSC_VER)
+                _mm_prefetch(reinterpret_cast<const char*>(w + 8), _MM_HINT_T0);
+                _mm_prefetch(reinterpret_cast<const char*>(a + 16), _MM_HINT_T0);
+#else
+                __builtin_prefetch(w + 8, 0, 3);
+                __builtin_prefetch(a + 16, 0, 3);
+#endif
 
                 __m128i packed = _mm_loadl_epi64((const __m128i*)w);
                 __m128i lo = _mm_and_si128(packed, _mm_set1_epi8(0xF));
                 __m128i hi = _mm_and_si128(_mm_srli_epi16(packed, 4), _mm_set1_epi8(0xF));
-                __m128i idx_even = _mm_unpacklo_epi8(lo, hi);
-                __m128i idx_odd = _mm_unpackhi_epi8(lo, hi);
-                __m256i idx0 = _mm256_cvtepu8_epi32(idx_even);
-                __m256i idx1 = _mm256_cvtepu8_epi32(_mm_srli_si128(idx_even, 8));
-                __m256i idx2 = _mm256_cvtepu8_epi32(idx_odd);
-                __m256i idx3 = _mm256_cvtepu8_epi32(_mm_srli_si128(idx_odd, 8));
+                __m128i idx16 = _mm_unpacklo_epi8(lo, hi);
+                __m256i idx0 = _mm256_cvtepu8_epi32(idx16);
+                __m256i idx1 = _mm256_cvtepu8_epi32(_mm_srli_si128(idx16, 8));
 
                 __m256 w0 = _mm256_i32gather_ps(f16_centroids, idx0, 4);
                 __m256 w1 = _mm256_i32gather_ps(f16_centroids, idx1, 4);
-                __m256 w2 = _mm256_i32gather_ps(f16_centroids, idx2, 4);
-                __m256 w3 = _mm256_i32gather_ps(f16_centroids, idx3, 4);
 
                 __m256 a0 = _mm256_loadu_ps(a);
                 __m256 a1 = _mm256_loadu_ps(a + 8);
-                __m256 a2 = _mm256_loadu_ps(a);
-                __m256 a3 = _mm256_loadu_ps(a + 8);
 
                 sum8 = _mm256_fmadd_ps(w0, a0, sum8);
                 sum8 = _mm256_fmadd_ps(w1, a1, sum8);
-                sum8 = _mm256_fmadd_ps(w2, a2, sum8);
-                sum8 = _mm256_fmadd_ps(w3, a3, sum8);
             }
             __m128 hi = _mm256_extractf128_ps(sum8, 1);
             __m128 lo = _mm256_castps256_ps128(sum8);
@@ -103,9 +106,9 @@ static void oil4_gemm_avx2(const uint8_t* packed_indices, const uint16_t* codebo
             sum4 = _mm_hadd_ps(sum4, sum4);
             float result = _mm_cvtss_f32(sum4);
             for (; k < K; k++) {
-                const uint8_t* w = packed_indices + ((int64_t)m * N + n) * K / 2;
+                const uint8_t* w = packed_indices + ((int64_t)m * N + n) * K / 2 + k / 2;
                 const float* a_row = activations + (int64_t)n * K;
-                uint8_t idx = (k % 2 == 0) ? (w[k / 2] & 0xF) : ((w[k / 2] >> 4) & 0xF);
+                uint8_t idx = (k % 2 == 0) ? (w[0] & 0xF) : ((w[0] >> 4) & 0xF);
                 result += f16_centroids[idx] * a_row[k];
             }
             output[m * N + n] = result;

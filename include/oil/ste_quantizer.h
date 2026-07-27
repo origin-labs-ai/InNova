@@ -24,16 +24,16 @@ public:
     Tensor quantize_with_codebook(const Tensor& fp32_weight, CodebookOIL8& codebook);
     Tensor quantize_with_codebook(const Tensor& fp32_weight, CodebookOIL4& codebook);
     
-    // Quantize to ternary/binary with scale
-    void quantize_ternary(const float* src, uint8_t* dst, float* scale, int64_t n);
-    void quantize_binary(const float* src, uint8_t* dst, float* scale, int64_t n);
+    // Quantize to SPARK/OIL1 with scale
+    void quantize_spark(const float* src, uint8_t* dst, float* scale, int64_t n);
+    void quantize_oil1(const float* src, uint8_t* dst, float* scale, int64_t n);
     
     // Set target format
     void set_target_format(Format fmt);
     Format target_format() const;
     
 private:
-    Format target_format_ = Format::TERNARY;
+    Format target_format_ = Format::SPARK_Q0;
     
     // Find scale factor (max abs)
     float find_scale(const float* data, int64_t n);

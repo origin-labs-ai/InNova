@@ -70,27 +70,21 @@ float CodebookOIL4::half_to_float(uint16_t h) {
 void CodebookOIL8::train(const float* data, size_t count) {
     if (count == 0) return;
 
-    RNG rng(42);
+    RNG rng;
 
     // Initialize centroids from random data points
     size_t init_count = std::min((size_t)SIZE, count);
     std::vector<size_t> indices(count);
     for (size_t i = 0; i < count; i++) indices[i] = i;
 
-    // Fisher-Yates shuffle first init_count elements
     for (size_t i = count; i > 1 && init_count < count; i--) {
         size_t j = (size_t)rng.uniform_int(0, (int)i - 1);
         std::swap(indices[i - 1], indices[j]);
     }
 
-    for (int c = 0; c < (int)init_count; c++) {
-        centroids[c] = data[indices[c]];
-    }
-    for (int c = (int)init_count; c < SIZE; c++) {
-        centroids[c] = data[0];
-    }
+    for (int c = 0; c < (int)init_count; c++) centroids[c] = data[indices[c]];
+    for (int c = (int)init_count; c < SIZE; c++) centroids[c] = data[0];
 
-    // k-means, up to 20 iterations
     std::vector<uint8_t> assign(count);
     std::vector<double> sums(SIZE);
     std::vector<int> counts(SIZE);
@@ -200,12 +194,14 @@ size_t CodebookOIL8::serialize(uint8_t* dst) const {
     return serialized_size();
 }
 
-CodebookOIL8 CodebookOIL8::deserialize(const uint8_t* src, size_t& offset) {
+CodebookOIL8 CodebookOIL8::deserialize(const uint8_t* src, size_t& offset, size_t size) {
     CodebookOIL8 cb;
+    if (offset + sizeof(uint32_t) + SIZE * sizeof(float) > size)
+        throw Error("CodebookOIL8::deserialize: buffer overflow");
     uint32_t magic;
     std::memcpy(&magic, src + offset, sizeof(magic));
     offset += sizeof(magic);
-    (void)magic;
+    if (magic != 0x4F494C38) throw Error("CodebookOIL8::deserialize: invalid magic");
     std::memcpy(cb.centroids, src + offset, SIZE * sizeof(float));
     offset += SIZE * sizeof(float);
     return cb;
@@ -218,9 +214,8 @@ CodebookOIL8 CodebookOIL8::deserialize(const uint8_t* src, size_t& offset) {
 void CodebookOIL4::train(const float* data, size_t count) {
     if (count == 0) return;
 
-    RNG rng(42);
+    RNG rng;
 
-    // Initialize centroids from random data points
     size_t init_count = std::min((size_t)SIZE, count);
     std::vector<size_t> indices(count);
     for (size_t i = 0; i < count; i++) indices[i] = i;
@@ -231,12 +226,8 @@ void CodebookOIL4::train(const float* data, size_t count) {
     }
 
     std::vector<float> tmp_centroids(SIZE);
-    for (int c = 0; c < (int)init_count; c++) {
-        tmp_centroids[c] = data[indices[c]];
-    }
-    for (int c = (int)init_count; c < SIZE; c++) {
-        tmp_centroids[c] = data[0];
-    }
+    for (int c = 0; c < (int)init_count; c++) tmp_centroids[c] = data[indices[c]];
+    for (int c = (int)init_count; c < SIZE; c++) tmp_centroids[c] = data[0];
 
     std::vector<uint8_t> assign(count);
     std::vector<double> sums(SIZE);
@@ -352,12 +343,14 @@ size_t CodebookOIL4::serialize(uint8_t* dst) const {
     return serialized_size();
 }
 
-CodebookOIL4 CodebookOIL4::deserialize(const uint8_t* src, size_t& offset) {
+CodebookOIL4 CodebookOIL4::deserialize(const uint8_t* src, size_t& offset, size_t size) {
     CodebookOIL4 cb;
+    if (offset + sizeof(uint32_t) + SIZE * sizeof(uint16_t) > size)
+        throw Error("CodebookOIL4::deserialize: buffer overflow");
     uint32_t magic;
     std::memcpy(&magic, src + offset, sizeof(magic));
     offset += sizeof(magic);
-    (void)magic;
+    if (magic != 0x4F494C34) throw Error("CodebookOIL4::deserialize: invalid magic");
     std::memcpy(cb.centroids, src + offset, SIZE * sizeof(uint16_t));
     offset += SIZE * sizeof(uint16_t);
     return cb;

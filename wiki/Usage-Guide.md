@@ -83,11 +83,11 @@ oil-finetune --model base.oil \
     --lr 1e-5 \
     --epochs 3
 
-# LoRA fine-tune (rank 8)
+# Quantized fine-tune (target 2.0 BPW)
 oil-finetune --model base.oil \
     --data finetune.txt \
-    --output lora.oil \
-    --lora-r 8
+    --output quant.oil \
+    --target-bpw 2.0
 
 # Freeze specific layers
 oil-finetune --model base.oil \

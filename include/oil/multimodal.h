@@ -236,4 +236,62 @@ private:
     Linear modality_classifier;
 };
 
+// ============================================================================
+// Fusion classes — cross-attention fusion and modality projection
+// ============================================================================
+
+struct FusionConfig {
+    int64_t hidden_size = 768;
+    int64_t num_heads = 8;
+    int64_t head_dim = 96;
+    int64_t num_fusion_layers = 2;
+    float dropout = 0.1f;
+};
+
+class ModalityProjection {
+public:
+    Linear vision_proj;
+    Linear audio_proj;
+    Linear text_proj;
+    int64_t hidden_size;
+
+    ModalityProjection(int64_t hidden_size);
+    Tensor project_vision(const Tensor& vision_features) const;
+    Tensor project_audio(const Tensor& audio_features) const;
+    Tensor project_text(const Tensor& text_features) const;
+    Tensor project(const Tensor& features, const std::string& modality) const;
+};
+
+class CrossAttentionFusion {
+public:
+    Linear q_proj;
+    Linear k_proj;
+    Linear v_proj;
+    Linear out_proj;
+    int64_t hidden_size;
+    float scale;
+
+    CrossAttentionFusion(int64_t hidden_size);
+    Tensor forward(const Tensor& query, const Tensor& key_value, const Tensor& mask = Tensor()) const;
+};
+
+class MultimodalFusion {
+public:
+    ModalityProjection proj;
+    std::vector<CrossAttentionFusion> vision_audio_layers;
+    std::vector<CrossAttentionFusion> vision_text_layers;
+    std::vector<CrossAttentionFusion> audio_text_layers;
+    int64_t hidden_size;
+
+    MultimodalFusion(const FusionConfig& cfg = FusionConfig());
+    Tensor fuse_vision_audio(const Tensor& vision, const Tensor& audio) const;
+    Tensor fuse_vision_text(const Tensor& vision, const Tensor& text) const;
+    Tensor fuse_audio_text(const Tensor& audio, const Tensor& text) const;
+    Tensor fuse_all(const Tensor& vision, const Tensor& audio, const Tensor& text) const;
+    Tensor fuse_all_multistream(const Tensor& vision, const Tensor& audio, const Tensor& text) const;
+    Tensor compute_fusion_weights(const Tensor& vision, const Tensor& audio, const Tensor& text) const;
+    Tensor fuse_weighted(const Tensor& vision, const Tensor& audio, const Tensor& text, float vw, float aw, float tw) const;
+    size_t param_count() const;
+};
+
 } // namespace oil

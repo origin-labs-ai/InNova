@@ -18,8 +18,8 @@ static int64_t current_wall_time() {
 
 static uint32_t masked_crc32c(const uint8_t* data, size_t len) {
     static uint32_t table[256];
-    static bool table_init = false;
-    if (!table_init) {
+    static std::once_flag table_flag;
+    std::call_once(table_flag, []() {
         const uint32_t poly = 0x82F63B78;
         for (uint32_t i = 0; i < 256; i++) {
             uint32_t crc = i;
@@ -27,8 +27,7 @@ static uint32_t masked_crc32c(const uint8_t* data, size_t len) {
                 crc = (crc >> 1) ^ (poly & (-(int32_t)(crc & 1)));
             table[i] = crc;
         }
-        table_init = true;
-    }
+    });
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; i++)
         crc = (crc >> 8) ^ table[(crc ^ data[i]) & 0xFF];
@@ -55,19 +54,80 @@ EventWriter::~EventWriter() {
     if (file_.is_open()) file_.close();
 }
 
+// TensorBoard protobuf Event writer
+// Implements minimal protobuf encoding for tf.Event proto:
+//   message Event { double wall_time=1; int64 step=2; Summary summary=5; }
+//   message Summary { repeated SummaryValue value=1; }
+//   message SummaryValue { string tag=1; float simple_value=2; }
+
+static void encode_varint(uint64_t val, std::string& out) {
+    while (val > 0x7F) {
+        out.push_back(static_cast<char>((val & 0x7F) | 0x80));
+        val >>= 7;
+    }
+    out.push_back(static_cast<char>(val));
+}
+
+static void encode_field(int field, int wire_type, std::string& out) {
+    encode_varint(static_cast<uint64_t>((field << 3) | wire_type), out);
+}
+
+static void encode_double_field(int field, double val, std::string& out) {
+    encode_field(field, 1, out);
+    const auto* p = reinterpret_cast<const uint8_t*>(&val);
+    out.append(reinterpret_cast<const char*>(p), 8);
+}
+
+static void encode_int64_field(int field, int64_t val, std::string& out) {
+    encode_field(field, 0, out);
+    encode_varint(static_cast<uint64_t>(val), out);
+}
+
+static void encode_float_field(int field, float val, std::string& out) {
+    encode_field(field, 5, out);
+    const auto* p = reinterpret_cast<const uint8_t*>(&val);
+    out.append(reinterpret_cast<const char*>(p), 4);
+}
+
+static void encode_bytes_field(int field, const std::string& data, std::string& out) {
+    encode_field(field, 2, out);
+    encode_varint(data.size(), out);
+    out.append(data);
+}
+
+static void encode_submsg(int field, const std::string& msg, std::string& out) {
+    encode_field(field, 2, out);
+    encode_varint(msg.size(), out);
+    out.append(msg);
+}
+
 void EventWriter::write_event(const std::string& tag, float value, int step, int64_t wall_time) {
     if (!file_.is_open()) return;
     std::lock_guard<std::mutex> lock(mtx_);
-    std::ostringstream summary;
-    summary << tag << "\n" << value;
-    std::string event_str = summary.str();
-    uint64_t len = (uint64_t)event_str.size();
-    uint32_t crc1 = masked_crc32c((const uint8_t*)&len, sizeof(len));
-    uint32_t crc2 = masked_crc32c(event_str);
-    file_.write((const char*)&len, sizeof(len));
-    file_.write((const char*)&crc1, sizeof(crc1));
-    file_.write(event_str.data(), (std::streamsize)event_str.size());
-    file_.write((const char*)&crc2, sizeof(crc2));
+
+    // SummaryValue: tag=1 (string), simple_value=2 (float)
+    std::string sv;
+    encode_bytes_field(1, tag, sv);
+    encode_float_field(2, value, sv);
+
+    // Summary: value=1 (repeated SummaryValue)
+    std::string summary;
+    encode_submsg(1, sv, summary);
+
+    // Event: wall_time=1 (double), step=2 (int64), summary=5 (Summary)
+    std::string event;
+    encode_double_field(1, static_cast<double>(wall_time), event);
+    encode_int64_field(2, step, event);
+    encode_submsg(5, summary, event);
+
+    // Write TF Events record: [uint64 length][uint32 crc][Event bytes][uint32 crc]
+    uint64_t len = static_cast<uint64_t>(event.size());
+    uint32_t crc1 = masked_crc32c(reinterpret_cast<const uint8_t*>(&len), sizeof(len));
+    uint32_t crc2 = masked_crc32c(event);
+    file_.write(reinterpret_cast<const char*>(&len), sizeof(len));
+    file_.write(reinterpret_cast<const char*>(&crc1), sizeof(crc1));
+    file_.write(event.data(), static_cast<std::streamsize>(event.size()));
+    file_.write(reinterpret_cast<const char*>(&crc2), sizeof(crc2));
 }
 
 void EventWriter::write_scalar(const std::string& tag, float value, int step) {

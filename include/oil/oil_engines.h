@@ -12,17 +12,36 @@ namespace engines {
 float fp8_e4m3_dequantize(uint8_t bits);
 uint8_t fp8_e4m3_quantize(float val);
 Tensor fp8_e4m3_dequant_tensor(const uint8_t* data, int64_t n);
+Tensor fp8_e4m3_quantize_tensor(const float* data, int64_t n);
+Tensor fp8_e4m3_quant_gemm(const Tensor& a, const uint8_t* b_q, int64_t M, int64_t N, int64_t K);
+void fp8_e4m3_quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+void fp8_e4m3_dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+float fp8_e4m3_quant_error(const Tensor& original, const Tensor& reconstructed);
+float fp8_e4m3_quant_snr(const Tensor& original, const Tensor& reconstructed);
 
 // FP8 E5M2: 1 sign + 5 exponent + 2 mantissa
 float fp8_e5m2_dequantize(uint8_t bits);
 uint8_t fp8_e5m2_quantize(float val);
 Tensor fp8_e5m2_dequant_tensor(const uint8_t* data, int64_t n);
+Tensor fp8_e5m2_quantize_tensor(const float* data, int64_t n);
+Tensor fp8_e5m2_quant_gemm(const Tensor& a, const uint8_t* b_q, int64_t M, int64_t N, int64_t K);
+void fp8_e5m2_quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+void fp8_e5m2_dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+float fp8_e5m2_quant_error(const Tensor& original, const Tensor& reconstructed);
+float fp8_e5m2_quant_snr(const Tensor& original, const Tensor& reconstructed);
 
-// NF4: Normal Float 4-bit (QLoRA)
+// NF4: Normal Float 4-bit quantization format
 uint8_t nf4_quantize(float val, float scale);
 float nf4_dequantize(uint8_t idx, float scale);
 Tensor nf4_dequant_tensor(const uint8_t* data, const float* scales,
                           int64_t n, int64_t block_size);
+Tensor nf4_quantize_tensor(const float* data, int64_t n, int64_t block_size);
+Tensor nf4_quant_gemm(const Tensor& a, const uint8_t* b_q, const float* scales,
+                      int64_t M, int64_t N, int64_t K, int64_t block_size);
+void nf4_quantize_per_channel(const Tensor& t, int channel_dim, int64_t block_size, Tensor& q, Tensor& scales);
+void nf4_dequantize_per_channel(const Tensor& q, const Tensor& scales, int64_t block_size, int channel_dim, Tensor& out);
+float nf4_quant_error(const Tensor& original, const Tensor& reconstructed);
+float nf4_quant_snr(const Tensor& original, const Tensor& reconstructed);
 
 // AWQ: Activation-aware Weight Quantization
 class AWQQuantizer {
@@ -31,6 +50,13 @@ public:
     void compute_scales(const Tensor& weight, const Tensor& activation);
     Tensor quantize(const Tensor& weight);
     Tensor dequantize(const Tensor& q_weight);
+    Tensor quantize_batch(const Tensor& t);
+    Tensor dequantize_batch(const Tensor& q);
+    Tensor quant_gemm(const Tensor& a, const Tensor& b_q, int64_t M, int64_t N, int64_t K);
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+    float quant_error(const Tensor& original, const Tensor& reconstructed);
+    float quant_snr(const Tensor& original, const Tensor& reconstructed);
     std::vector<float> scales_;
 private:
     int64_t group_size_;
@@ -43,6 +69,13 @@ public:
     GPTQQuantizer(int64_t group_size = 128, int bits = 4);
     Tensor quantize(const Tensor& weight, const Tensor& hessian);
     Tensor dequantize(const Tensor& q_weight);
+    Tensor quantize_batch(const Tensor& t);
+    Tensor dequantize_batch(const Tensor& q);
+    Tensor quant_gemm(const Tensor& a, const Tensor& b_q, int64_t M, int64_t N, int64_t K);
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+    float quant_error(const Tensor& original, const Tensor& reconstructed);
+    float quant_snr(const Tensor& original, const Tensor& reconstructed);
 private:
     int64_t group_size_;
     int bits_;
@@ -56,56 +89,111 @@ public:
     explicit I2SEngine(int64_t block_size = 128);
     Tensor quantize(const Tensor& weight);
     Tensor dequantize(const Tensor& packed, const Tensor& scales, int64_t n);
+    Tensor quantize_batch(const Tensor& t);
+    Tensor dequantize_batch(const Tensor& q);
+    Tensor quant_gemm(const Tensor& a, const Tensor& b_packed, const Tensor& b_scales, int64_t M, int64_t N, int64_t K);
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+    float quant_error(const Tensor& original, const Tensor& reconstructed);
+    float quant_snr(const Tensor& original, const Tensor& reconstructed);
 private:
     int64_t block_size_;
 };
 
-// OIL8 Engine: 256-entry FP32 codebook
+// OIL8 Engine: 256-entry FP32 codebook + per-block scaling
 class OIL8Engine {
 public:
     OIL8Engine();
     void train_codebook(const float* data, int64_t n);
+    void train_codebook_per_block(const float* data, int64_t n, int64_t block_size, int lloyd_iters = 30);
     uint8_t quantize(float val) const;
     float dequantize(uint8_t idx) const;
     Tensor dequant_tensor(const uint8_t* indices, int64_t n) const;
+    void quantize_per_block(const float* data, int64_t n, int64_t block_size,
+                            uint8_t* indices_out, float* scales_out) const;
+    void dequantize_per_block(const uint8_t* indices, const float* scales,
+                              int64_t n, int64_t block_size, float* out) const;
+    Tensor quantize_tensor(const float* data, int64_t n) const;
+    Tensor quant_gemm(const Tensor& a, const uint8_t* b_idx, int64_t M, int64_t N, int64_t K) const;
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales) const;
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out) const;
+    float quant_error(const Tensor& original, const Tensor& reconstructed) const;
+    float quant_snr(const Tensor& original, const Tensor& reconstructed) const;
     const std::vector<float>& codebook() const { return codebook_; }
+    void enable_stochastic_rounding(bool enable, float temp = 1.0f) {
+        use_stochastic_ = enable; stoch_temperature_ = temp;
+    }
 private:
     std::vector<float> codebook_;
+    mutable bool use_stochastic_ = false;
+    mutable float stoch_temperature_ = 1.0f;
 };
 
-// OIL4 Engine: 16-entry FP16 codebook
+// OIL4 Engine: 16-entry FP16 codebook + per-block scaling
 class OIL4Engine {
 public:
     OIL4Engine();
     void train_codebook(const float* data, int64_t n);
+    void train_codebook_per_block(const float* data, int64_t n, int64_t block_size, int lloyd_iters = 30);
     uint8_t quantize(float val) const;
     float dequantize(uint8_t idx) const;
     Tensor dequant_tensor(const uint8_t* indices, int64_t n) const;
+    void quantize_per_block(const float* data, int64_t n, int64_t block_size,
+                            uint8_t* indices_out, float* scales_out) const;
+    void dequantize_per_block(const uint8_t* indices, const float* scales,
+                              int64_t n, int64_t block_size, float* out) const;
+    Tensor quantize_tensor(const float* data, int64_t n) const;
+    Tensor quant_gemm(const Tensor& a, const uint8_t* b_idx, int64_t M, int64_t N, int64_t K) const;
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales) const;
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out) const;
+    float quant_error(const Tensor& original, const Tensor& reconstructed) const;
+    float quant_snr(const Tensor& original, const Tensor& reconstructed) const;
     const std::vector<float>& codebook() const { return codebook_; }
+    void enable_stochastic_rounding(bool enable, float temp = 1.0f) {
+        use_stochastic_ = enable; stoch_temperature_ = temp;
+    }
 private:
     std::vector<float> codebook_;
+    mutable bool use_stochastic_ = false;
+    mutable float stoch_temperature_ = 1.0f;
 };
 
-// Ternary Engine: {-1, 0, +1} with per-block scale
-class TernaryEngine {
+// Spark Engine: {-1, 0, +1} with per-block scale
+class SparkEngine {
 public:
-    explicit TernaryEngine(int64_t block_size = 128);
+    explicit SparkEngine(int64_t block_size = 128);
     Tensor quantize(const Tensor& weight);
     Tensor dequantize(const Tensor& packed, const Tensor& scales, int64_t n);
+    Tensor quantize_batch(const Tensor& t);
+    Tensor dequantize_batch(const Tensor& q);
+    Tensor quant_gemm(const Tensor& a, const Tensor& b_packed, const Tensor& b_scales, int64_t M, int64_t N, int64_t K);
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+    float quant_error(const Tensor& original, const Tensor& reconstructed);
+    float quant_snr(const Tensor& original, const Tensor& reconstructed);
 private:
     int64_t block_size_;
 };
 
-// Binary Engine: {-1, +1} with per-tensor scale
-class BinaryEngine {
+// OIL1 Engine: {-1, +1} with per-tensor scale
+class Oil1Engine {
 public:
-    BinaryEngine();
+    Oil1Engine();
     Tensor quantize(const Tensor& weight);
     Tensor dequantize(const Tensor& packed, float scale, int64_t n);
+    Tensor quantize_batch(const Tensor& t);
+    Tensor dequantize_batch(const Tensor& q);
+    Tensor quant_gemm(const Tensor& a, const Tensor& b_packed, float b_scale, int64_t M, int64_t N, int64_t K);
+    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
+    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
+    float quant_error(const Tensor& original, const Tensor& reconstructed);
+    float quant_snr(const Tensor& original, const Tensor& reconstructed);
 };
 
 // Error computation
 float compute_quant_error(const Tensor& original, const Tensor& dequantized);
+float compute_quant_mse(const Tensor& original, const Tensor& reconstructed);
+float compute_quant_snr(const Tensor& original, const Tensor& reconstructed);
 
 } // namespace engines
 } // namespace oil

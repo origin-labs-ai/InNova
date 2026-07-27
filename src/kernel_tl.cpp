@@ -8,13 +8,12 @@
 namespace oil {
 namespace kernel {
 
-// TL1 precompute: group of 2 ternary weights
+// TL1 precompute: group of 2 SPARK weights
 // 9 possible sums {-2,-1,0,1,2} * scales
 void tl1_precompute_lut(const int8_t* activations, int8_t* lut,
-                        int K, float scales) {
-    (void)scales;
+                        int K, [[maybe_unused]] float scales) {
     int groups = K / 2;
-    int remaining = K % 2; (void)remaining;
+    [[maybe_unused]] int remaining = K % 2;
     for (int k = 0; k < groups; k++) {
         int8_t a0 = activations[k * 2];
         int8_t a1 = activations[k * 2 + 1];
@@ -73,10 +72,10 @@ void tl1_gemm(const Tensor& weights, const Tensor& activations,
     }
 }
 
-// TL2: Group of 3 ternary weights → 27 entry LUT per group
-// 3 ternary weights per group, each {-1,0,+1} → 3^3 = 27 combinations
+// TL2: Group of 3 SPARK weights → 27 entry LUT per group
+// 3 SPARK weights per group, each {-1,0,+1} → 3^3 = 27 combinations
 // Storage: 4 groups of 3 weights packed into 3 bytes (12 bits for 4×3=12 values)
-// We use the same ternary encoding: 00=-1, 01=0, 10=+1 (2 bits each)
+// We use the same SPARK encoding: 00=-1, 01=0, 10=+1 (2 bits each)
 
 static inline int decode_tl2(uint8_t packed, int shift) {
     int val = (packed >> shift) & 3;
@@ -86,8 +85,7 @@ static inline int decode_tl2(uint8_t packed, int shift) {
 }
 
 void tl2_precompute_lut(const int8_t* activations, int8_t* lut,
-                        int K, float scales) {
-    (void)scales;
+                        int K, [[maybe_unused]] float scales) {
     for (int k = 0; k < K; k += 3) {
         int8_t a0 = activations[k];
         int8_t a1 = activations[k + 1];

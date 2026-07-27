@@ -62,7 +62,7 @@ static QuantBenchResult bench_all_quant_gemm(int64_t M, int64_t N, int64_t K) {
     }
     std::cerr << "  OIL8 done: " << r.oil8_gflops << " GFLOPS\n";
 
-    // TL1: ternary packed weights
+    // TL1: SPARK packed weights
     {
         Tensor w(Shape{M, K}, DType::U8);
         Tensor a(Shape{K, N}, DType::F32);
@@ -76,7 +76,7 @@ static QuantBenchResult bench_all_quant_gemm(int64_t M, int64_t N, int64_t K) {
     }
     std::cerr << "  TL1 done: " << r.tl1_gflops << " GFLOPS\n";
 
-    // I2S: 2-bit ternary
+    // I2S: 2-bit SPARK
     {
         Tensor w(Shape{M, K}, DType::U8);
         Tensor a(Shape{K, N}, DType::F32);

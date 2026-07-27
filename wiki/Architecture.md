@@ -43,7 +43,7 @@ MYTHOS.cpp is built on four core principles:
 │                    MODEL LAYER                             │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
 │  │ Transformer  │  │   Backend    │  │  Optimizer   │   │
-│  │ (Attention   │  │  (CPU/CUDA)  │  │  (AdamW/SGD) │   │
+│  │ (Attention   │  │ (CPU/Vulkan) │  │  (AdamW/SGD) │   │
 │  │  + FFN)      │  │              │  │              │   │
 │  └──────────────┘  └──────────────┘  └──────────────┘   │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
@@ -110,4 +110,4 @@ FP32 Model → Calibrate → Analyze Sensitivities → Assign Formats → Quanti
 | CMake ≥ 3.24 | Yes | Build system |
 | C++20 compiler | Yes | Language standard |
 | Ninja | No | Faster builds |
-| CUDA Toolkit ≥ 11 | No | GPU acceleration |
+| Vulkan SDK | No | GPU acceleration (primary backend) |

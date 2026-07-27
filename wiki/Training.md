@@ -104,8 +104,8 @@ For adapting pre-trained models, see [Fine-Tuning docs](files/tool-finetune.cpp.
 # Full fine-tune
 oil-finetune --model base.oil --data data.txt --output finetuned.oil --lr 1e-5
 
-# LoRA
-oil-finetune --model base.oil --data data.txt --output lora.oil --lora-r 8
+# Quantized fine-tune (native OIL, target 2.0 BPW)
+oil-finetune --model base.oil --data data.txt --output quant.oil --target-bpw 2.0
 ```
 
 ## Distributed Training

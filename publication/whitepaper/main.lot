@@ -1,0 +1,19 @@
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {7.1}{\ignorespaces Speculative decoding speedup across OIL format combinations ($K=4$, 64M model, single-thread CPU).}}{49}{table.7.1}%
+\contentsline {table}{\numberline {7.2}{\ignorespaces Effect of draft length $K$ on throughput (OIL2/OIL4, 64M model).}}{50}{table.7.2}%
+\contentsline {table}{\numberline {7.3}{\ignorespaces Perplexity is invariant to draft model quality---only the verification model determines output quality.}}{50}{table.7.3}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }

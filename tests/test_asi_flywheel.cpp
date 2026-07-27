@@ -1,4 +1,5 @@
 #include "oil/asi.h"
+#include "oil/test.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -13,14 +14,6 @@
 namespace fs = std::filesystem;
 using namespace oil::asi;
 
-static int g_tests = 0, g_passed = 0, g_failures = 0;
-
-#define CHECK(cond, msg) do { \
-    g_tests++; \
-    if (!(cond)) { printf("  FAIL: %s\n", msg); g_failures++; } \
-    else { g_passed++; printf("  PASS: %s\n", msg); } \
-} while(0)
-
 // Minimal helpers to test sandbox / apply / rollback without a full Model
 static std::string read_file(const std::string& path) {
     std::ifstream ifs(path);
@@ -33,7 +26,7 @@ static std::string read_file(const std::string& path) {
 // Sandbox compile & run test
 // ========================================================================
 static void test_sandbox_compile_run() {
-    printf("\n=== Test 1: Sandbox compile and run ===\n");
+    TEST_SUITE("Test 1: Sandbox compile and run");
 
     // Skip if g++ not available (e.g. Windows MSVC CI)
 #ifdef _WIN32
@@ -60,12 +53,12 @@ static void test_sandbox_compile_run() {
         std::ofstream ofs(src);
         ofs << "#include <cstdio>\nint main() { printf(\"PASS: sandbox program runs\\n\"); return 0; }\n";
     }
-    CHECK(fs::exists(src), "source file created");
+    TEST_CHECK(fs::exists(src), "source file created");
 
     // Compile it
     std::string compile_cmd = "g++ -std=c++20 -o \"" + exe + "\" \"" + src + "\" 2>&1";
     int compile_ret = std::system(compile_cmd.c_str());
-    CHECK(compile_ret == 0 && fs::exists(exe), "compilation succeeded");
+    TEST_CHECK(compile_ret == 0 && fs::exists(exe), "compilation succeeded");
 
     // Run it with stdout capture via pipe
     std::string run_cmd = "\"" + exe + "\" 2>&1";
@@ -76,7 +69,7 @@ static void test_sandbox_compile_run() {
 #else
     FILE* pipe = popen(run_cmd.c_str(), "r");
 #endif
-    CHECK(pipe != nullptr, "process started");
+    TEST_CHECK(pipe != nullptr, "process started");
     if (pipe) {
         while (fgets(buf.data(), (int)buf.size(), pipe) != nullptr)
             output += buf.data();
@@ -85,8 +78,8 @@ static void test_sandbox_compile_run() {
 #else
         int exit_code = pclose(pipe);
 #endif
-        CHECK(exit_code == 0, "process exited with code 0");
-        CHECK(output.find("PASS: sandbox program runs") != std::string::npos,
+        TEST_CHECK(exit_code == 0, "process exited with code 0");
+        TEST_CHECK(output.find("PASS: sandbox program runs") != std::string::npos,
               "stdout contains expected output");
     }
 
@@ -97,7 +90,7 @@ static void test_sandbox_compile_run() {
 // Sandbox compile failure detection
 // ========================================================================
 static void test_sandbox_compile_failure() {
-    printf("\n=== Test 2: Sandbox compile failure detection ===\n");
+    TEST_SUITE("Test 2: Sandbox compile failure detection");
 
 #ifdef _WIN32
     bool has_gpp = (std::system("g++ --version > nul 2>&1") == 0);
@@ -122,8 +115,8 @@ static void test_sandbox_compile_failure() {
     std::string exe = (tmp / "bad_prog").string();
     std::string compile_cmd = "g++ -std=c++20 -o \"" + exe + "\" \"" + src + "\" 2>/dev/null";
     int compile_ret = std::system(compile_cmd.c_str());
-    CHECK(compile_ret != 0, "compilation fails for bad code");
-    CHECK(!fs::exists(exe), "no binary produced");
+    TEST_CHECK(compile_ret != 0, "compilation fails for bad code");
+    TEST_CHECK(!fs::exists(exe), "no binary produced");
 
     fs::remove_all(tmp);
 }
@@ -132,7 +125,7 @@ static void test_sandbox_compile_failure() {
 // Measure improvement test
 // ========================================================================
 static void test_measure_improvement() {
-    printf("\n=== Test 3: Measure improvement ===\n");
+    TEST_SUITE("Test 3: Measure improvement");
 
     std::string good_solution = R"(
 #include <vector>
@@ -166,15 +159,15 @@ int solve() {
     for (char c : bad_solution) if (c == '\n') lines_bad++;
     int kw_bad = count_keywords(bad_solution);
 
-    CHECK(lines_good > lines_bad, "good solution has more lines than bad");
-    CHECK(kw_good > kw_bad, "good solution has more keywords than bad");
+    TEST_CHECK(lines_good > lines_bad, "good solution has more lines than bad");
+    TEST_CHECK(kw_good > kw_bad, "good solution has more keywords than bad");
 }
 
 // ========================================================================
 // Apply improvement and rollback test
 // ========================================================================
 static void test_apply_rollback() {
-    printf("\n=== Test 4: Apply improvement and rollback ===\n");
+    TEST_SUITE("Test 4: Apply improvement and rollback");
 
     auto tmp = fs::temp_directory_path() / "mythos_flywheel_apply";
     fs::create_directories(tmp);
@@ -198,9 +191,9 @@ static void test_apply_rollback() {
         ofs << improved;
     }
     std::string after_apply = read_file(target);
-    CHECK(after_apply.find("Improved") != std::string::npos,
+    TEST_CHECK(after_apply.find("Improved") != std::string::npos,
           "improvement applied to target file");
-    CHECK(fs::exists(backup), "backup file created");
+    TEST_CHECK(fs::exists(backup), "backup file created");
 
     // Rollback
     {
@@ -208,8 +201,8 @@ static void test_apply_rollback() {
         fs::remove(backup);
     }
     std::string after_rollback = read_file(target);
-    CHECK(after_rollback == baseline_content, "rollback restores original content");
-    CHECK(!fs::exists(backup), "backup removed after rollback");
+    TEST_CHECK(after_rollback == baseline_content, "rollback restores original content");
+    TEST_CHECK(!fs::exists(backup), "backup removed after rollback");
 
     fs::remove_all(tmp);
 }
@@ -218,7 +211,7 @@ static void test_apply_rollback() {
 // Self-modify file test
 // ========================================================================
 static void test_self_modify_file() {
-    printf("\n=== Test 5: Self-modify file ===\n");
+    TEST_SUITE("Test 5: Self-modify file");
 
     auto tmp = fs::temp_directory_path() / "mythos_flywheel_selfmod";
     fs::create_directories(tmp);
@@ -238,7 +231,7 @@ static void test_self_modify_file() {
     }
 
     auto modified = read_file(fpath);
-    CHECK(modified.find("version 2") != std::string::npos,
+    TEST_CHECK(modified.find("version 2") != std::string::npos,
           "file modified successfully");
 
     fs::remove_all(tmp);
@@ -255,27 +248,26 @@ int main() {
     test_apply_rollback();
     test_self_modify_file();
 
-    printf("\n============================================\n");
-    printf("  Results: %d/%d passed, %d failures\n",
-           g_passed, g_tests, g_failures);
+    int failures = TEST_REPORT();
     printf("============================================\n");
 
     // Write SANDBOX_TEST_LOG.md
+    auto& tr = oil::test::TestRunner::instance();
     std::string log_content;
     log_content += "# ASI Flywheel & Sandbox Test Log\n\n";
     log_content += "## Results\n\n";
     log_content += "| Test | Status |\n";
     log_content += "|------|--------|\n";
-    log_content += "| Sandbox compile and run | " + std::string(g_failures == 0 ? "PASSED" : "FAILED") + " |\n";
-    log_content += "| Sandbox compile failure | " + std::string(g_failures == 0 ? "PASSED" : "FAILED") + " |\n";
-    log_content += "| Measure improvement | " + std::string(g_failures == 0 ? "PASSED" : "FAILED") + " |\n";
-    log_content += "| Apply improvement and rollback | " + std::string(g_failures == 0 ? "PASSED" : "FAILED") + " |\n";
-    log_content += "| Self-modify file | " + std::string(g_failures == 0 ? "PASSED" : "FAILED") + " |\n\n";
+    log_content += "| Sandbox compile and run | " + std::string(failures == 0 ? "PASSED" : "FAILED") + " |\n";
+    log_content += "| Sandbox compile failure | " + std::string(failures == 0 ? "PASSED" : "FAILED") + " |\n";
+    log_content += "| Measure improvement | " + std::string(failures == 0 ? "PASSED" : "FAILED") + " |\n";
+    log_content += "| Apply improvement and rollback | " + std::string(failures == 0 ? "PASSED" : "FAILED") + " |\n";
+    log_content += "| Self-modify file | " + std::string(failures == 0 ? "PASSED" : "FAILED") + " |\n\n";
     log_content += "## Summary\n\n";
-    log_content += "- Total tests: " + std::to_string(g_tests) + "\n";
-    log_content += "- Passed: " + std::to_string(g_passed) + "\n";
-    log_content += "- Failed: " + std::to_string(g_failures) + "\n";
-    log_content += "- Verdict: " + std::string(g_failures == 0 ? "PASSED" : "FAILED") + "\n\n";
+    log_content += "- Total tests: " + std::to_string(tr.tests_run) + "\n";
+    log_content += "- Passed: " + std::to_string(tr.tests_run - tr.failures) + "\n";
+    log_content += "- Failed: " + std::to_string(tr.failures) + "\n";
+    log_content += "- Verdict: " + std::string(failures == 0 ? "PASSED" : "FAILED") + "\n\n";
     log_content += "## Proof\n\n";
     log_content += "- Sandbox: creates temp dir, writes C++ code, compiles with g++, runs binary, captures output\n";
     log_content += "- Compile failure detection: catches syntax errors, no binary produced\n";
@@ -351,5 +343,5 @@ int main() {
 
     printf("\nFLYWHEEL_LOG.md and SANDBOX_TEST_LOG.md generated.\n");
 
-    return g_failures > 0 ? 1 : 0;
+    return failures > 0 ? 1 : 0;
 }

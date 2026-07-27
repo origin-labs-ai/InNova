@@ -4,6 +4,7 @@
 #include "oil/transformer.h"
 #include "oil/kv_cache.h"
 #include "oil/oil_format.h"
+#include "oil/codebook.h"
 #include <vector>
 #include <memory>
 #include <string>
@@ -33,10 +34,13 @@ public:
                    KVCache* cache = nullptr) override;
     void load(const std::string& oil_path) override;
     void save(const std::string& oil_path) const override;
+    void save_quantized(const std::string& oil_path, Format fmt) const;
     int64_t param_count() const override;
     int64_t vocab_size() const override;
+
+    void init_weights();
+    void get_parameters(std::vector<Tensor*>& params);
     
-    // Individual components (public for training access)
     std::unique_ptr<Embedding> tok_embeddings;
     std::vector<std::unique_ptr<TransformerBlock>> layers;
     std::unique_ptr<RMSNorm> norm;

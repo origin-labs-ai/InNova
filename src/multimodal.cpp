@@ -304,11 +304,17 @@ std::string ImageCaptioning::caption(const Tensor& image, int max_tokens) {
     if (max_tokens <= 0) max_tokens = 32;
 
     Tensor image_feat = vision_encoder_->forward(image, Tensor({1, 1}));
-    (void)image_feat;
 
     static BPETokenizer bpe;
     std::vector<int> tokens = {bpe.bos_id()};
     int64_t V = text_decoder_->vocab_size();
+
+    {
+        int64_t img_len = std::min(image_feat.numel(), (int64_t)64);
+        const float* img_data = image_feat.data<float>();
+        for (int64_t i = 0; i < img_len; i++)
+            tokens.push_back((int)(std::fabs(img_data[i]) * 1000) % std::max((int64_t)1, V));
+    }
 
     for (int i = 0; i < max_tokens; i++) {
         Tensor input({1, (int64_t)tokens.size()});
@@ -345,11 +351,21 @@ std::string VisualQA::answer(const Tensor& image, const std::string& question) {
     if (question.empty()) return "";
 
     Tensor image_feat = vision_encoder_->forward(image, Tensor({1, 1}));
-    (void)image_feat;
 
     static BPETokenizer bpe;
     std::vector<int> q_tokens = bpe.encode(question);
     std::vector<int> tokens = {bpe.bos_id()};
+
+    int64_t img_prefix_len = 0;
+    {
+        int64_t img_len = std::min(image_feat.numel(), (int64_t)64);
+        const float* img_data = image_feat.data<float>();
+        int64_t V = text_decoder_->vocab_size();
+        for (int64_t i = 0; i < img_len; i++)
+            tokens.push_back((int)(std::fabs(img_data[i]) * 1000) % std::max((int64_t)1, V));
+        img_prefix_len = img_len;
+    }
+
     tokens.insert(tokens.end(), q_tokens.begin(), q_tokens.end());
 
     int64_t V = text_decoder_->vocab_size();
@@ -374,7 +390,7 @@ std::string VisualQA::answer(const Tensor& image, const std::string& question) {
         tokens.push_back(next);
     }
 
-    std::vector<int> answer_tokens(tokens.begin() + (int64_t)q_tokens.size() + 1, tokens.end());
+    std::vector<int> answer_tokens(tokens.begin() + 1 + img_prefix_len + (int64_t)q_tokens.size(), tokens.end());
     return bpe.decode(answer_tokens);
 }
 
@@ -673,7 +689,7 @@ ModalityEncoder::ModalityEncoder(Model* model, const std::string& modality)
 }
 
 Tensor ModalityEncoder::encode(const Tensor& input) {
-    if (!model_ || input.numel() == 0) return Tensor({1, input.dim(input.rank() - 1)});
+    if (!model_ || input.numel() == 0) return Tensor({input.dim(0), input.dim(input.rank() - 1)});
     return model_->forward(input, Tensor({1, 1}));
 }
 
@@ -695,17 +711,36 @@ float CrossModalAlignment::contrastive_loss(const Tensor& image_emb, const Tenso
     OIL_CHECK(text_emb.dim(0) == B && text_emb.dim(1) == D,
               "CrossModalAlignment: embedding shape mismatch");
 
-    const float* ie = image_emb.data<float>();
-    const float* te = text_emb.data<float>();
+    const float* ie_raw = image_emb.data<float>();
+    const float* te_raw = text_emb.data<float>();
+
+    std::vector<float> ie((size_t)B * (size_t)D);
+    std::vector<float> te((size_t)B * (size_t)D);
+    std::copy(ie_raw, ie_raw + B * D, ie.data());
+    std::copy(te_raw, te_raw + B * D, te.data());
+
+    for (int64_t b = 0; b < B; b++) {
+        float ni = 0.0f, nt = 0.0f;
+        for (int64_t d = 0; d < D; d++) {
+            ni += ie[(size_t)b * (size_t)D + (size_t)d] * ie[(size_t)b * (size_t)D + (size_t)d];
+            nt += te[(size_t)b * (size_t)D + (size_t)d] * te[(size_t)b * (size_t)D + (size_t)d];
+        }
+        ni = std::sqrt(ni + 1e-10f);
+        nt = std::sqrt(nt + 1e-10f);
+        for (int64_t d = 0; d < D; d++) {
+            ie[(size_t)b * (size_t)D + (size_t)d] /= ni;
+            te[(size_t)b * (size_t)D + (size_t)d] /= nt;
+        }
+    }
+
     float loss = 0;
 
-    // Compute similarity matrix
     std::vector<float> sim((size_t)B * (size_t)B, 0.0f);
     for (int64_t i = 0; i < B; i++)
         for (int64_t j = 0; j < B; j++) {
             float dot = 0;
             for (int64_t d = 0; d < D; d++)
-                dot += ie[i * D + d] * te[j * D + d];
+                dot += ie[(size_t)i * (size_t)D + (size_t)d] * te[(size_t)j * (size_t)D + (size_t)d];
             sim[(size_t)i * (size_t)B + (size_t)j] = dot / temperature_;
         }
 

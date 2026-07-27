@@ -7,7 +7,7 @@ namespace multimodal {
 
 VideoEncoder::VideoEncoder(int64_t tube_size, int64_t img_size, int64_t patch_size,
                            int64_t hidden, int64_t num_layers, int64_t num_heads)
-    : hidden_size(hidden)
+    : hidden_size(hidden), patch_size(patch_size), tube_size(tube_size)
 {
     int64_t n_patches = (img_size / patch_size) * (img_size / patch_size);
     num_tubes = n_patches;

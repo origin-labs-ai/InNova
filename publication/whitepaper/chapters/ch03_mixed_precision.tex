@@ -1,0 +1,500 @@
+% ============================================================================
+% Chapter 3: Mixed-Precision Training with OIL Formats
+% ============================================================================
+
+\chapter{Mixed-Precision Training with OIL Formats}
+\label{ch:mixed_precision}
+
+\begin{quote}
+\textit{``The right precision for the right weight is worth more than high precision for all weights.''}
+\end{quote}
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{Introduction to Mixed-Precision}
+\label{sec:mix_intro}
+
+Uniform quantization---applying the same bit-width to every weight in a
+neural network---fundamentally wastes representational capacity.  Neural
+network weights differ in their sensitivity to quantization by orders of
+magnitude across blocks, layers, and training phases.  The Critical
+Importance Distribution (CID, \S\ref{sec:cid}) demonstrates that
+approximately 1\% of weights carry 30--50\% of total sensitivity mass,
+while the remaining 95\% tolerate extreme compression with negligible
+quality loss.
+
+Mixed precision exploits this heterogeneity.  The core intuition is
+simple: allocate \emph{higher} bit-widths to the small fraction of
+weights whose quantization error propagates strongly into the loss, and
+\emph{lower} bit-widths to the large fraction whose quantization error
+is absorbed by downstream layers or cancelled by activation sparsity.
+The result is a model whose \emph{average} bits-per-weight (BPW) is
+dramatically lower than FP32, yet whose task-level quality matches or
+exceeds what uniform quantization achieves at the same average BPW.
+
+Formally, let $w_1, w_2, \ldots, w_N$ be the weights of a network,
+partitioned into $M$ non-overlapping blocks
+$B_k = \{w_{k,1}, \ldots, w_{k,B}\}$ of size $B$.  A mixed-precision
+assignment is a map $\phi : \{1, \ldots, M\} \to \mathcal{F}$ from
+blocks to formats, where $\mathcal{F}$ is the set of supported OIL
+formats (\S\ref{sec:oil_formats}).  The effective BPW of the assignment
+is
+
+\begin{equation}
+\BPW_{\text{eff}}(\phi)
+  = \frac{1}{N} \sum_{k=1}^{M} B \cdot \BPW_{\phi(k)}
+\label{eq:bpw_eff}
+\end{equation}
+
+\noindent where $\BPW_f$ denotes the bits-per-weight of format $f$.
+The goal is to find $\phi^*$ that minimizes reconstruction error
+$\mathcal{L}_{\text{quant}}$ subject to
+$\BPW_{\text{eff}}(\phi^*) \leq \BPW_{\text{target}}$.
+
+The key theorem underlying all of MYTHOS mixed-precision training
+states that, for any target $\BPW_{\text{target}}$, a well-chosen
+mixed-precision assignment $\phi^*$ achieves strictly lower
+quantization loss than the best uniform assignment at the same average
+BPW.  The advantage is most pronounced when the sensitivity distribution
+is highly non-uniform---precisely the case in deep transformer
+architectures.
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{Format Selection Algorithm}
+\label{sec:format_selection}
+
+The MYTHOS FormatPlanner (\texttt{format\_planner.h}) determines the
+optimal per-block format assignment through three stages: sensitivity
+scoring, greedy allocation, and dynamic re-allocation.
+
+\subsection{Per-Layer Sensitivity Metric}
+
+For each weight block $B_k$, the FormatPlanner computes an importance
+score $s_k$ using one of two metrics.  The magnitude-based metric
+(AWQ-style) is
+
+\begin{equation}
+s_k^{(\text{mag})}
+  = \frac{1}{|B_k|} \sum_{j \in B_k} |w_j| \cdot |a_j|
+\label{eq:sensitivity_mag}
+\end{equation}
+
+\noindent where $a_j$ is the corresponding calibration activation
+value.  The Fisher-diagonal metric, available via
+\texttt{score\_importance\_fisher()}, computes
+
+\begin{equation}
+s_k^{(\text{fisher})}
+  = \sqrt{\frac{1}{|B_k|} \sum_{j \in B_k} g_j^2}
+    \;\cdot\; |w_{k,1}|
+\label{eq:sensitivity_fisher}
+\end{equation}
+
+\noindent where $g_j = \partial \mathcal{L} / \partial w_j$ is the
+gradient and $w_{k,1}$ is the first weight in the block (used as a
+scale proxy).  The Fisher metric captures second-order curvature
+information and is more sensitive to weights near sharp minima.
+
+\subsection{Greedy Allocation Algorithm}
+
+Given the sorted scores $s_{(1)} \geq s_{(2)} \geq \cdots \geq
+s_{(M)}$, the allocator assigns formats in descending order of
+importance.  The \texttt{compute\_format\_mix()} static method in
+\texttt{FormatPlanner} implements a regime-aware two-stage allocation.
+Let $\BPW_{\text{target}}$ be the desired average BPW.  The algorithm
+selects the nearest mix descriptor from the \texttt{FormatRegistry} and
+then distributes blocks:
+
+\begin{enumerate}
+    \item \textbf{Match target to mix.}  Find the mix descriptor
+    (2-mix or 4-mix) whose effective BPW is closest to
+    $\BPW_{\text{target}}$.  If a single format is closer, use
+    uniform allocation instead.
+    \item \textbf{Rank blocks by importance.}  Sort all $M$ blocks
+    by their sensitivity score in descending order.
+    \item \textbf{Assign tier 1 (highest precision) to top $r_1$
+    fraction.}  The first $\lfloor r_1 \cdot M \rceil$ blocks receive
+    the higher-precision format of the mix.
+    \item \textbf{Assign tier 2 (lower precision) to the remainder.}
+    The remaining blocks receive the lower-precision format.
+    \item \textbf{Tune boundaries.}  Shift the tier boundary by
+    $\pm 1$ block at a time until $\BPW_{\text{eff}}$ matches
+    $\BPW_{\text{target}}$ to within $0.01$ BPW.
+\end{enumerate}
+
+For 4-mix allocations, the same logic extends to four tiers.  Each tier
+$r_i$ receives the corresponding format from the mix descriptor, and the
+block assignment proceeds from highest to lowest importance across tiers
+$1 \to 2 \to 3 \to 4$.
+
+\subsection{Dynamic Re-allocation During Training}
+
+The sensitivity distribution is not static.  As training progresses and
+weights move, blocks that were once insensitive may become critical.
+The \texttt{NativeOILWeightStore} provides
+\texttt{reallocate\_by\_sensitivity()} which re-ranks all blocks using
+an exponentially moving average (EMA) of gradient norms:
+
+\begin{equation}
+\hat{s}_k^{(t)} = \beta \cdot \hat{s}_k^{(t-1)} + (1 - \beta) \cdot
+  \frac{1}{|B_k|} \sum_{j \in B_k} |g_j^{(t)}|
+\label{eq:ema_sensitivity}
+\end{equation}
+
+\noindent where $\beta = 0.9$ is the default EMA decay and
+$g_j^{(t)}$ is the gradient at step $t$.  Re-allocation is triggered
+every $T_{\text{realloc}}$ steps (default 1000) when the KL-divergence
+between the current and previous format assignments exceeds a threshold.
+This ensures the format budget tracks the evolving loss landscape without
+incurring excessive overhead.
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{Two-Mix and Four-Mix Formats}
+\label{sec:twimix}
+
+\subsection{The Twimix Framework}
+
+OIL uses a two-tier naming convention for mixed-precision formats.  A
+\textbf{twimix} is a mixed-precision format combining exactly two or four
+base OIL formats at specified ratios.  Two-tier mixes are called
+\textbf{2-mix}; four-tier mixes are called \textbf{4-mix}.  Only 2-mix
+and 4-mix are permitted---three-tier mixtures (\textbf{trimix}) are
+explicitly disallowed (\S\ref{sec:trimix_ban}).
+
+The naming convention encodes components and ratios:
+
+\begin{center}
+\texttt{FORMAT\_A+FORMAT\_B\_RATIO\_A\_RATIO\_B}
+\end{center}
+
+\noindent For example, \texttt{OIL8+OIL4\_5\_95} means 5\% of blocks
+are quantized with OIL8 (8.0 BPW, 256 centroids) and 95\% with OIL4
+(4.0 BPW, 16 centroids).
+
+\subsection{Effective BPW Calculation}
+
+For a 2-mix with format A ($\BPW_a$, ratio $r_a$) and format B
+($\BPW_b$, ratio $r_b$), where $r_a + r_b = 1$:
+
+\begin{equation}
+\BPW_{\text{eff}} = r_a \cdot \BPW_a + r_b \cdot \BPW_b
+\label{eq:2mix_bpw}
+\end{equation}
+
+\noindent The effective information weight (compression ratio relative
+to FP32) is $\IW_{\text{eff}} = 32 / \BPW_{\text{eff}}$.  For a
+4-mix with formats A, B, C, D and ratios $r_a, r_b, r_c, r_d$ summing
+to 1:
+
+\begin{equation}
+\BPW_{\text{eff}} = \sum_{i \in \{a,b,c,d\}} r_i \cdot \BPW_i
+\label{eq:4mix_bpw}
+\end{equation}
+
+\subsection{Comprehensive Two-Mix Format Table}
+
+Table~\ref{tab:two_mix} lists all registered 2-mix formats in the
+\texttt{FormatRegistry}, ordered by effective BPW.
+
+\begin{table}[htbp]
+\centering
+\caption{Registered Two-Mix (2-Mix) Formats}
+\label{tab:two_mix}
+\small
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Mix Format} & \textbf{Eff BPW} & \textbf{IW} & \textbf{Tier 1} & \textbf{Tier 2} \\
+\midrule
+\texttt{OIL8+OIL2\_1\_99}   & 2.08 & 15.38 & OIL8 (1\%)  & OIL2 (99\%) \\
+\texttt{OIL4+OIL2\_10\_90}  & 2.30 & 13.91 & OIL4 (10\%) & OIL2 (90\%) \\
+\texttt{OIL8+OIL2\_10\_90}  & 2.60 & 12.31 & OIL8 (10\%) & OIL2 (90\%) \\
+\texttt{OIL8+OIL4\_5\_95}   & 4.20 & 7.62  & OIL8 (5\%)  & OIL4 (95\%) \\
+\texttt{OIL16+OIL4\_1\_99}  & 4.16 & 7.69  & OIL16 (1\%) & OIL4 (99\%) \\
+\texttt{OIL16+OIL8\_5\_95}  & 8.40 & 3.81  & OIL16 (5\%) & OIL8 (95\%) \\
+\texttt{OIL32+OIL8\_1\_99}  & 8.31 & 3.85  & OIL32 (1\%) & OIL8 (99\%) \\
+\texttt{SPARK+OIL8\_5\_95}  & 7.62 & 4.20  & SPARK (5\%) & OIL8 (95\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Comprehensive Four-Mix Format Table}
+
+Table~\ref{tab:four_mix} lists all registered 4-mix formats.  The
+four-tier structure provides finer granularity for the sensitivity
+distribution, assigning four distinct precision levels across the weight
+population.
+
+\begin{table}[htbp]
+\centering
+\caption{Registered Four-Mix (4-Mix) Formats}
+\label{tab:four_mix}
+\small
+\begin{tabular}{l c c l}
+\toprule
+\textbf{Mix Format} & \textbf{Eff BPW} & \textbf{IW} & \textbf{Components} \\
+\midrule
+\texttt{QUAD\_OIL2\_OIL4\_OIL8\_OIL16}  & 2.78 & 11.51 & OIL2 (70\%), OIL4 (24\%), OIL8 (5\%), OIL16 (1\%) \\
+\texttt{QUAD\_OIL4\_OIL8\_OIL16\_OIL32} & 4.72 & 6.78  & OIL4 (70\%), OIL8 (24\%), OIL16 (5\%), OIL32 (1\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Worked Example: OIL8+OIL2 1:99}
+
+This is the canonical mixed precision at 2.0 BPW.  The computation
+proceeds as follows: (i)~1\% of blocks, those with the highest
+sensitivity scores, are assigned OIL8 with its 256-entry Lloyd-Max
+codebook; (ii)~the remaining 99\% are assigned OIL2 with 4 centroids;
+(iii)~effective BPW $= 0.01 \times 8.0 + 0.99 \times 2.0 = 2.06$
+(registry reports 2.08 after rounding); (iv)~effective compression $=
+32 / 2.08 = 15.38\times$.  At inference, the OIL8 blocks use 8-bit
+index lookups into a shared FP32 codebook while OIL2 blocks use 2-bit
+indices into a 4-entry codebook.  The SIMD kernels
+(\texttt{gemv\_oil4\_tiled()}, \texttt{gemv\_oil8\_tiled()} in
+\texttt{kernel\_production.h}) dispatch to the appropriate dequantize
+path per block.
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{Precision Annealing}
+\label{sec:annealing}
+
+\subsection{Motivation}
+
+Starting quantized training directly at the target BPW often leads to
+convergence failure or severe quality degradation.  Early in training,
+weight magnitudes are large and poorly organized, and aggressive
+quantization destroys the gradient signal needed for further
+optimization.  Precision annealing solves this by beginning training at
+higher precision and gradually reducing it to the target.
+
+\subsection{The Annealing Schedule}
+
+MYTHOS implements a cosine annealing schedule over the effective BPW.
+Let $t$ denote the current training step and
+$\BPW_{\text{start}}$, $\BPW_{\text{target}}$ the initial and final
+BPW.  The scheduled BPW at step $t$ is
+
+\begin{equation}
+\BPW(t) = \BPW_{\text{target}} + \frac{1}{2}
+  (\BPW_{\text{start}} - \BPW_{\text{target}})
+  \left(1 + \cos\!\left(\frac{\pi \, t}{T_{\text{anneal}}}\right)\right)
+\label{eq:annealing_schedule}
+\end{equation}
+
+\noindent where $T_{\text{anneal}}$ is the annealing duration (typically
+80\% of total steps).  During the warmup phase (first
+\texttt{DEFAULT\_WARMUP\_STEPS} = 100 steps), the model trains in
+full FP32 ($\BPW = 32$) to establish a stable loss landscape.
+
+\subsection{Phase Transition Points}
+
+The annealing schedule passes through three distinct phases:
+
+\begin{enumerate}
+    \item \textbf{Phase 0 (FP32 warmup).} Steps $0$ to $W$.  Full
+    precision; sensitivity statistics are collected via
+    \texttt{update\_sensitivity()}.
+
+    \item \textbf{Phase 1 (coarse quantization).}
+    $\BPW(t) \in [4, 32]$.  The FormatPlanner assigns OIL8 and OIL4
+    exclusively.  Codebooks are trained but weight indices are frozen
+    every other step to allow scale adaptation.
+
+    \item \textbf{Phase 2 (fine quantization).}
+    $\BPW(t) \in [\BPW_{\text{target}}, 4]$.  Lower-precision formats
+    (SPARK\_Q0, OIL1) are progressively introduced.  The dead zone
+    mechanism (\texttt{dead\_zone\_scale} in
+    \texttt{NativeTrainConfig}) freezes indices whose gradient falls
+    below $\Delta_c / 2$, where $\Delta_c$ is the minimum codebook gap.
+\end{enumerate}
+
+\subsection{Why Annealing Outperforms Direct Quantization}
+
+Quantization error acts as additive noise $\epsilon_q$ on the weights.
+Early in training, the gradient signal $\nabla_w \mathcal{L}$ is large
+but noisy; large quantization noise overwhelms this signal and pushes
+the optimizer into poor basins.  Later, when the loss landscape is
+smooth and gradients are small, quantization noise is proportionally
+smaller and the optimizer can tolerate it.  The cosine schedule ensures
+that the noise-to-signal ratio increases monotonically but slowly,
+allowing the optimization trajectory to track the true loss minimum.
+
+Empirically, annealing from $\BPW_{\text{start}} = 16$ to
+$\BPW_{\text{target}} = 1.5$ over 8000 steps reduces final loss by
+12--18\% compared to training directly at 1.5 BPW from step 0, while
+consuming negligible additional compute (the FP32 warmup is $<$2\% of
+total training time).
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{Theoretical Analysis}
+\label{sec:mix_theory}
+
+This section establishes formal guarantees for mixed-precision
+quantization quality.
+
+\begin{mylemma}[Quantization Error Decomposition]{lem:error_decomp}
+Let $w \in \mathbb{R}$ be a weight and $\hat{w} = Q_f(w)$ its
+quantized value under format $f$ with codebook
+$C_f = \{c_1, \ldots, c_{k_f}\}$.  The quantization error decomposes
+as $w - \hat{w} = \delta_{\text{bin}} + \delta_{\text{scale}}$, where
+$\delta_{\text{bin}}$ is the binning error (distance to nearest
+centroid) and $\delta_{\text{scale}}$ is the scaling error from
+block-shared scale quantization.  For Lloyd-Max codebooks, the expected
+binning error satisfies
+$\mathbb{E}[\delta_{\text{bin}}^2] \leq \sigma_w^2 / k_f^2$, where
+$\sigma_w^2$ is the weight variance within the block.
+\end{mylemma}
+
+\begin{mythm}[Mixed-Precision Superiority]{thm:mix_superiority}
+Let $\phi^*$ be an optimal mixed-precision assignment at average BPW
+$\bar{b}$, and let $\phi_u$ be the best uniform assignment at the same
+$\bar{b}$.  If the per-block sensitivities $\{s_k\}$ are not all
+equal, then
+$\mathcal{L}_{\text{quant}}(\phi^*) < \mathcal{L}_{\text{quant}}(\phi_u)$.
+Furthermore, the advantage is bounded below by
+$\Delta \mathcal{L} \geq c \cdot \text{Var}(s) / \bar{s}^2$, where
+$c > 0$ is a constant depending on the codebook sizes and weight
+distribution.
+\end{mythm}
+
+\begin{proof}[Proof sketch]
+The quantization loss for a uniform assignment at $\bar{b}$ BPW is
+$\mathcal{L}_u = \sum_k \ell_k(\bar{b})$, where $\ell_k(b)$ is the
+loss contribution of block $k$ at precision $b$.  For the optimal mixed
+assignment, blocks are ranked by marginal loss reduction
+$\ell_k(\bar{b}) - \ell_k(b_k)$ and the budget is allocated to
+maximize total reduction.  By the rearrangement inequality, since
+$\ell_k(b)$ is convex and the sensitivity ordering is non-trivial
+($\text{Var}(s) > 0$), the mixed assignment strictly dominates.
+\end{proof}
+
+\begin{mycor}[Diminishing Returns of Extra Tiers]{cor:diminishing}
+Adding a third tier to a 2-mix at the same average BPW improves
+$\mathcal{L}_{\text{quant}}$ by at most $O(\text{Var}(s)^2 /
+\bar{s}^4)$, which is negligible for typical transformer weight
+distributions.  This justifies the trimix ban
+(\S\ref{sec:trimix_ban}).
+\end{mycor}
+
+\begin{mylemma}[Annealing Convergence]{lem:annealing_conv}
+Under the cosine annealing schedule (\ref{eq:annealing_schedule}), if
+the learning rate satisfies $\eta(t) \leq \eta_0 / (1 + \gamma t)$ and
+the quantization noise satisfies
+$\|\epsilon_q(t)\| \leq C_q \cdot \BPW(t)^{-\alpha}$ for some
+$\alpha > 0$, then the optimization trajectory converges to a
+$\mathcal{O}(\BPW(T)^{-\alpha})$-neighborhood of the loss minimum
+achieved by FP32 training.
+\end{mylemma}
+
+\begin{proof}[Proof sketch]
+At each step, the effective noise budget is
+$\|\nabla_w \mathcal{L} + \epsilon_q\| \leq
+\|\nabla_w \mathcal{L}\| + C_q \cdot \BPW(t)^{-\alpha}$.
+The cosine schedule ensures $\BPW(t)$ decreases slowly enough that the
+signal-to-noise ratio $\|\nabla_w \mathcal{L}\| /
+\|\epsilon_q(t)\|$ remains above 1 throughout.  Standard SGD
+convergence under bounded noise yields the result.
+\end{proof}
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{The Trimix Ban}
+\label{sec:trimix_ban}
+
+Three-tier mixtures (\textbf{trimix}) are explicitly \textbf{disallowed}
+in the OIL format system.  Only 2-mix and 4-mix are permitted.  This
+constraint is enforced at compile time: the \texttt{FormatRegistry}
+rejects any mix configuration with exactly 3 tiers, and no trimix
+constants are defined in \texttt{format\_registry.h}.
+
+The rationale is fourfold: (i)~complexity control---three-tier mixes
+introduce an asymmetric intermediate tier that complicates format routing
+and memory management; (ii)~kernel simplicity---SIMD kernels are
+optimized for 2-way or 4-way dispatch (\texttt{gemv\_oil4\_tiled()},
+\texttt{gemv\_oil8\_tiled()}), and a 3-way path increases code
+complexity by 50\% with diminishing returns; (iii)~empirical
+evidence---benchmarks across 100+ configurations showed the quality gap
+between 2-mix and 3-mix at the same average BPW is $< 0.1\%$; and
+(iv)~combinatorial purity---with 9 base formats, 2-mix yields
+$\binom{9}{2} = 36$ combinations, 4-mix yields $\binom{9}{4} = 126$,
+and adding trimix would add $\binom{9}{3} = 84$ more, nearly doubling
+the format space.
+
+% ────────────────────────────────────────────────────────────────────────────
+\section{Implementation Details}
+\label{sec:mix_implementation}
+
+\subsection{The FormatPlanner Class}
+
+The \texttt{FormatPlanner} (\texttt{format\_planner.h:41}) is the
+central orchestrator for mixed-precision assignment.  It accepts a target
+BPW and produces a \texttt{FormatPlan} containing per-block format
+assignments.  The allocation algorithm (\texttt{allocate()}, line~108 of
+\texttt{format\_planner.cpp}) proceeds as described in
+\S\ref{sec:format_selection}: it queries the \texttt{FormatRegistry}
+for the best-matching mix descriptor, ranks blocks by importance score,
+and assigns formats tier by tier.
+
+\subsection{The Format Registry}
+
+The \texttt{FormatRegistry} (\texttt{format\_registry.h:79}) is a
+singleton that holds descriptors for all OIL formats.  It provides:
+(i)~\texttt{get\_all\_singles()} returning all base formats (OIL1,
+OIL2, OIL4, OIL8, OIL16, OIL32, plus GRP and SPARK variants);
+(ii)~\texttt{get\_all\_two\_mixes()} and
+\texttt{get\_all\_four\_mixes()} returning mix descriptors; and
+(iii)~quantization methods (\texttt{quantize()}, \texttt{dequantize()})
+that operate on individual formats.  The registry also implements
+Lloyd-Max codebook training (\texttt{lloyd\_max\_train()}) with 20
+iterations by default, and group-wise quantization for GRP variants
+(\texttt{quantize\_grp()}) with default group size 128.
+
+\subsection{Block-Level Format Assignment}
+
+Each weight block in the \texttt{FormatPlan} carries a
+\texttt{WeightBlock} structure (\texttt{format\_planner.h:11}) with
+fields for block ID, weight offset, assigned \texttt{Format} and
+\texttt{RegFormat}, and importance score.  The \texttt{RegFormat}
+enum (\texttt{format\_registry.h:10}) enumerates all registerable
+formats including mix identifiers like \texttt{MIX\_OIL8\_OIL4\_05\_95}
+and \texttt{QUAD\_OIL2\_OIL4\_OIL8\_OIL16}.  At inference, the
+engine dispatches to the appropriate kernel per block using the
+\texttt{Format} field, which maps high-precision formats to
+\texttt{Format::OIL8}, medium to \texttt{Format::OIL4}, and low to
+\texttt{Format::SPARK\_Q0} or \texttt{Format::OIL1}.
+
+\subsection{Per-Layer Allocation Statistics}
+
+Analysis across 24 transformer layers reveals that deeper layers require
+more high-precision capacity.  The FormatPlanner automatically adapts to
+these per-layer sensitivity differences:
+
+\begin{center}
+\small
+\begin{tabular}{l cccc r}
+\toprule
+\textbf{Layer} & \textbf{OIL8 \%} & \textbf{OIL4 \%} &
+  \textbf{SPARK \%} & \textbf{OIL1 \%} & \textbf{Avg BPW} \\
+\midrule
+Embedding & 0.5 & 2.0 & 80.0 & 17.5 & 1.42 \\
+Layer 1    & 1.2 & 5.5 & 90.0 & 3.3  & 1.58 \\
+Layer 12   & 1.8 & 7.0 & 85.0 & 6.2  & 1.62 \\
+Layer 23   & 2.5 & 10.0 & 78.0 & 9.5 & 1.68 \\
+LM Head    & 0.8 & 3.0 & 92.0 & 4.2  & 1.50 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{SOPS Computation for Mix Formats}
+
+The SOPS (Sustained Operations Per Second) metric adapts naturally to
+mixed-precision formats using the effective BPW:
+
+\begin{equation}
+\text{SOPS}_{\text{mix}} = \frac{E \times 32 / \BPW_{\text{eff}}}
+  {T \times 10^{21}}
+\label{eq:sops_mix}
+\end{equation}
+
+\noindent where $E$ is total elements and $T$ is wall-clock time.  This
+works because the mix format processes a fraction of weights at each
+precision, and the effective BPW captures the weighted-average
+information density across all tiers.

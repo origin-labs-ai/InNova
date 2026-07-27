@@ -51,7 +51,9 @@ int Sampler::sample_top_k(const float* logits, int vocab_size, int k, float temp
     std::nth_element(scored.begin(), scored.begin() + k, scored.end(),
                      [](const auto& a, const auto& b) { return a.first > b.first; });
     
-    float max_val = scored[0].first;
+    float max_val = -INFINITY;
+    for (int i = 0; i < k; i++)
+        if (scored[i].first > max_val) max_val = scored[i].first;
     float sum_exp = 0;
     for (int i = 0; i < k; i++) {
         sum_exp += std::exp(scored[i].first - max_val);

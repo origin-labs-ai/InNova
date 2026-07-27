@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     std::string corpus = ss.str();
 
     std::vector<std::string> texts = {corpus};
-    tokenizer.train(texts, cfg.vocab_size);
+    tokenizer.train(texts, static_cast<int>(cfg.vocab_size));
 
     oil::Trainer trainer(&model, &tokenizer);
     oil::AdamW optimizer(args.learning_rate);

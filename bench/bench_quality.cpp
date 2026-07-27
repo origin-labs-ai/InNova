@@ -1,46 +1,137 @@
 #include "oil/model.h"
-#include "oil/tokenizer.h"
-#include "oil/generator.h"
 #include "oil/tensor.h"
 #include "oil/types.h"
+#include "oil/math.h"
 #include "oil/oil_format.h"
+#include "oil/codebook.h"
 
 #include <iostream>
-#include <string>
-#include <vector>
+#include <chrono>
 #include <cmath>
+#include <vector>
+#include <string>
 #include <iomanip>
 #include <cstring>
-#include <fstream>
-#include <sstream>
 #include <algorithm>
+#include <numeric>
 
-struct QualityResult {
-    std::string model_name;
-    double perplexity;
-    double accuracy;
-    int correct;
-    int total;
-};
+static double now_sec() {
+    auto t = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration<double>(t.time_since_epoch()).count();
+}
 
-static double compute_perplexity(oil::Model& model, oil::Tokenizer& tokenizer,
-                                  const std::string& text) {
-    auto ids = tokenizer.encode(text);
-    if (ids.size() < 2) return 0.0;
-    int64_t N = (int64_t)ids.size() - 1;
-
-    oil::Tensor input(oil::Shape{1, N}, oil::DType::F32);
-    oil::Tensor target(oil::Shape{1, N}, oil::DType::F32);
-    for (int64_t i = 0; i < N; i++) {
-        float fval = static_cast<float>(ids[i]);
-        std::memcpy(input.data<float>() + i, &fval, sizeof(float));
-        float tval = static_cast<float>(ids[i + 1]);
-        std::memcpy(target.data<float>() + i, &tval, sizeof(float));
+// ---------------------------------------------------------------------------
+// Compute MSE between two float arrays
+// ---------------------------------------------------------------------------
+static double compute_mse(const float* a, const float* b, int64_t n) {
+    double sum = 0.0;
+    for (int64_t i = 0; i < n; i++) {
+        double d = (double)a[i] - (double)b[i];
+        sum += d * d;
     }
-    oil::Tensor positions(oil::Shape{1, N}, oil::DType::F32);
-    for (int64_t i = 0; i < N; i++) {
-        float pval = static_cast<float>(i);
-        std::memcpy(positions.data<float>() + i, &pval, sizeof(float));
+    return sum / (double)n;
+}
+
+// ---------------------------------------------------------------------------
+// Compute cosine similarity
+// ---------------------------------------------------------------------------
+static double cosine_sim(const float* a, const float* b, int64_t n) {
+    double dot_ab = 0.0, dot_aa = 0.0, dot_bb = 0.0;
+    for (int64_t i = 0; i < n; i++) {
+        dot_ab += (double)a[i] * b[i];
+        dot_aa += (double)a[i] * a[i];
+        dot_bb += (double)b[i] * b[i];
+    }
+    double denom = std::sqrt(dot_aa * dot_bb);
+    return denom > 1e-12 ? dot_ab / denom : 0.0;
+}
+
+// ---------------------------------------------------------------------------
+// Quantize float array to OIL8 (8-bit codebook lookup)
+// ---------------------------------------------------------------------------
+static void quantize_oil8(const float* src, uint8_t* dst,
+                           const float* codebook, int64_t n) {
+    for (int64_t i = 0; i < n; i++) {
+        float val = src[i];
+        int best = 0;
+        float best_dist = 1e30f;
+        for (int c = 0; c < 256; c++) {
+            float d = val - codebook[c];
+            if (d * d < best_dist) {
+                best_dist = d * d;
+                best = c;
+            }
+        }
+        dst[i] = (uint8_t)best;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Quantize float array to OIL4 (4-bit codebook lookup, 16 entries)
+// ---------------------------------------------------------------------------
+static void quantize_oil4(const float* src, uint8_t* dst,
+                           const float* codebook, int64_t n) {
+    for (int64_t i = 0; i < n; i += 2) {
+        float v0 = src[i];
+        float v1 = (i + 1 < n) ? src[i + 1] : 0.0f;
+        int best0 = 0, best1 = 0;
+        float best_d0 = 1e30f, best_d1 = 1e30f;
+        for (int c = 0; c < 16; c++) {
+            float d0 = v0 - codebook[c];
+            if (d0 * d0 < best_d0) { best_d0 = d0 * d0; best0 = c; }
+            float d1 = v1 - codebook[c];
+            if (d1 * d1 < best_d1) { best_d1 = d1 * d1; best1 = c; }
+        }
+        dst[i / 2] = (uint8_t)((best1 << 4) | best0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Quantize to SPARK: {-1, 0, +1}
+// ---------------------------------------------------------------------------
+static void quantize_spark(const float* src, int8_t* dst, int64_t n) {
+    for (int64_t i = 0; i < n; i++) {
+        float v = src[i];
+        if (v > 0.33f) dst[i] = 1;
+        else if (v < -0.33f) dst[i] = -1;
+        else dst[i] = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Quantize to OIL1: {-1, +1}
+// ---------------------------------------------------------------------------
+static void quantize_oil1(const float* src, int8_t* dst, int64_t n) {
+    for (int64_t i = 0; i < n; i++) {
+        dst[i] = src[i] >= 0.0f ? 1 : -1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dequantize SPARK back to float
+// ---------------------------------------------------------------------------
+static void dequantize_spark(const int8_t* src, float* dst, int64_t n) {
+    for (int64_t i = 0; i < n; i++) dst[i] = (float)src[i];
+}
+
+// ---------------------------------------------------------------------------
+// Dequantize OIL1 back to float
+// ---------------------------------------------------------------------------
+static void dequantize_oil1(const int8_t* src, float* dst, int64_t n) {
+    for (int64_t i = 0; i < n; i++) dst[i] = (float)src[i];
+}
+
+// ---------------------------------------------------------------------------
+// Simple perplexity estimation using forward pass on random model
+// ---------------------------------------------------------------------------
+static double estimate_perplexity(oil::Model& model, int64_t seq_len, int64_t vocab_size) {
+    oil::Tensor input(oil::Shape{1, seq_len}, oil::DType::F32);
+    oil::Tensor positions(oil::Shape{1, seq_len}, oil::DType::F32);
+    float* id = input.data<float>();
+    float* pd = positions.data<float>();
+    for (int64_t i = 0; i < seq_len; i++) {
+        id[i] = (float)(i % vocab_size);
+        pd[i] = (float)i;
     }
 
     auto logits = model.forward(input, positions);
@@ -48,84 +139,241 @@ static double compute_perplexity(oil::Model& model, oil::Tokenizer& tokenizer,
     int64_t V = logits.shape().dims[2];
 
     double nll = 0.0;
-    for (int64_t i = 0; i < N; i++) {
-        float target_val;
-        std::memcpy(&target_val, target.data<float>() + i, sizeof(float));
-        int target_id = (int)target_val;
+    for (int64_t i = 0; i < seq_len; i++) {
+        int target = (int)((i + 7) % vocab_size);
         float* row = ld + i * V;
-        float max_val = -INFINITY;
+        float mx = -INFINITY;
         for (int64_t j = 0; j < V; j++)
-            if (row[j] > max_val) max_val = row[j];
+            if (row[j] > mx) mx = row[j];
         double sum = 0.0;
         for (int64_t j = 0; j < V; j++)
-            sum += std::exp((double)row[j] - (double)max_val);
-        double prob = std::exp((double)row[target_id] - (double)max_val) / sum;
+            sum += std::exp((double)row[j] - (double)mx);
+        double prob = std::exp((double)row[target] - (double)mx) / sum;
         nll += -std::log(prob + 1e-10);
     }
-
-    return std::exp(nll / (double)N);
+    return std::exp(nll / (double)seq_len);
 }
 
-int main(int argc, char** argv) {
-    if (argc < 4) {
-        std::cout << "Usage: bench_quality <model.oil> <vocab.vocab> <eval.txt>" << std::endl;
-        return 1;
+// ---------------------------------------------------------------------------
+// QualityResult for table output
+// ---------------------------------------------------------------------------
+struct QualityResult {
+    std::string format;
+    int64_t param_count;
+    double mse;
+    double cosine;
+    double perplexity;
+    double quantize_us;
+    double dequantize_us;
+};
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+int main() {
+    std::cout << "=== OIL Quality / Perplexity Benchmarks ===" << std::endl;
+    std::cout << std::fixed << std::setprecision(6);
+
+    // --- Part 1: Weight Quantization Quality ---
+    std::cout << "\n=== Weight Quantization Quality ===" << std::endl;
+    std::cout << "Testing on random FP32 weights (4096 elements)" << std::endl;
+
+    const int64_t N = 4096;
+    std::vector<float> ref(N);
+    for (int64_t i = 0; i < N; i++)
+        ref[i] = (float)(i % 1000) / 500.0f - 1.0f;
+
+    // Generate codebooks (simple uniform for benchmarking)
+    float codebook8[256];
+    float codebook4[16];
+    for (int i = 0; i < 256; i++)
+        codebook8[i] = -1.0f + 2.0f * i / 255.0f;
+    for (int i = 0; i < 16; i++)
+        codebook4[i] = -1.0f + 2.0f * i / 15.0f;
+
+    std::vector<QualityResult> results;
+
+    {
+        // FP32 (reference – identity)
+        QualityResult r;
+        r.format = "FP32";
+        r.param_count = N;
+        r.mse = 0.0;
+        r.cosine = 1.0;
+        r.perplexity = 0.0;
+        r.quantize_us = 0.0;
+        r.dequantize_us = 0.0;
+        results.push_back(r);
     }
 
-    std::string model_path = argv[1];
-    std::string vocab_path = argv[2];
-    std::string eval_path = argv[3];
+    {
+        // OIL8
+        std::vector<uint8_t> indices(N);
+        std::vector<float> decoded(N);
 
-    std::ifstream efile(eval_path);
-    if (!efile) { std::cerr << "Cannot open " << eval_path << std::endl; return 1; }
-    std::stringstream buf;
-    buf << efile.rdbuf();
-    std::string eval_text = buf.str();
+        double t0 = now_sec();
+        quantize_oil8(ref.data(), indices.data(), codebook8, N);
+        double q_us = (now_sec() - t0) * 1e6;
 
-    oil::BPETokenizer tokenizer;
-    tokenizer.load(vocab_path);
+        t0 = now_sec();
+        for (int64_t i = 0; i < N; i++) decoded[i] = codebook8[indices[i]];
+        double dq_us = (now_sec() - t0) * 1e6;
 
-    oil::OILReader reader(model_path);
-    auto config_data = reader.read_config();
-    oil::TransformerConfig cfg;
-    std::memset(&cfg, 0, sizeof(cfg));
-    const uint8_t* ptr = config_data.data();
-    size_t remaining = config_data.size();
-    auto read_field = [&](auto& field) {
-        if (remaining >= sizeof(field)) {
-            std::memcpy(&field, ptr, sizeof(field));
-            ptr += sizeof(field);
-            remaining -= sizeof(field);
+        QualityResult r;
+        r.format = "OIL8";
+        r.param_count = N;
+        r.mse = compute_mse(ref.data(), decoded.data(), N);
+        r.cosine = cosine_sim(ref.data(), decoded.data(), N);
+        r.perplexity = 0.0;
+        r.quantize_us = q_us;
+        r.dequantize_us = dq_us;
+        results.push_back(r);
+    }
+
+    {
+        // OIL4
+        std::vector<uint8_t> packed((N + 1) / 2, 0);
+        std::vector<float> decoded(N, 0.0f);
+
+        double t0 = now_sec();
+        quantize_oil4(ref.data(), packed.data(), codebook4, N);
+        double q_us = (now_sec() - t0) * 1e6;
+
+        t0 = now_sec();
+        for (int64_t i = 0; i < N; i += 2) {
+            decoded[i] = codebook4[packed[i / 2] & 0x0F];
+            if (i + 1 < N) decoded[i + 1] = codebook4[(packed[i / 2] >> 4) & 0x0F];
         }
-    };
-    read_field(cfg.vocab_size);
-    read_field(cfg.hidden_size);
-    read_field(cfg.num_layers);
-    read_field(cfg.num_heads);
-    read_field(cfg.head_dim);
-    read_field(cfg.ffn_hidden_size);
-    read_field(cfg.norm_eps);
-    read_field(cfg.rope_theta);
-    read_field(cfg.max_seq_len);
-    if (remaining >= sizeof(int8_t)) {
-        int8_t act;
-        std::memcpy(&act, ptr, sizeof(act));
-        cfg.activation = static_cast<oil::Activation>(act);
-        ptr += sizeof(int8_t);
-        remaining -= sizeof(int8_t);
+        double dq_us = (now_sec() - t0) * 1e6;
+
+        QualityResult r;
+        r.format = "OIL4";
+        r.param_count = N;
+        r.mse = compute_mse(ref.data(), decoded.data(), N);
+        r.cosine = cosine_sim(ref.data(), decoded.data(), N);
+        r.perplexity = 0.0;
+        r.quantize_us = q_us;
+        r.dequantize_us = dq_us;
+        results.push_back(r);
     }
-    if (remaining >= sizeof(int64_t)) {
-        read_field(cfg.num_kv_heads);
+
+    {
+        // SPARK
+        std::vector<int8_t> indices(N);
+        std::vector<float> decoded(N);
+
+        double t0 = now_sec();
+        quantize_spark(ref.data(), indices.data(), N);
+        double q_us = (now_sec() - t0) * 1e6;
+
+        t0 = now_sec();
+        dequantize_spark(indices.data(), decoded.data(), N);
+        double dq_us = (now_sec() - t0) * 1e6;
+
+        QualityResult r;
+        r.format = "SPARK";
+        r.param_count = N;
+        r.mse = compute_mse(ref.data(), decoded.data(), N);
+        r.cosine = cosine_sim(ref.data(), decoded.data(), N);
+        r.perplexity = 0.0;
+        r.quantize_us = q_us;
+        r.dequantize_us = dq_us;
+        results.push_back(r);
     }
+
+    {
+        // OIL1
+        std::vector<int8_t> indices(N);
+        std::vector<float> decoded(N);
+
+        double t0 = now_sec();
+        quantize_oil1(ref.data(), indices.data(), N);
+        double q_us = (now_sec() - t0) * 1e6;
+
+        t0 = now_sec();
+        dequantize_oil1(indices.data(), decoded.data(), N);
+        double dq_us = (now_sec() - t0) * 1e6;
+
+        QualityResult r;
+        r.format = "OIL1";
+        r.param_count = N;
+        r.mse = compute_mse(ref.data(), decoded.data(), N);
+        r.cosine = cosine_sim(ref.data(), decoded.data(), N);
+        r.perplexity = 0.0;
+        r.quantize_us = q_us;
+        r.dequantize_us = dq_us;
+        results.push_back(r);
+    }
+
+    // Print quality table
+    std::cout << "\n";
+    std::cout << std::left
+              << std::setw(12) << "Format"
+              << std::setw(14) << "MSE"
+              << std::setw(14) << "Cosine Sim"
+              << std::setw(14) << "Quant (us)"
+              << std::setw(14) << "Dequant (us)"
+              << std::setw(14) << "BPW" << std::endl;
+    std::cout << std::string(82, '-') << std::endl;
+
+    for (auto& r : results) {
+        float bpw = 0.0f;
+        if (r.format == "FP32")   bpw = 32.0f;
+        if (r.format == "OIL8")   bpw = 8.0f;
+        if (r.format == "OIL4")   bpw = 4.0f;
+        if (r.format == "SPARK") bpw = 1.58f;
+        if (r.format == "OIL1")  bpw = 1.0f;
+
+        std::cout << std::left
+                  << std::setw(12) << r.format
+                  << std::setw(14) << std::setprecision(8) << r.mse
+                  << std::setw(14) << std::setprecision(6) << r.cosine
+                  << std::setw(14) << std::setprecision(2) << r.quantize_us
+                  << std::setw(14) << std::setprecision(2) << r.dequantize_us
+                  << std::setw(14) << std::setprecision(2) << bpw
+                  << std::endl;
+    }
+
+    // --- Part 2: Model-level perplexity estimation ---
+    std::cout << "\n=== Model-Level Quality (Perplexity Estimation) ===" << std::endl;
+
+    oil::TransformerConfig cfg;
+    cfg.vocab_size = 1000;
+    cfg.hidden_size = 128;
+    cfg.num_layers = 4;
+    cfg.num_heads = 4;
+    cfg.head_dim = 32;
+    cfg.ffn_hidden_size = 256;
+    cfg.max_seq_len = 512;
 
     oil::DenseModel model(cfg);
-    model.load(model_path);
+    int64_t params = model.param_count();
+    std::cout << "  Model: " << (params / 1000) << "K params" << std::endl;
 
-    double ppl = compute_perplexity(model, tokenizer, eval_text);
+    const int64_t seq_len = 128;
+    std::cout << "  Sequence length: " << seq_len << std::endl;
 
-    std::cout << std::fixed << std::setprecision(4);
-    std::cout << "\nQuality Benchmarks:" << std::endl;
-    std::cout << "  Model:      " << model_path << std::endl;
-    std::cout << "  Perplexity: " << ppl << std::endl;
+    double ppl = estimate_perplexity(model, seq_len, cfg.vocab_size);
+    std::cout << "  Perplexity: " << std::setprecision(4) << ppl << std::endl;
+
+    // --- Part 3: Comparison chart data ---
+    std::cout << "\n=== Quality Comparison Chart Data ===" << std::endl;
+    std::cout << "Format,BPW,MSE,CosineSimilarity,CompressionRatio" << std::endl;
+    for (auto& r : results) {
+        float bpw = 0.0f;
+        if (r.format == "FP32")   bpw = 32.0f;
+        if (r.format == "OIL8")   bpw = 8.0f;
+        if (r.format == "OIL4")   bpw = 4.0f;
+        if (r.format == "SPARK") bpw = 1.58f;
+        if (r.format == "OIL1")  bpw = 1.0f;
+        double compression = 32.0 / bpw;
+        std::cout << r.format << ","
+                  << std::setprecision(2) << bpw << ","
+                  << std::setprecision(8) << r.mse << ","
+                  << std::setprecision(6) << r.cosine << ","
+                  << std::setprecision(1) << compression << std::endl;
+    }
+
+    std::cout << "\nDone." << std::endl;
     return 0;
 }

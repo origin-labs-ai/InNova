@@ -49,6 +49,7 @@ private:
     float gamma_, min_gamma_, max_gamma_;
     Sampler sampler_;
     SamplerConfig sampler_cfg_;
+    RNG rng_;
     float acceptance_rate_ = 0.0f;
     float acc_ema_ = 0.6f; // EWMA of acceptance rate for adaptive gamma
     int accepted_count_ = 0;
@@ -80,7 +81,7 @@ private:
                                 const std::vector<int>& seq_lens) const;
 };
 
-// D4: KV cache compression — OIL4/ternary for K/V storage
+// D4: KV cache compression — OIL4/SPARK for K/V storage
 class CompressedKVCache {
 public:
     CompressedKVCache(int64_t max_seq, int64_t n_layers, int64_t head_dim);
@@ -101,11 +102,12 @@ class PrefixCache {
 public:
     PrefixCache(int64_t layer_count);
     int64_t match_prefix(const std::vector<int>& tokens);
-    void store(const std::vector<int>& tokens, int64_t cache_id);
+    void store(const std::vector<int>& tokens, int64_t cache_id,
+               int64_t max_seq_len = 2048, int64_t num_heads = 12, int64_t head_dim = 64);
     KVCache* get_cache(int64_t id, int64_t layer);
 private:
     int64_t layers_;
-    struct PrefixEntry { std::vector<int> prefix; KVCache cache; };
+    struct PrefixEntry { std::vector<int> prefix; std::unique_ptr<KVCache> cache; };
     std::vector<PrefixEntry> entries_;
 };
 
@@ -240,17 +242,145 @@ private:
     Model* model_;
 };
 
+// ===========================================================================
+// E1: Speculative decoding v2 — draft KV cache reuse & tree attention
+// ===========================================================================
+struct RejectionStats {
+    int64_t total_draft_tokens = 0;
+    int64_t accepted_draft_tokens = 0;
+    int64_t target_calls = 0;
+    int64_t tokens_saved = 0;
+    double wall_time_sec = 0.0;
+    double acceptance_rate() const {
+        return total_draft_tokens > 0 ? (double)accepted_draft_tokens / total_draft_tokens : 0.0;
+    }
+    double tokens_saved_per_call() const {
+        return target_calls > 0 ? (double)tokens_saved / target_calls : 0.0;
+    }
+};
+
+class SpeculativeDecoderV2 {
+public:
+    SpeculativeDecoderV2(Model* draft, Model* target, int vocab_size = 32000,
+                         float gamma = 5.0f, int n_tree_candidates = 4);
+    
+    std::vector<int> generate(const std::vector<int>& prompt, int max_tokens);
+    const RejectionStats& stats() const { return stats_; }
+    void reset_stats();
+    
+    // Enable/disable tree attention verification
+    void set_use_tree_attention(bool use) { use_tree_attn_ = use; }
+    bool use_tree_attention() const { return use_tree_attn_; }
+
+private:
+    Model* draft_;
+    Model* target_;
+    int vocab_size_;
+    float gamma_;
+    int n_tree_candidates_;
+    bool use_tree_attn_ = true;
+    
+    KVCache draft_kv_cache_;
+    KVCache target_kv_cache_;
+    Sampler sampler_;
+    SamplerConfig sampler_cfg_;
+    RejectionStats stats_;
+    
+    std::vector<int> generate_draft_tokens(int prev_token, int count, int pos);
+    int verify_with_tree(const std::vector<int>& draft_tokens,
+                          const std::vector<int>& prefix,
+                          std::vector<int>& output);
+    int verify_linear(const std::vector<int>& draft_tokens,
+                       const std::vector<int>& prefix,
+                       std::vector<int>& output);
+    float get_target_prob(const float* logits, int token);
+    int sample_replacement(const float* logits);
+};
+
+// ===========================================================================
+// E2: Multi-Query Attention (MQA) — shared KV across heads
+// ===========================================================================
+class MultiQueryAttention {
+public:
+    MultiQueryAttention(int64_t d_model, int64_t n_heads, int64_t d_kv = -1);
+    Tensor forward(const Tensor& Q, const Tensor& K, const Tensor& V,
+                   const Tensor& mask = Tensor(), KVCache* cache = nullptr,
+                   int layer = 0);
+    int64_t d_model() const { return d_model_; }
+    int64_t n_heads() const { return n_heads_; }
+
+private:
+    int64_t d_model_, n_heads_, d_kv_;
+    Tensor w_q_, w_k_, w_v_, w_o_;
+    float scale_;
+};
+
+// ===========================================================================
+// E3: Grouped-Query Attention (GQA) — inference-optimized
+// ===========================================================================
+class GroupedQueryAttention {
+public:
+    GroupedQueryAttention(int64_t d_model, int64_t n_heads, int64_t n_kv_heads);
+    Tensor forward(const Tensor& Q, const Tensor& K, const Tensor& V,
+                   const Tensor& mask = Tensor(), KVCache* cache = nullptr,
+                   int layer = 0);
+    int64_t n_kv_heads() const { return n_kv_heads_; }
+
+private:
+    int64_t d_model_, n_heads_, n_kv_heads_, head_dim_;
+    int64_t n_groups_; // n_heads / n_kv_heads
+    Tensor w_q_, w_k_, w_v_, w_o_;
+    float scale_;
+    void expand_kv_heads(const Tensor& K, const Tensor& V,
+                          Tensor& K_exp, Tensor& V_exp) const;
+};
+
+// ===========================================================================
+// E4: Sliding window attention — fixed-size local window
+// ===========================================================================
+class SlidingWindowAttention {
+public:
+    SlidingWindowAttention(int64_t d_model, int64_t n_heads,
+                            int64_t window_size = 512);
+    Tensor forward(const Tensor& Q, const Tensor& K, const Tensor& V,
+                   const Tensor& mask = Tensor(), KVCache* cache = nullptr,
+                   int layer = 0);
+
+private:
+    int64_t d_model_, n_heads_, head_dim_, window_size_;
+    Tensor w_q_, w_k_, w_v_, w_o_;
+    float scale_;
+};
+
+// ===========================================================================
+// E5: ALiBi positional bias — alternative to RoPE
+// ===========================================================================
+class ALiBi {
+public:
+    ALiBi(int64_t n_heads);
+    Tensor forward(const Tensor& Q, const Tensor& K, const Tensor& V,
+                   const Tensor& mask = Tensor(), KVCache* cache = nullptr,
+                   int layer = 0);
+    Tensor build_alibi_bias(int64_t S_Q, int64_t S_K) const;
+
+private:
+    int64_t n_heads_;
+    std::vector<float> slopes_;
+    float scale_;
+    void compute_slopes();
+};
+
 // D20: Grammar decoding — enforce JSON/regex constraint
 class GrammarDecoder {
 public:
-    GrammarDecoder(const std::string& grammar_file);
+    GrammarDecoder(const std::string& grammar_file, int vocab_size = 32000);
     std::vector<int> constrain(const std::vector<float>& logits,
                                 const std::vector<int>& prefix);
 private:
     std::vector<std::vector<bool>> allowed_tokens_;
     int vocab_size_ = 32000;
     bool matches_prefix(const std::vector<int>& prefix) const;
-    void parse_grammar(const std::string& grammar_file);
+    void parse_grammar(const std::string& grammar_file, int vocab_size = 32000);
 };
 
 } // namespace oil

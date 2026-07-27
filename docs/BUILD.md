@@ -498,4 +498,4 @@ Once your build completes successfully, you're ready to:
 
 ---
 
-*Last updated: July 12, 2026*
+*Last updated: July 26, 2026*

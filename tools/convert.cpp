@@ -40,7 +40,7 @@ static ConvertArgs parse_args(int argc, char** argv) {
             std::cout << "  --format fmt   Input format: rawfp32 (default), gguf\n";
             std::cout << "  --bpw N        Target bits-per-weight for FormatPlanner (0=no compression)\n";
             std::cout << "  --verbose      Verbose output\n";
-            std::cout << "\nFormats: 1.0(binary) 1.58(ternary) 4.0(oil4) 8.0(oil8) 16.0(fp16) 32.0(fp32)\n";
+            std::cout << "\nFormats: 1.0(oil1) 1.58(spark) 4.0(oil4) 8.0(oil8) 16.0(fp16) 32.0(fp32)\n";
             exit(0);
         }
     }
@@ -320,14 +320,14 @@ static bool apply_format_plan(const std::vector<float>& f32_data, size_t num_wei
     int64_t num_blocks = (int64_t)((num_weights + 255) / 256);
     plan = planner.plan_for_model(num_blocks * 256);
 
-    oil::Format actual_format = oil::Format::FP32;
+    oil::Format actual_format = oil::Format::OIL32;
     for (auto& blk : plan.blocks) {
         actual_format = blk.assigned_format;
         break;
     }
 
-    if (actual_format == oil::Format::TERNARY) {
-        // Ternary: 2 bits per weight, pack 4 per byte
+    if (actual_format == oil::Format::SPARK_Q0) {
+        // SPARK: 2 bits per weight, pack 4 per byte
         size_t packed_size = (num_weights + 3) / 4;
         compressed_indices.resize(packed_size, 0);
         codebook_data.resize(3 * 4); // {-1, 0, +1} stored as FP32
@@ -365,7 +365,7 @@ static bool apply_format_plan(const std::vector<float>& f32_data, size_t num_wei
                 compressed_indices[i / 2] |= (idx << 4);
         }
     } else {
-        // Binary: 1 bit per weight, pack 8 per byte
+        // OIL1: 1 bit per weight, pack 8 per byte
         compressed_indices.resize((num_weights + 7) / 8, 0);
         codebook_data.resize(2 * 4); // {-1, +1} stored as FP32
         float neg_one = -1.0f, pos_one = 1.0f;
@@ -412,7 +412,7 @@ static bool convert_raw_fp32(const std::string& in_path, const std::string& out_
 
     oil::FormatBlockEntry ft_entry;
     ft_entry.block_id = 0;
-    ft_entry.format = (uint8_t)oil::Format::FP32;
+    ft_entry.format = (uint8_t)oil::Format::OIL32;
     ft_entry.cb_bytes = 0;
     writer.write_format_table({ft_entry});
 
@@ -423,7 +423,7 @@ static bool convert_raw_fp32(const std::string& in_path, const std::string& out_
     writer.write_tensor_table({t_entry}, {"weights"});
 
     oil::BlockData block;
-    block.format = oil::Format::FP32;
+    block.format = oil::Format::OIL32;
     block.num_weights = (uint32_t)num_floats;
     block.indices.resize(file_size);
     memcpy(block.indices.data(), data.data(), file_size);
@@ -460,7 +460,7 @@ static bool convert_gguf(const std::string& in_path, const std::string& out_path
                                             format_plan, compressed_indices, codebook_data);
     }
 
-    oil::Format actual_format = oil::Format::FP32;
+    oil::Format actual_format = oil::Format::OIL32;
     uint32_t codebook_bytes = 0;
     if (use_compression) {
         for (auto& blk : format_plan.blocks) {
@@ -499,8 +499,8 @@ static bool convert_gguf(const std::string& in_path, const std::string& out_path
             oil::BlockData block;
             block.format = actual_format;
             block.num_weights = (uint32_t)all_shapes[i];
-            if (actual_format == oil::Format::TERNARY || actual_format == oil::Format::BINARY ||
-                actual_format == oil::Format::FP32) {
+            if (actual_format == oil::Format::SPARK_Q0 || actual_format == oil::Format::OIL1 ||
+                actual_format == oil::Format::OIL32) {
                 // Shared codebook for first block; subsequent blocks reuse it (zero-length indices)
             }
             block.indices = compressed_indices;
@@ -524,7 +524,7 @@ static bool convert_gguf(const std::string& in_path, const std::string& out_path
         size_t cursor = 0;
         for (size_t i = 0; i < all_names.size(); i++) {
             oil::BlockData block;
-            block.format = oil::Format::FP32;
+            block.format = oil::Format::OIL32;
             block.num_weights = (uint32_t)all_shapes[i];
             size_t byte_size = all_shapes[i] * sizeof(float);
             block.indices.resize(byte_size);
