@@ -135,6 +135,18 @@ set_tests_properties(test_protected   PROPERTIES LABELS "core;training")
 add_oil_test_full(test_sha256_corrupt test_sha256_corrupt.cpp oil_core oil_format               ${_default_timeout})
 set_tests_properties(test_sha256_corrupt PROPERTIES LABELS "core")
 
+add_oil_test_full(test_format_registry_complete test_format_registry_complete.cpp oil_format oil_core ${_long_timeout})
+set_tests_properties(test_format_registry_complete PROPERTIES LABELS "core")
+
+add_oil_test_full(grp_proof_test test_grp_quality_proof.cpp oil_format oil_core        ${_long_timeout})
+set_tests_properties(grp_proof_test PROPERTIES LABELS "core")
+
+add_oil_test_full(test_fp32_gather_quality test_fp32_gather_quality.cpp oil_format oil_core      ${_long_timeout})
+set_tests_properties(test_fp32_gather_quality PROPERTIES LABELS "core")
+
+add_oil_test_full(test_bpw_150_proof test_bpw_150_proof.cpp oil_format oil_core                  ${_long_timeout})
+set_tests_properties(test_bpw_150_proof PROPERTIES LABELS "core")
+
 # ── paged KV cache ───────────────────────────────────────────────
 add_oil_test_full(test_paged_kv_4m  paged_kv_4m_test.cpp  oil_model oil_kernel               ${_long_timeout})
 set_tests_properties(test_paged_kv_4m  PROPERTIES LABELS "inference")
@@ -157,6 +169,7 @@ set_tests_properties(
   test_quant_engines test_quant_convergence test_native_weight
   test_moe_training test_native_oil_moe test_multimodal_encoders
   test_asi_flywheel test_inference_batch test_paged_kv_4m
-  test_training_features
+  test_training_features grp_proof_test
+  test_fp32_gather_quality test_bpw_150_proof
   PROPERTIES COST 2.0
 )

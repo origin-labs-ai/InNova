@@ -131,6 +131,8 @@
   ]\label{#2}%
 }{\end{tcolorbox}\vspace{0.3\baselineskip}}
 
+\newenvironment{proofsketch}[1][Proof sketch]{\begin{proof}[#1]}{\end{proof}}
+
 \newenvironment{mycor}[2][]{%
   \par\needspace{4\baselineskip}%
   \begin{tcolorbox}[
@@ -189,14 +191,14 @@
 \newcommand{\MYTHOS}{\textsc{Mythos}}
 \newcommand{\sops}{\textsc{Sops}}
 \newcommand{\SOPS}{\textsc{SOPS}}
-\newcommand{\BPW}{\mathrm{BPW}}
+\newcommand{\BPW}{\textnormal{BPW}}
 \newcommand{\IW}{\mathrm{IW}}
 \newcommand{\bperw}{\mathrm{bits/weight}}
 \newcommand{\Real}{\mathbb{R}}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\Prob}{\mathbb{P}}
 \newcommand{\Var}{\mathrm{Var}}
-\newcommand{\tr}{\mathrm{tr}}
+\newcommand{\codebook}{\mathcal{C}}
 \newcommand{\Id}{\mathrm{Id}}
 \newcommand{\sg}{\mathrm{sg}}
 \newcommand{\KL}{\mathrm{KL}}
@@ -232,7 +234,7 @@
 \vfill
 
 {\Large\bfseries Satyam Thakur}\\[0.3cm]
-{\large MYTHOS Research Lab}\\[0.2cm]
+{\large ORIGIN LAB}\\[0.2cm]
 {\normalsize solo developer, age 14}\\[1cm]
 
 {\large Version 0.1.02 --- July 2026}
@@ -276,9 +278,7 @@ At the systems level, \OIL{} achieves 21$\times$ storage reduction (188\,MB vs.\
 
 % ---- TABLE OF CONTENTS ----
 \tableofcontents
-\listoffigures
 \listoftables
-\listofalgorithms
 \addcontentsline{toc}{chapter}{List of Algorithms}
 
 % ---- MAIN MATTER ----
@@ -436,7 +436,7 @@ Special thanks to the llama.cpp community for inspiration on grouped quantizatio
 \vfill
 \begin{center}
 \textit{``The best compression is the one you never need to decompress.''}\\[0.3em]
---- MYTHOS Research Lab, July 2026
+--- ORIGIN LAB, July 2026
 \end{center}
 
 \end{document}

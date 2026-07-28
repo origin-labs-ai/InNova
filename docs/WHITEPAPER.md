@@ -80,7 +80,7 @@ Section 2 reviews related work. Section 3 establishes notation and preliminary r
 
 **GPTQ** ([Frantar et al., 2023](arXiv:2210.17323)) performs post-training quantization using second-order information (approximate Hessian via OBQ/Cholesky decomposition) to minimize output reconstruction error. GPTQ achieves 4-bit quantization with minimal perplexity degradation on large language models, but requires a calibration dataset of 128 sentences and operates post-training. The key limitation is that GPTQ is a one-shot compression technique — it does not benefit from the optimization dynamics that native training provides. Our framework differs fundamentally: OIL trains directly in the quantized space, avoiding the two-phase (train-then-quantize) paradigm entirely.
 
-**AWQ** ([Ma et al., 2023](arXiv:2306.00978)) identifies that only approximately 1% of weights are "salient" — determined by activation magnitudes during a calibration pass — and protects these weights with higher precision during quantization. AWQ demonstrates that protecting 1% of weights with FP16 while quantizing the rest to 4-bit achieves near-lossless compression. OIL's FormatPlanner directly adopts this activation-aware importance scoring for per-block format allocation: the top 1% most salient weights receive OIL8 (8-bit index, 256-entry codebook), the next 4% receive OIL4 (4-bit, 16-entry), and the remaining 95% use Ternary or Binary formats.
+**AWQ** ([Ma et al., 2023](arXiv:2306.00978)) identifies that only approximately 1% of weights are "salient" — determined by activation magnitudes during a calibration pass — and protects these weights with higher precision during quantization. AWQ demonstrates that protecting 1% of weights with FP16 while quantizing the rest to 4-bit achieves near-lossless compression. OIL's FormatPlanner directly adopts this activation-aware importance scoring for per-block format allocation: the top 1% most salient weights receive OIL32 (32-bit FP32 identity), the next 4% receive OIL16 (16-bit FP16 storage), and the remaining 95% use OIL8 or lower-bit formats.
 
 **GGUF** ([llama.cpp community](https://github.com/ggerganov/llama.cpp)) defines a family of grouped quantization formats (Q4\_0, Q4\_K\_M, Q5\_K\_S, Q8\_0, etc.) that apply different bit-widths to different weight groups within a layer. GGUF is inference-only and requires post-training quantization from FP32. The Q4\_K\_M format, for example, uses a mixed 4-bit/5-bit scheme with per-group scaling, achieving 4.5 BPW. OIL extends this grouped approach to a full training framework with four format tiers and integrated codebook learning.
 
@@ -208,44 +208,46 @@ OIL defines a complete family of weight formats spanning 1.0–32.0 BPW, enablin
 
 **Table 1: OIL Single-Precision Formats (Approved)**
 
-| Format | BPW | Index Bits | Codebook Size | Compute | Quality |
-|--------|-----|-----------|---------------|---------|---------|
-| Binary | 1.0 | 1 (packed) | Fixed {−1, +1} × global scale | XOR+popcount | Slight loss |
-| SPARK\_Q0 | 1.5 | Mixed (16×4b + 16×2b) | Mixed 4+2 centroids | Mixed gather+add | Near Ternary |
-| SPARK\_Q0\_GRP | 2.0 | 2b × sub-block | 4 centroids per sub-block | Sparse gather | **Lossless** (K=N) |
-| SPARK\_SPARSE | 1.5 | 1b sparse + activation mask | {0, ±1} × scale | Sparse add | Best at 1.5 BPW |
-| Ternary | 1.58 | 2 (I2\_S packed) | Fixed {−1, 0, +1} × scale | Add/sub only | Matches FP16* |
-| OIL2 | 2.0 | 2 (packed) | 4 × FP32 per-block | Gather+FMA | Matches FP16 |
-| OIL2\_GRP | 2.0 | 2b × sub-block | 4 centroids per sub-block | Gather+FMA | **Lossless** (K=N) |
-| SPARK\_SPARSE\_GRP | 2.0 | 2b sparse grouped | 4 centroids per group | Sparse gather | **Lossless** (K=N) |
-| OIL4 | 4.0 | 4 (nibble packed) | 16 × FP16 per-block | Gather+FMA | Matches FP16 |
-| OIL4\_GRP | 4.0 | 4b × sub-block | 16 per sub-block of 8 | Gather+FMA | **Lossless** (K>N) |
-| OIL8 | 8.0 | 8 (INT8) | 256 × FP32 per-block | Gather+FMA | Lossy (MSE=3.12e-5) |
-| OIL8\_GRP | 8.0 | 8b × sub-block | 256 per sub-block of 8 | Gather+FMA | **Lossless** (K>>N) |
-| OIL16 | 16.0 | 16 (INT16) | 65536 × FP16 | Direct lookup | Near lossless |
-| OIL16\_GRP | 16.0 | 16b × sub-block | 256 per sub-block of 8 | Gather+FMA | **Lossless** (K>>N) |
-| OIL32 | 32.0 | FP32 native | None (FP32 rebranded) | Native FP32 | **Lossless** (identical to FP32) |
-
-\*BitNet b1.58 (arXiv:2402.17764) proves ternary matches FP16 perplexity with from-scratch training.
+| Format | BPW | Index Storage | Codebook | Compute | Quality |
+|--------|-----|--------------|----------|---------|---------|
+| SPARK\_Q0 | 1.5 | 2b per element | 4 centroids per block | Gather-add | 1.5 BPW baseline |
+| SPARK\_Q0\_GRP | 2.0 | 2b per element | 4 centroids per group | Sparse gather | GRP quality improvement |
+| SPARK\_SPARSE | 1.5 | uint16 index + int8 value | Per-block scale | Sparse add | Variable BPW sparse |
+| OIL1 | 1.0 | 1 centroid per block | Per-block mean | Gather | 1.0 BPW baseline |
+| OIL2 | 2.0 | 2b index | 4 × FP32 Lloyd-Max | Gather+FMA | 2.0 BPW Lloyd-Max |
+| OIL2\_GRP | 2.0 | 2b index + group scale | 4 centroids per group | Gather+FMA | GRP quality improvement |
+| SPARK\_SPARSE\_GRP | 2.0 | uint16 index + int8 value + group | Per-group scale | Sparse gather | GRP sparse quality improvement |
+| OIL4 | 4.0 | 4b nibble | 16 × FP16 Lloyd-Max | Gather+FMA | 4.0 BPW Lloyd-Max |
+| OIL4\_GRP | 4.0 | 4b index + group scale | 16 per group of 8 | Gather+FMA | GRP quality improvement |
+| OIL8 | 8.0 | 8b index | 256 × FP32 Lloyd-Max | Gather+FMA | 8.0 BPW Lloyd-Max |
+| OIL8\_GRP | 8.0 | 8b index + group scale | 256 per group of 8 | Gather+FMA | GRP quality improvement |
+| OIL16 | 16.0 | FP16 storage | None (FP16 rebranded) | FP16-to-FP32 cast | 16.0 BPW FP16 precision |
+| OIL16\_GRP | 16.0 | FP16 + group scale | Per-group FP16 | Gather+FMA | GRP quality improvement |
+| OIL32 | 32.0 | FP32 native | None (FP32 identity) | Native FP32 | **Lossless** (FP32 identity) |
 
 **Table 1b: OIL Two-Mix and Four-Mix Formats**
 
 | Format | BPW | Components | Allocation Strategy |
 |--------|-----|-----------|---------------------|
-| OIL8+Ternary | 1.58–2.25 | OIL8 (critical) + Ternary (rest) | Top-K sensitivity → OIL8, remainder → Ternary |
-| OIL4+Ternary | 2.25–4.0 | OIL4 (critical) + Ternary (rest) | CID-weighted allocation |
-| OIL8+OIL4 | 4.0–8.0 | OIL8 (critical) + OIL4 (rest) | High-sensitivity → OIL8 |
-| 4-mix variants | 1.0–8.0 | Binary+Ternary+OIL4+OIL8 | Full CID spectrum |
+| OIL8+OIL2 1/99 | 2.08 | OIL8 (1%) + OIL2 (99%) | Top-K sensitivity → OIL8, remainder → OIL2 |
+| OIL8+OIL4 5/95 | 4.20 | OIL8 (5%) + OIL4 (95%) | CID-weighted allocation |
+| OIL4+OIL2 10/90 | 2.30 | OIL4 (10%) + OIL2 (90%) | CID-weighted allocation |
+| OIL8+OIL2 10/90 | 2.60 | OIL8 (10%) + OIL2 (90%) | High-sensitivity → OIL8 |
+| SPARK+OIL8 5/95 | 7.62 | SPARK_Q0 (5%) + OIL8 (95%) | Mixed sparsity |
+| OIL16+OIL4 1/99 | 4.16 | OIL16 (1%) + OIL4 (99%) | Top-K high precision |
+| OIL16+OIL8 5/95 | 8.40 | OIL16 (5%) + OIL8 (95%) | CID spectrum |
+| OIL32+OIL8 1/99 | 8.31 | OIL32 (1%) + OIL8 (99%) | Critical weight protection |
+| 4-mix QUAD | 2.78–4.72 | Multiple OIL formats | Full CID spectrum |
 
-**Key innovation: Sub-block grouping (GRP) enables lossless quantization.** By splitting a weight block into sub-blocks where K≥N (codebook size ≥ elements per sub-block), the quantization becomes injective — zero information loss. Every OIL format has a GRP variant: SPARK_Q0_GRP, OIL2_GRP, OIL4_GRP, OIL8_GRP, OIL16_GRP, and SPARK_SPARSE_GRP. OIL2_GRP achieves lossless at 2 BPW (K=N=4). OIL4_GRP at 4 BPW (K=16>N=8). OIL8_GRP at 8 BPW (K=256>>N=8). OIL16_GRP at 16 BPW (K=256>>N=8). OIL32 is already lossless (native FP32).
+**Key innovation: Sub-block grouping (GRP) improves quantization quality.** By splitting a weight block into sub-blocks where K≥N (codebook size ≥ elements per sub-block), the codebook provides more centroids per element, reducing quantization MSE. Every OIL format has a GRP variant: SPARK_Q0_GRP, OIL2_GRP, OIL4_GRP, OIL8_GRP, OIL16_GRP, and SPARK_SPARSE_GRP. OIL2_GRP achieves lower MSE than OIL2 at 2 BPW (K=N=4). OIL4_GRP achieves lower MSE than OIL4 at 4 BPW (K=16>N=8). OIL8_GRP achieves further reduced MSE at 8 BPW (K=256>>N=8). OIL16_GRP achieves lower MSE than OIL16 at 16 BPW (K=256>>N=8). OIL32 is FP32 identity (zero quantization error).
 
 **OIL8** uses an 8-bit index into a 256-entry codebook of FP32 centroids. During inference, each weight is dequantized by gathering the FP32 centroid value from the codebook, then performing a standard fused multiply-add (FMA) with the activation. The 256-entry codebook provides sufficient granularity to match FP32 quality for most weight distributions, with quantization variance σ²\_Q₈ = (6/256)²/12 = 4.58×10⁻⁵.
 
 **OIL4** uses a 4-bit index into a 16-entry codebook of FP16 centroids. Two indices are packed per byte. During inference, nibble unpacking followed by FP16-to-FP32 conversion and FMA. The 16-entry codebook matches FP16 quality with quantization variance σ²\_Q₄ = (6/16)²/12 ≈ 1.41×10⁻³.
 
-**Ternary** stores weights as {-1, 0, +1} multiplied by a per-block scale factor. Three values require 2 bits per weight (4 weights per byte via I2\_S packing). The forward pass is multiplication-free — only additions and subtractions — making it the most compute-efficient format. Quantization variance depends on the scale: for s\_b = 0.1, σ²\_Q\_t = (0.2)²/12 = 3.33×10⁻³.
+**SPARK\_SPARSE** stores weights as sparse (uint16 index, int8 value) pairs. Only weights with absolute value above a threshold are stored. During inference, sparse gather reconstructs the weight vector. This is most effective for models with inherent sparsity, achieving variable BPW depending on the sparsity ratio.
 
-**Binary** stores weights as {-1, +1} multiplied by a global scale factor, requiring only 1 bit per weight. The forward pass uses XOR and popcount operations. Quantization variance: for s = 0.2, σ²\_Q\_b = (0.4)²/12 = 0.0133.
+**SPARK\_Q0** compresses each weight to a 2-bit sign+quantized value with a per-block FP16 scale. Four levels (two positive, two negative) are normalized by the block's max absolute value. During inference, dequantization is a gather-add operation with the per-block scale.
 
 ### 4.2 Codebook Design and Training
 

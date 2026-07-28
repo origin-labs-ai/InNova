@@ -52,41 +52,52 @@ Optimizer State (optional):
 
 ## Format Variants
 
-MYTHOS.cpp defines **29 total formats**: 12 single-precision, 13 two-mix (twimix), and 4 four-mix.
+MYTHOS.cpp defines **25 total formats**: 15 single-precision, 8 two-mix (twimix), and 2 four-mix.
 
 | Category | Count | Examples |
 |----------|-------|---------|
-| Single-precision | 12 | OIL1–OIL32, Binary, Ternary, FP16, FP32, INT8, etc. |
-| Two-mix (twimix) | 13 | Mixed BPW combinations using 2-format blending |
-| Four-mix | 4 | Mixed BPW combinations using 4-format blending |
+| Single-precision | 15 | OIL1–OIL32, SPARK_Q0, SPARK_SPARSE, all GRP variants |
+| Two-mix (twimix) | 8 | Mixed BPW combinations using 2-format blending |
+| Four-mix | 2 | Mixed BPW combinations using 4-format blending |
 
 ### Core Format Variants
 
 | Variant | BPW | Storage | Centroids |
 |---------|-----|---------|-----------|
-| `BINARY` | 1.00 | 1 bit/weight | {-1, +1} |
-| `TERNARY` | 1.58 | 2 bits/weight | {-1, 0, +1} |
+| `OIL1` | 1.00 | 1 centroid per 32 weights | 1 (block mean) |
+| `SPARK_Q0` | 2.00 | 2 bits/weight + per-block FP16 scale | 4 sign bins |
+| `SPARK_SPARSE` | 2.00 | uint16 index + int8 value pairs | threshold sparsity |
 | `OIL2` | 2.00 | 2 bits/weight | 4 centroids |
-| `OIL4` | 1.50 | 4 bits/weight + 16×FP16 table | 16 centroids |
-| `OIL8` | 0.85 | 8 bits/weight + 256×FP32 table | 256 centroids |
+| `OIL4` | 4.00 | 4 bits/weight + 16×FP16 codebook | 16 centroids |
+| `OIL8` | 8.00 | 8 bits/weight + 256×FP32 codebook | 256 centroids |
 | `OIL16` | 16.0 | 16 bits/weight | — |
 | `OIL32` | 32.0 | 32 bits/weight | FP32 lossless |
 
+### GRP (Grouped) Variants
+
+All base formats have GRP variants (OIL1_GRP, OIL2_GRP, OIL4_GRP, OIL8_GRP, OIL16_GRP, SPARK_Q0_GRP, SPARK_SPARSE_GRP) that add per-group scale/zp for lossless reconstruction when codebook size exceeds group size.
+
 ## Quantization Format Details
+
+### OIL2
+```
+Centroid table: 4 × FP32 = 16 bytes
+Index array: 2 bits per weight (4 weights per byte)
+Effective BPW: 2.0 (independent of n)
+```
 
 ### OIL4
 ```
-Centroid table: 16 × FP16 = 32 bytes
+Centroid table: 16 × FP32 = 64 bytes
 Index array: 4 bits per weight (2 weights per byte)
-Effective BPW: (32 + n*0.5) / n ≈ 0.5 (for large n in bytes per weight)
-              + centroid per-weight overhead ≈ 1.50 BPW total
+Effective BPW: 4.0 (independent of n)
 ```
 
 ### OIL8
 ```
 Centroid table: 256 × FP32 = 1024 bytes
 Index array: 8 bits per weight (1 weight per byte)
-Effective BPW: 8 + (1024 * 8 / n) ≈ 0.85 (for large n)
+Effective BPW: 8.0 (independent of n)
 ```
 
 ## Reading & Writing

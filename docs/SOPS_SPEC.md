@@ -111,18 +111,25 @@ density per byte, and SOPS counts that directly.
 
 ### 2.3 The Quantization Spectrum
 
-MYTHOS uses 9+ quantization formats, each with different bit-widths:
+MYTHOS uses 15 quantization formats, each with different bit-widths:
 
-  Format       BPW      Bytes/Weight    Weights/Byte
-  --------     ----     ------------    ------------
-  BINARY       1.0      0.125           8
-  SPARK_Q0     1.5      0.1875          5.33
-  TERNARY      1.58     0.1975          5.06
-  OIL2         2.0      0.25            4
-  OIL4         4.0      0.5             2
-  OIL8         8.0      1.0             1
-  OIL16        16.0     2.0             0.5
-  OIL32        32.0     4.0             0.25
+  Format             BPW      Bytes/Weight    Weights/Byte
+  --------           ----     ------------    ------------
+  OIL1               1.0      0.125           8
+  SPARK_Q0           2.0      0.25            4
+  SPARK_SPARSE       2.0      0.25            4
+  OIL2               2.0      0.25            4
+  OIL4               4.0      0.5             2
+  OIL8               8.0      1.0             1
+  OIL16              16.0     2.0             0.5
+  OIL32              32.0     4.0             0.25
+  OIL1_GRP           1.0      0.125           8
+  OIL2_GRP           2.0      0.25            4
+  OIL4_GRP           4.0      0.5             2
+  OIL8_GRP           8.0      1.0             1
+  OIL16_GRP          16.0     2.0             0.5
+  SPARK_Q0_GRP       2.0      0.25            4
+  SPARK_SPARSE_GRP   2.0      0.25            4
 
 FLOPS cannot distinguish between any of these. SOPS can.
 
@@ -316,16 +323,16 @@ Format #6: OIL8
   Info Weight: 4.000x
   Values: Lloyd-Max 256 centroids
   Codebook: 256 centroids
-  MSE: 0.0 (lossless for 8-bit data)
+  MSE: 3.12e-05 (lossy but near-FP16 quality)
   Packing: 1 element per byte
   Use case: High-quality quantization, near-FP16 quality
 
 Format #7: OIL16
   BPW: 16.0
   Info Weight: 2.000x
-  Values: Near-FP16 precision (lossless)
+  Values: Near-FP16 precision via vec_fp16_to_fp32
   Codebook: N/A (direct encoding)
-  MSE: 0.0 (lossless)
+  MSE: 9.77e-04 (FP16 precision)
   Packing: 0.5 elements per byte
   Use case: Precision-critical layers (attention, normalization)
 

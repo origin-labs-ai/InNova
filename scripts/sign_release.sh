@@ -4,7 +4,7 @@
 #
 # Steps:
 #   1. Generate SHA-256 and MD5 checksums for all build artifacts
-#   2. Authenticode sign Windows binaries (placeholder — requires signing cert)
+#   2. Authenticode sign Windows binaries (ORIGIN LABS cert)
 #   3. GPG sign the checksum file (placeholder — requires GPG key)
 #   4. Verify all signatures
 #   5. Create release archive
@@ -25,11 +25,11 @@ BUILD_DIR="${1:-${PROJECT_ROOT}/build/Release}"
 OUTPUT_DIR="${2:-${PROJECT_ROOT}/release/v0.1.02}"
 VERSION="0.1.02"
 
-# Authenticode signing certificate path (TODO: set when cert is available)
-# Windows: use signtool.exe from Windows SDK
+# Authenticode signing certificate (ORIGIN LABS)
+# Windows: use Set-AuthenticodeSignature via PowerShell
 # Linux/Mac: use osslsigncode or skip
-AUTHENTICODE_CERT="${AUTHENTICODE_CERT:-}"
-AUTHENTICODE_PASSWORD="${AUTHENTICODE_PASSWORD:-}"
+AUTHENTICODE_CERT="${AUTHENTICODE_CERT:-dist/signing_cert.pfx}"
+AUTHENTICODE_PASSWORD="${AUTHENTICODE_PASSWORD:-ORIGINLABS2026}"
 
 # GPG key ID for signing (TODO: set when GPG key is generated)
 GPG_KEY_ID="${GPG_KEY_ID:-}"

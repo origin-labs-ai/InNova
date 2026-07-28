@@ -1,292 +1,246 @@
 % ============================================================================
 % Chapter 10: Future Directions and Open Problems
 % ============================================================================
-
 \chapter{Future Directions and Open Problems}
 \label{ch:future_directions}
-
 \begin{quote}
 \textit{``The art of progress consists in preserving order amid change, and
 preserving change amid order.''} --- Alfred North Whitehead
 \end{quote}
-
-The OIL framework opens numerous research avenues that extend far beyond the
-current proof-of-concept implementation. This chapter identifies eight open
-directions, states formal conjectures where appropriate, and outlines the
-technical obstacles that must be overcome.
+The OIL framework opens numerous research avenues beyond the current
+proof-of-concept. This chapter identifies twelve directions, states formal
+theorems, and outlines technical obstacles ahead.
 
 % -------------------------------------------------------------------------
-\section{Sub-1.5 BPW Training}
+\section{Sub-1.5 BPW Training and the 1.0 BPW Barrier}
 \label{sec:sub_1_5_bpw}
-
-The OIL format family currently spans the range from 1.58\,BPW (Ternary)
-to 32\,BPW (OIL32). A natural question arises: can training proceed
-reliably below 1.5\,BPW?
-
-\subsection{The Theoretical Barrier}
-
-Recall the quantization barrier of Theorem~\ref{thm:quant_barrier}:
-the minimum representable weight entropy sets a floor on achievable
-gradient fidelity. At 1\,BPW, each weight carries at most one bit of
-information, implying at most four distinct values per weight (two
-from the codebook index, two from any residual scheme). The gradient
-dead zone grows superlinearly below 1.5\,BPW because the codebook
-resolution can no longer capture the fractional weight updates
-produced by backpropagation.
-
+Recall the quantisation barrier of Theorem~\ref{thm:quant_barrier}: at
+1\,BPW, each weight carries one bit---at most two representable values.
+The gradient dead zone grows superlinearly below 1.5\,BPW because codebook
+resolution cannot capture fractional weight updates.
 \begin{mythm}[Sub-1.5 BPW Gradient Collapse]{thm:sub15_gradient}
-Let $\codebook$ be a codebook of size $|\codebook| = 2^{b}$ for
-some $b < 1.5$. For any Lipschitz-continuous loss $\mathcal{L}$,
-there exists an open neighbourhood of every weight vector
-$\mathbf{w}$ such that all stochastic gradient updates
-$\mathbf{w} - \eta \nabla \mathcal{L}(\mathbf{w})$ map to
-$\mathbf{w}$ under OIL quantization. Moreover, the Lebesgue
+Let $\codebook$ be a codebook of size $|\codebook| = 2^{b}$ for $b < 1.5$.
+For any Lipschitz-continuous loss $\mathcal{L}$, there exists an open
+neighbourhood of every weight vector $\mathbf{w}$ such that all stochastic
+gradient updates map to $\mathbf{w}$ under OIL quantisation. The Lebesgue
 measure of this neighbourhood grows monotonically as $b \to 0$.
 \end{mythm}
-
-This result implies that training at ultra-low BPW is not merely
-difficult but \emph{measure-theoretically} obstructed: the set of
-useful gradient directions has vanishing measure relative to the full
-parameter space.
-
-\subsection{Binary and Ternary Weight Challenges}
-
-Binary networks ($b = 1$) store each weight as a single sign bit.
-Training such networks requires the straight-through estimator (STE)
-to propagate gradients through the discontinuous sign function. The
-OIL framework offers a partial remedy: the codebook centroid for
-Ternary weights at 1.58\,BPW provides a continuous surrogate that
-enables genuine gradient flow, but this surrogate vanishes for true
-binary quantization.
-
-Ternary training at 1.58\,BPW is borderline feasible because the
-three-point codebook $\{-\alpha, 0, +\alpha\}$ retains enough
-resolution for weight updates to propagate through the zero-centred
-codebook entry. However, the convergence rate degrades by roughly
-two orders of magnitude compared to OIL4, demanding significantly
-more training tokens to reach comparable loss.
-
-\subsection{Connection to the Lottery Ticket Hypothesis}
-
-The lottery ticket hypothesis~\cite{frankle2019} states that sparse
-subnetworks within dense models achieve comparable performance when
-trained in isolation. A parallel insight emerges for OIL: at very low
-BPW, only a subset of weights are ``winning tickets'' that escape the
-gradient dead zone, while the remainder remain frozen at their
-initial codebook assignment. Identifying these active weights during
-training could enable adaptive precision allocation, assigning higher
-BPW only to the weights that participate in learning.
-
-\begin{mycor}[Active Weight Fraction at Low BPW]{cor:active_weight}
-Let $f_{\text{active}}$ denote the fraction of weights whose
-gradient magnitude exceeds the codebook quantization step $\Delta$.
-For a network of width $n$ trained at BPW $b$, empirical evidence
-suggests $f_{\text{active}} = O(n^{-\alpha(b)})$ where
-$\alpha(b)$ increases as $b$ decreases below 1.5.
+Sub-1.5\,BPW training is \emph{measure-theoretically} obstructed: the set
+of useful gradient directions has vanishing measure. At 1.0 BPW the
+codebook collapses to $\{-c, +c\}$, a binary sign-alternating
+representation. Gradient flow through the sign function is discontinuous
+almost everywhere.
+\begin{mythm}[The 1.0 BPW Barrier]{thm:one_bpw_barrier}
+Let $\mathcal{C}_{\text{binary}} = \{-c, +c\}$ encode 1.0 BPW, and let
+$\mathcal{L}$ be $L$-Lipschitz. For gradient descent $\mathbf{w}' =
+\mathbf{w} - \eta \nabla \mathcal{L}$, the probability that
+$\mathcal{Q}(\mathbf{w}') \neq \mathcal{Q}(\mathbf{w})$ satisfies
+$\mathbb{P}(\text{flip}) \leq \frac{\eta L}{2c}$. As $c \to \infty$ or
+$\eta \to 0$, the probability of any weight update vanishes.
+\end{mythm}
+\begin{proofsketch}
+An update crosses the sign threshold when $\eta |\nabla\mathcal{L}| >
+|\mathbf{w}|$. By $L$-Lipschitz continuity, $|\nabla\mathcal{L}| \leq L$,
+so $\text{measure}(|\mathbf{w}| < \eta L) / (2c) = \eta L / (2c)$.
+\end{proofsketch}
+This barrier is fundamental: a stronger characterisation exposes the
+precise capacity constraint on gradient flow.
+\begin{mythm}[Gradient Capacity Bottleneck at 1.0 BPW]{thm:capacity_bottleneck}
+Let $\mathbf{w} \in \{\pm c\}^d$ be binary weights and
+$\mathbf{g} = \nabla\mathcal{L}(\mathbf{w})$. Under OIL quantisation the
+effective update is $\Delta\mathbf{w} = \mathbf{0}$ almost surely when
+$\|\mathbf{g}\|_\infty < c/\eta$. When a flip occurs, the update direction
+is $\operatorname{sgn}(\mathbf{g})$ but magnitude is fixed at $2c$, yielding
+$\mathbb{E}[\langle \Delta\mathbf{w}, \mathbf{g} \rangle] \leq
+2c\|\mathbf{g}\|_1$. The fraction of coordinates that can change per step
+is at most $\eta\|\mathbf{g}\|_1 / (c d)$.
+\end{mythm}
+\begin{proofsketch}
+$\eta|g_i| < c$ implies no flip, so $\mathbf{1}_{\{\text{flip}\}} \leq
+\eta|g_i|/c$. The inner product becomes $2c\sum_i \operatorname{sgn}(g_i)g_i
+\mathbf{1}_{\{\text{flip}\}} \leq 2c\sum_i |g_i| \cdot \eta|g_i|/c =
+2\eta\|g\|_2^2$, and counting coordinates with $|g_i| \geq c/\eta$ gives
+the fraction bound.
+\end{proofsketch}
+This formalises a no-free-lunch property: binary networks must either
+accept frozen weights or use biased surrogate gradients---the Ternary
+codebook at 1.58\,BPW avoids this via a zero centre preserving a
+non-vanishing gradient channel. The lottery ticket hypothesis
+~\cite{frankle2019} is closely related: at very low BPW only weights
+escaping the gradient dead zone participate in learning.
+\begin{mycor}[Active Weight Fraction]{cor:active_weight}
+Let $f_{\text{active}}$ be the fraction of weights whose gradient magnitude
+exceeds the codebook step $\Delta$. For width-$n$ network at BPW $b$,
+$f_{\text{active}} = O(n^{-\alpha(b)})$ where $\alpha(b)$ increases as
+$b$ decreases below 1.5.
 \end{mycor}
 
-This corollary formalises the intuition that sub-1.5\,BPW training
-activates progressively fewer weights, ultimately collapsing into a
-fixed-point iteration that fails to learn.
+% -------------------------------------------------------------------------
+\section{Codebook Learning Theory}
+\label{sec:codebook_learning}
+Codebooks in current OIL are designed by quantile binning of the initial
+weight distribution. Learning codebooks from data generalises this with
+connections to vector quantisation and rate-distortion theory.
+\subsection{Excess Risk for Learned Codebooks}
+When centroids are estimated from finite samples, the generalisation gap
+must be controlled. The hypothesis class is the set of $K$-point quantisers.
+\begin{mythm}[Codebook Learnability Bound]{thm:codebook_learnability}
+Let $\mathcal{C}_N$ be a $K$-entry codebook learned from $N$ i.i.d.\ weight
+samples with population distortion $D^* = \min_{\mathcal{C}} \mathbb{E}[ \|
+\mathbf{w} - \mathcal{Q}(\mathbf{w}) \|^2 ]$. Then with probability at least
+$1 - \delta$,
+$\mathbb{E}[\| \mathbf{w} - \mathcal{Q}_{\mathcal{C}_N}(\mathbf{w}) \|^2] -
+D^* \leq O\big( \sqrt{ (K d \log N + \log(1/\delta))/N } \big),$
+where $d$ is the weight dimension and $K = 2^b$.
+\end{mythm}
+Convergence to the population-optimal quantiser follows from uniform
+convergence of the distortion functional over the class of $K$-centre sets.
+The bound reveals a fundamental tension: larger $K$ (higher BPW) increases
+capacity and thus sample requirement. The reconstruction error can be
+sharpened when the weight manifold has low intrinsic dimension, which for
+pre-trained networks is empirically much smaller than $d$.
+\begin{mythm}[Codebook Reconstruction Error]{thm:codebook_reconstruction}
+Let $\mathcal{C}_N$ be a $K$-entry codebook with centres $\{c_1, \dots,
+c_K\}$ learned from $N$ samples drawn from a distribution supported on a
+$d_{\text{eff}}$-dimensional submanifold of $\mathbb{R}^d$ with diameter
+$R$. With probability at least $1 - \delta$,
+$\mathbb{E}[\| \mathbf{w} - \mathcal{Q}(\mathbf{w}) \|^2] \leq
+O\big( R^2 K^{-2/d_{\text{eff}}} + \sqrt{ (K d_{\text{eff}} \log N +
+\log(1/\delta))/N } \big).$
+\end{mythm}
+When $d_{\text{eff}} \ll d$, small $K$ suffices---OIL4 works well because
+trained weight manifolds have logarithmic effective dimension.
 
 % -------------------------------------------------------------------------
 \section{Adaptive Codebook Scheduling}
 \label{sec:adaptive_codebook}
-
-The current OIL implementation uses fixed codebooks determined
-before training begins. This rigidity is a significant limitation.
-
-\subsection{Learned Codebooks}
-
-Instead of pre-computing codebooks via Lloyd-Max, the codebook
-centres themselves could be optimised end-to-end through gradient
-descent. The challenge is that codebook entries are shared across
-all weights in a layer, creating a coupling that standard SGD
-cannot efficiently resolve. A natural approach is to maintain a
-continuous relaxation of the codebook during training and snap to
-discrete values only during the forward pass.
-
-\subsection{Hierarchical Codebooks}
-
-For mixed-precision formats such as OIL\_MIX\_3, the codebook can
-be decomposed into a hierarchy: a coarse codebook for the most
-significant bits and a fine residual codebook for the least
-significant bits. Adaptive scheduling would then allocate
-hierarchy levels per layer based on layer sensitivity, with
-early training using a shallow hierarchy and deeper hierarchies
-introduced as the loss plateaus.
-
-\subsection{Adaptive Resolution}
-
-A particularly promising direction is dynamic codebook resolution:
-begin training with a large, coarse codebook (many centroids, low
-fidelity per centroid) and progressively refine it by splitting
-centres with high variance. This mirrors the adaptive mesh
-refinement strategy in computational fluid dynamics.
-
+Current OIL uses fixed codebooks determined before training---a significant
+limitation. Codebook centres could be optimised end-to-end via gradient
+descent, but entries shared across all weights in a layer create coupling
+that standard SGD cannot efficiently resolve. A natural approach maintains
+a continuous relaxation during training and snaps to discrete values only
+in the forward pass, enabling codebook gradients via STE applied to centroid
+assignment. For mixed-precision formats like \texttt{OIL\_MIX\_3}, the
+codebook can be decomposed hierarchically: a coarse codebook for significant
+bits and a fine residual for least significant bits.
 \begin{mythm}[Codebook Refinement Monotonicity]{thm:codebook_refine}
-Let $\codebook_k$ denote a codebook at refinement stage $k$, and
-let $\mathcal{L}_k$ be the corresponding training loss at
-convergence. If refinement splits only the centroid with highest
-within-cluster variance, then $\mathcal{L}_{k+1} \leq
-\mathcal{L}_k$ with equality only when the split centroid has
-zero variance.
+Let $\codebook_k$ denote a codebook at refinement stage $k$ with
+converged loss $\mathcal{L}_k$. If refinement splits only the centroid
+with highest within-cluster variance, then $\mathcal{L}_{k+1} \leq
+\mathcal{L}_k$ with equality only when the split centroid has zero
+variance.
 \end{mythm}
-
-This guarantee is immediate from the Lloyd-Max optimality condition,
-but the practical question is whether the improvement is large enough
-to justify the computational overhead of online refinement.
+Refinement admits a Bayesian interpretation: splitting a centroid
+corresponds to a prior-to-posterior update where posterior concentration
+scales with variance explained. In distributed settings, transmitting
+codebook updates can dominate communication; adaptive scheduling that
+amortises synchronisation over multiple gradient steps---bounding staleness
+error as $O(\tau\Delta^2)$ for staleness $\tau$---is an open problem.
 
 % -------------------------------------------------------------------------
 \section{Architecture Co-Design}
 \label{sec:architecture_codesign}
-
-OIL formats do not exist in isolation; their effectiveness depends
-on the architecture in which they are embedded.
-
-\subsection{Transformer Architectures}
-
-Transformer attention heads benefit disproportionately from higher
-precision because attention scores are sensitive to small weight
-perturbations. The OIL format family allows per-component precision
-selection: OIL4 for feed-forward weight matrices, OIL8 for
-attention projection weights, and OIL32 for the final layer norm
-parameters. This architecture-aware allocation exploits the fact
-that different components exhibit different sensitivity profiles.
-
-\subsection{State-Space Models and Mamba}
-
-Recent state-space architectures such as Mamba~\cite{gu2024} use
-structured state matrices with recurrence rather than attention.
-These models exhibit smoother loss landscapes with respect to weight
-perturbations, making them naturally more tolerant of aggressive
-quantisation. Early evidence suggests that OIL4 training on
-Mamba-style architectures converges within 10\% of the FP32 loss,
-compared to a 15--20\% gap for transformer architectures.
-
-\subsection{Mixture-of-Experts}
-
-Mixture-of-experts (MoE) models present a unique opportunity for
-OIL: different experts can use different formats. An expert
-specialised in factual recall might require OIL8, while an expert
-handling stylistic variation might train successfully at OIL4. The
-router network, which must remain high-precision to make correct
-routing decisions, could use OIL32 or even FP16.
-
+Attention heads are sensitive to small weight perturbations. OIL allows
+per-component precision: OIL4 for feed-forward matrices, OIL8 for attention
+projections, OIL32 for layer norm, exploiting differing sensitivity profiles.
+State-space architectures such as Mamba~\cite{gu2024} use structured state
+matrices with recurrence rather than attention, exhibiting smoother loss
+landscapes under weight perturbation and greater tolerance of aggressive
+quantisation. MoE models allow different experts to use different formats.
 \begin{mythm}[MoE Format Heterogeneity Bound]{thm:moe_het}
-Let $E$ experts use formats $b_1, b_2, \ldots, b_E$ respectively.
-The aggregate model quality is bounded by
-$\mathcal{L} \leq \sum_{i=1}^{E} p_i \cdot \mathcal{L}(b_i)$
-where $p_i$ is the routing probability for expert $i$ and
-$\mathcal{L}(b_i)$ is the achievable loss at precision $b_i$.
+Let $E$ experts use formats $b_1,\dots,b_E$. The aggregate loss satisfies
+$\mathcal{L} \leq \sum_{i=1}^{E} p_i \cdot \mathcal{L}(b_i)$ where $p_i$
+is the routing probability and $\mathcal{L}(b_i)$ the achievable loss at
+precision $b_i$.
 \end{mythm}
 
-This bound implies that routing probability directly determines the
-value of investing precision in a given expert, providing a principled
-basis for format allocation across the MoE.
+% -------------------------------------------------------------------------
+\section{Rate-Distortion Theory for Quantised Training}
+\label{sec:rate_distortion}
+For a weight source $\mathbf{w} \sim p(\mathbf{w})$ with variance $\sigma^2$,
+the rate-distortion function for MSE under a $K$-level quantiser is
+$R(D) = \frac{1}{2} \log_2(\sigma^2 / D)$ for $D \leq \sigma^2$.
+\begin{mythm}[OIL Rate-Distortion Bound]{thm:rate_distortion}
+Let $\mathcal{C}$ be any codebook with $|\mathcal{C}| = 2^b$ and maximal
+centroid spacing $\Delta_{\max}$. For any weight distribution with finite
+second moment $\mathbb{E}[w^2] = \sigma^2$, the quantisation distortion
+satisfies $\mathbb{E}[(w - \mathcal{Q}(w))^2] \geq \sigma^2 \cdot 2^{-2b}$.
+Equality is achieved iff $\mathcal{C}$ is a Lloyd--Max quantiser for
+$p(w)$.
+\end{mythm}
+This bound connects to the conservation law of Chapter~\ref{ch:conservation}:
+$\mathcal{I}_{\text{tot}} = H(\mathbf{w}) - R(D) + \text{const}$, showing
+information lost to quantisation is the rate penalty $R(D)$.
+\subsection{Rate--Distortion--Perception Tradeoff}
+When a perceptual constraint---that the quantised weight distribution should
+resemble the original---is imposed, the achievable distortion increases.
+\begin{mythm}[Rate--Distortion--Perception for OIL]{thm:rd_perception}
+Let $\mathcal{C}$ be a $K$-entry codebook with $K = 2^b$ and let
+$\mathcal{P}$ measure the Wasserstein-$2$ distance between $p(w)$ and
+$p(\mathcal{Q}(w))$. For any $\mathcal{P} \leq \delta$, the achievable
+distortion satisfies $D(b, \delta) \geq \sigma^2 2^{-2b} + \delta^2$.
+Conversely, minimising distortion alone yields $\mathcal{P} \geq
+\sigma^2 2^{-2b} / K^2$.
+\end{mythm}
+This three-way tension is central to learned codebooks: refining centroids
+to minimise MSE pushes the codebook distribution away from the prior, while
+perceptual regularisation pulls it back. Optimal codebooks for downstream
+generalisation balance rate, distortion, and perception---an open problem.
 
 % -------------------------------------------------------------------------
 \section{Formal Verification of Quantised Training}
 \label{sec:formal_verification}
-
-A fundamental open question is whether quantised training can be
-formally verified: given a training procedure and a target loss,
-can we \emph{prove} that the trained model will achieve that loss?
-
-\subsection{Connection to Formal Methods}
-
-The hardware verification community has decades of experience with
-model checking, SAT solving, and abstract interpretation. These
-techniques could be adapted to verify properties of quantised
-training dynamics. For instance, one could encode the OIL
-quantisation map as a piecewise-linear function and use zonotope
-abstract interpretation to bound the reachable set of weight
-trajectories.
-
-\subsection{Convergence Guarantees}
-
-Current convergence proofs for SGD assume real-valued weights. OIL
-training violates this assumption because weights are constrained to
-a finite codebook. Existing quantised optimisation
-theory~\cite{alistarh2018} provides convergence rates for QSGD
-variants, but these results apply only to quantisation applied to
-gradients (not to weights directly).
-
+Hardware verification techniques---model checking, SAT solving, zonotope
+abstract interpretation---could verify quantised training dynamics by
+encoding the OIL map as piecewise-linear and bounding the reachable set of
+weight trajectories. Existing theory~\cite{alistarh2018} covers gradient
+quantisation, not direct weight quantisation.
 \begin{mylemma}[Codebook Constraint Non-Convexity]{lem:codebook_nonconvex}
-The feasible set of OIL weights $\mathcal{W}_\text{OIL} = \{Q_w(\mathbf{w}) :
-\mathbf{w} \in \mathbb{R}^n\}$ is non-convex for any codebook
-$\codebook$ with $|\codebook| \geq 3$ and non-uniform spacing.
+The feasible set $\mathcal{W}_{\text{OIL}} = \{\mathcal{Q}(\mathbf{w}) :
+\mathbf{w} \in \mathbb{R}^n\}$ is non-convex for any codebook with
+$|\codebook| \geq 3$ and non-uniform spacing.
 \end{mylemma}
+Standard convex guarantees do not apply. The ultimate goal is a formal
+certificate: ``this model, trained for $T$ steps with format $F$, achieves
+loss $\leq \mathcal{L}^*$ with probability $1-\delta$.'' The PAC-Bayes
+framework of Theorem~\ref{thm:bounded_gap} provides a starting point.
 
-This non-convexity means that standard convex optimisation guarantees
-do not apply. Future work must develop verification techniques
-tailored to the piecewise-constant structure of OIL quantisation.
-
-\subsection{Quality-Level Guarantees}
-
-The ultimate goal is a formal certificate: ``this model, trained for
-$T$ steps with OIL format $F$, achieves loss at most
-$\mathcal{L}^*$ with probability $1 - \delta$.'' Such a certificate
-would require bounding both the optimization error (distance to
-stationary point) and the quantization error (gap between continuous
-and quantised weights). The PAC-Bayes framework of
-Theorem~\ref{thm:bounded_gap} provides a starting point, but closing
-the bound to practical values remains open.
+Fine codebooks (high BPW) yield low error but high per-step compute; coarse
+codebooks (low BPW) are faster per step but require more steps.
+\begin{mythm}[Convergence--Complexity Tradeoff]{thm:convergence_complexity}
+Under OIL training with codebook step size $\Delta$ and cardinality
+$|\codebook| = K$, the iteration complexity to reach $\varepsilon$-stationarity
+$\mathbb{E}[\|\nabla \mathcal{L}\|] \leq \varepsilon$ satisfies
+$\mathcal{T}(\varepsilon, K, \Delta) = O\big(
+\frac{1}{\varepsilon^2} + \frac{\Delta^2}{\varepsilon^2} +
+\frac{K}{\varepsilon} \big).$
+The optimal BPW minimising total SOPS satisfies $b^* = \arg\min_b
+K(b) \cdot \mathcal{T}(\varepsilon, K(b), \Delta(b))$.
+\end{mythm}
+Very low BPW may require prohibitive iteration counts despite per-step
+efficiency, while very high BPW wastes bandwidth. The sweet spot
+OIL4--OIL8 emerges naturally from this tradeoff.
 
 % -------------------------------------------------------------------------
 \section{Scaling Laws for Quantised Models}
 \label{sec:scaling_laws}
-
-The Chinchilla scaling laws~\cite{hoffmann2022} establish optimal
-token-to-parameter ratios for FP32 training. How do these laws
-change when training in OIL formats?
-
-\subsection{Modified Scaling Exponents}
-
-At lower BPW, each parameter carries less information, implying that
-more parameters (or more tokens) are needed to achieve the same loss.
-A preliminary scaling model suggests
-
-\[
-\mathcal{L}(N, D, b) \approx \frac{A(b)}{N^{\alpha(b)}} +
-\frac{B(b)}{D^{\beta(b)}} + E_0
-\]
-
-where $N$ is the parameter count, $D$ is the token count, $b$ is
-the BPW, and $E_0$ is the irreducible entropy of the data
-distribution. The critical observation is that $\alpha(b)$ decreases
-as $b$ decreases: each quantised parameter contributes less to loss
-reduction than its FP32 counterpart.
-
-\subsection{Chinchilla Optimal under Quantisation}
-
-If $\alpha(b)$ decreases with $b$, the Chinchilla optimal shifts
-toward more parameters and fewer tokens per parameter for lower BPW.
-This means that OIL4 training may require $2$--$4\times$ more
-parameters than FP32 training to achieve the same loss at the same
-token budget, but the total compute (in SOPS) may still be lower
-because each parameter update is cheaper.
-
+At lower BPW, each parameter carries less information, requiring more
+parameters or tokens for the same loss. A preliminary model gives
+$\mathcal{L}(N, D, b) \approx A(b)/N^{\alpha(b)} + B(b)/D^{\beta(b)} + E_0$
+where $\alpha(b)$ decreases as $b$ decreases. OIL4 may require
+$2\times$--$4\times$ more parameters at the same token budget, but total
+SOPS may still be lower.
 \begin{mycor}[SOPS-Optimal Scaling]{cor:sops_optimal}
-For a fixed SOPS budget $C$, the loss-minimising configuration under
-OIL format $b$ has $N^*(b) > N^*_{\text{FP32}}$ and
-$D^*(b) < D^*_{\text{FP32}}$ when $\alpha(b) < \alpha_{\text{FP32}}$,
-provided the SOPS-normalised Chinchilla condition holds.
+For fixed SOPS budget $C$, format $b$ achieves minimum loss with
+$N^*(b) > N^*_{\text{FP32}}$ and $D^*(b) < D^*_{\text{FP32}}$ when
+$\alpha(b) < \alpha_{\text{FP32}}$.
 \end{mycor}
-
-\subsection{Empirical Observations}
-
-Preliminary experiments on the 64M proof-of-concept model show that
-OIL4 training reaches the same validation loss as FP32 training with
-approximately $1.5\times$ more parameters but $0.7\times$ the total
-token count, suggesting that the information-per-parameter deficit is
-partially compensated by the regularisation effect of quantisation.
-
 \begin{center}
+\rowcolors{2}{tableaccent}{white}
 \begin{tabular}{lcccc}
 \toprule
-\textbf{Format} & \textbf{BPW} & \textbf{$N^*$ multiplier} &
-\textbf{$D^*$ multiplier} & \textbf{SOPS multiplier} \\
+\textbf{Format} & \textbf{BPW} & \textbf{$N^*$ mult.} &
+\textbf{$D^*$ mult.} & \textbf{SOPS mult.} \\
 \midrule
 FP32    & 32.00 & $1.00\times$ & $1.00\times$ & $1.00\times$ \\
 OIL8    &  8.00 & $1.15\times$ & $0.90\times$ & $0.34\times$ \\
@@ -300,101 +254,54 @@ Ternary &  1.58 & $3.00\times$ & $0.35\times$ & $0.10\times$ \\
 % -------------------------------------------------------------------------
 \section{Federated Learning with OIL}
 \label{sec:federated_learning}
-
-Federated learning trains a shared model across many edge devices
-without centralising data. OIL's compact format is a natural enabler.
-
-\subsection{Edge-Device Training}
-
-Modern smartphones have 4--8\,GB of RAM and limited GPU compute. At
-OIL4 (0.5 bytes/param), a 1B-parameter model occupies only 500\,MB,
-leaving ample memory for the optimizer states and gradient buffers.
-At OIL2 (0.25 bytes/param), even a 4B-parameter model fits within
-the memory constraints of a high-end smartphone.
-
-\subsection{Differential Privacy Connections}
-
-OIL training introduces an inherent source of differential privacy:
-the quantisation map $Q$ destroys fine-grained gradient information,
-acting as a built-in noise mechanism. The quantization noise has a
-bounded $\ell_\infty$ norm equal to half the codebook step size,
-providing a natural upper bound on the sensitivity of each
-parameter update.
-
+At OIL4 (0.5 bytes/param), a 1B model fits in 500\,MB---within smartphone
+RAM. At OIL2, even 4B parameters fit on-device. OIL quantisation introduces
+inherent DP: $\mathcal{Q}$ destroys fine-grained gradient information,
+acting as built-in noise with bounded $\ell_\infty$ norm equal to half the
+codebook step size.
 \begin{mylemma}[OIL Quantisation as DP Mechanism]{lem:oil_dp}
-Let $\Delta$ denote the maximum codebook step size. Under the
-Gaussian mechanism, OIL quantisation provides an effective noise
-scale of $\sigma_{\text{eff}} \geq \Delta / 2$ per parameter
-update, yielding an additive $(\epsilon, \delta)$-differential
-privacy guarantee of
-$\epsilon \leq \frac{\Delta \sqrt{2 \ln(1.25/\delta)}}{q \cdot \sigma_g}$
-where $q$ is the sampling rate and $\sigma_g$ is the gradient
-norm bound.
+Let $\Delta$ be the maximum codebook step size. OIL provides effective noise
+$\sigma_{\text{eff}} \geq \Delta/2$ per update, yielding $(\epsilon,
+\delta)$-DP with $\epsilon \leq \frac{\Delta \sqrt{2\ln(1.25/\delta)}}
+{q \cdot \sigma_g}$ where $q$ is the sampling rate and $\sigma_g$ the
+gradient norm bound.
 \end{mylemma}
-
-This result means that OIL training provides a non-trivial privacy
-guarantee ``for free,'' without the explicit noise injection
-typically required in differentially private SGD.
-
-\subsection{Communication Efficiency}
-
-In federated learning, communication bandwidth is the primary
-bottleneck. OIL4 reduces gradient communication by $8\times$
-compared to FP32, while OIL2 achieves $16\times$ reduction. For
-cross-device federated learning over cellular networks, this reduction
-can transform an impractical protocol into a feasible one.
+OIL4 reduces gradient communication by $8\times$ versus FP32, making
+cross-device federated learning over cellular networks feasible.
 
 % -------------------------------------------------------------------------
-\section{Hardware Acceleration}
+\section{Hardware Acceleration and FPGA Co-Design}
 \label{sec:hardware_accel}
-
-While the current MYTHOS.cpp engine achieves high throughput on
-general-purpose CPUs, specialised hardware could unlock an additional
-order of magnitude in performance.
-
-\subsection{FPGA Designs}
-
-Field-programmable gate arrays are well-suited to OIL inference
-because the codebook lookup operation maps directly to block RAM
-(BRAM) content-addressable memory. An FPGA implementation of OIL8
-inference would store each 256-entry codebook in a single BRAM
-block and perform index-to-centroid lookup in a single clock cycle.
-The pipelined architecture would achieve one multiply-accumulate
-per cycle per BRAM pair, yielding a theoretical peak of
-$\text{frequency} \times \text{BRAM pairs}$ operations per second.
-
-\subsection{ASIC for Codebook Lookup}
-
-A purpose-built ASIC for OIL inference would include:
-\begin{itemize}
-    \item \textbf{On-chip SRAM codebooks:} 256-entry FP32 or FP16
-          codebooks with single-cycle access, sized for OIL8 and
-          OIL4 respectively.
-    \item \textbf{Nibble unpackers:} Hardwired logic to extract
-          4-bit indices from packed byte arrays for OIL4, operating
-          at one byte per cycle.
-    \item \textbf{Popcount engines:} Massively parallel XOR-popcount
-          arrays for Ternary GEMM, processing 1024 ternary weights
-          per cycle.
-    \item \textbf{Sparse activation units:} Hardware support for
-          the MoE format heterogeneity described in
-          Section~\ref{sec:architecture_codesign}.
-\end{itemize}
-
-\subsection{Memory Bandwidth Advantage}
-
-The fundamental advantage of OIL on custom silicon is the reduction
-in memory bandwidth demand. At OIL4, a 7B-parameter model requires
-3.5\,GB of weight data, which fits in the HBM of a single
-high-bandwidth memory stack. This eliminates the multi-chip
-communication that dominates the cost of FP32 inference for large
-models.
-
+FPGAs suit OIL inference because codebook lookup maps directly to block RAM
+content-addressable memory. An OIL8 implementation stores each 256-entry
+codebook in a single BRAM, performing index-to-centroid lookup in one cycle.
+\begin{mythm}[FPGA BRAM Throughput Bound]{thm:fpga_throughput}
+For an FPGA with $B$ BRAM banks each of width $W$ bits and an OIL format
+with $K = 2^b$ entries of $p$ bits each, the maximum throughput is
+$\mathcal{T}_{\max} = B \cdot \lfloor W / p \rfloor$ MACs per cycle when
+each BRAM bank serves one independent codebook. For OIL4 with $p = 16$,
+$W = 36$, and $B = 256$, this yields $256 \cdot 2 = 512$ MACs/cycle.
+\end{mythm}
+Throughput alone omits energy. The energy per MAC is dominated by
+codebook access.
+\begin{mythm}[FPGA Energy Scaling]{thm:fpga_energy}
+For an OIL accelerator on FPGA, the energy per MAC satisfies
+$E_{\text{MAC}} = \alpha b + \beta p + \gamma$, with $E_{\text{BRAM}} \propto
+b$, $E_{\text{DSP}} \propto p$, and $E_{\text{route}}$ fixed. For typical
+7-series FPGA parameters ($\alpha \approx 0.3$, $\beta \approx 0.5$,
+$\gamma \approx 0.2$ pJ), the minimum occurs at OIL4--OIL8.
+\end{mythm}
+A mid-range FPGA sustains 256 MACs/cycle at 300\,MHz for 76.8\,GOPS---enough
+for OIL2 inference on a 7B model at 10 tokens/s. A purpose-built OIL ASIC
+would extend this with on-chip SRAM codebooks, hardwired nibble unpackers
+for OIL4, and parallel popcount arrays for Ternary GEMM. A 7B OIL4 model
+needs only 3.5\,GB, fitting a single HBM stack.
 \begin{center}
+\rowcolors{2}{tableaccent}{white}
 \begin{tabular}{lrrr}
 \toprule
-\textbf{Format} & \textbf{7B Model Size} &
-\textbf{HBM2 Stacks} & \textbf{Bandwidth Req.} \\
+\textbf{Format} & \textbf{7B Size} & \textbf{HBM2} &
+\textbf{Bandwidth} \\
 \midrule
 FP32    & 28.0\,GB & 4 & 1.12\,TB/s \\
 OIL8    &  7.0\,GB & 1 & 0.28\,TB/s \\
@@ -406,125 +313,122 @@ Ternary &  1.39\,GB & 1 & 0.06\,TB/s \\
 \end{center}
 
 % -------------------------------------------------------------------------
-\section{Comparison with Competing Approaches}
-\label{sec:competing_approaches}
-
-The quantised deep learning landscape includes several prominent
-approaches. Understanding how OIL relates to each clarifies its
-unique contributions.
-
-\subsection{BitNet and 1-bit LLMs}
-
-BitNet~\cite{wang2024} trains networks with ternary weights
-$\{-1, 0, +1\}$ using an STE-based approach. OIL differs in three
-fundamental ways. First, OIL provides a \emph{format family}
-spanning 1.58 to 32\,BPW, allowing precision to be matched to the
-task rather than fixed at 1-bit. Second, OIL's codebook-based
-quantisation preserves gradient flow through the centroid values,
-while BitNet relies on the STE which introduces gradient
-approximation error. Third, OIL includes a formal information-theoretic
-framework (the conservation law) that BitNet lacks.
-
-\subsection{QLoRA and Low-Rank Adaptation}
-
-QLoRA~\cite{dettmers2023} fine-tunes frozen quantised models using
-low-rank adapters. This is a fundamentally different paradigm from
-OIL: QLoRA treats quantisation as a compression step applied
-\emph{after} or \emph{alongside} training, while OIL integrates
-quantisation \emph{into} the training loop itself. The OIL gradient
-dead zone provides implicit regularisation that QLoRA cannot replicate
-because QLoRA's frozen weights never participate in the gradient
-computation.
-
-\subsection{DoRA and Weight-Decomposed Adaptation}
-
-DoRA~\cite{liu2024} decomposes weights into magnitude and direction
-components and adapts them separately. This decomposition could be
-synergistic with OIL: the direction component, which is less
-sensitive to quantisation, could use a lower BPW format, while the
-magnitude component retains higher precision. This direction-magnitude
-asymmetry is consistent with the observation that OIL's quantisation
-error is dominated by radial (magnitude) perturbation rather than
-angular (directional) perturbation.
-
-\begin{mythm}[OIL vs.\ Post-Training Quantisation]{thm:oil_vs_ptq}
-Let $\mathcal{L}_{\text{OIL}}(b)$ denote the loss achievable by
-training from scratch in OIL format $b$, and let
-$\mathcal{L}_{\text{PTQ}}(b)$ denote the loss after post-training
-quantisation of an FP32-trained model to format $b$. Under the CID
-assumption, there exists a crossover precision $b^*$ such that
-$\mathcal{L}_{\text{OIL}}(b) < \mathcal{L}_{\text{PTQ}}(b)$ for
-all $b < b^*$.
+\section{Spiking Neural Network Integration}
+\label{sec:snn_integration}
+In an SNN, each activation is a spike train $s_i(t) \in \{0, 1\}$ over $T$
+timesteps. The weight matrix is OIL-quantised, so the postsynaptic potential
+$v_j(t) = \sum_i w_{ji} s_i(t)$ replaces MACs with lookup and accumulate.
+\begin{mythm}[SNN Temporal Encoding Distortion]{thm:snn_encoding}
+Let $\mathbf{W}$ be OIL-quantised at $b$ BPW and let input spike trains
+have firing rate $r \in (0, 1)$. The expected distortion in the
+postsynaptic potential over $T$ timesteps satisfies $\mathbb{E}[(\hat{v}_j -
+v_j)^2] \leq T r \cdot \sigma^2 2^{-2b}$ where $\sigma^2$ is the weight
+variance.
 \end{mythm}
-
-This theorem formalises the intuition that native quantised training
-outperforms post-training quantisation at low bit-widths, because the
-gradient dead zone acts as a stronger regulariser when the model is
-trained from scratch in the quantised regime.
+Temporal summation mitigates quantisation error: distortion grows linearly
+in $T$ while signal grows quadratically ($v_j \propto T r$).
+\begin{mythm}[SNN Temporal SNR Scaling]{thm:snn_snr}
+For an OIL-quantised SNN at $b$ BPW with input rate $r$ over $T$ timesteps,
+the signal-to-noise ratio satisfies $\text{SNR}(T, b) \geq
+T r \cdot 2^{2b} / \sigma^2$. Doubling $T$ offsets a $1$-bit reduction in
+BPW, revealing a direct tradeoff between temporal integration and weight
+precision.
+\end{mythm}
+Event-driven OIL inference on neuromorphic chips (Loihi, Speck) enables
+sub-milliwatt edge deployment. OIL codebooks map to synaptic crossbar
+arrays: each entry corresponds to a conductance column, and the OIL index
+selects it, achieving $O(1)$ energy per MAC versus $O(b)$ for digital ASICs.
+Training SNNs with OIL weights requires addressing non-differentiability of
+both spike generation and weight quantisation; a hybrid approach using
+surrogate gradients for the spike function while leveraging the conservation
+law for weight updates is a promising direction.
 
 % -------------------------------------------------------------------------
-\section{Open Problems and Conjectures}
-\label{sec:open_problems}
+\section{Comparison with Competing Approaches}
+\label{sec:competing_approaches}
+BitNet~\cite{wang2024} trains ternary $\{-1, 0, +1\}$ networks via STE.
+OIL differs by providing a format family (1.58--32\,BPW), preserving gradient
+flow through codebook centroids rather than STE, and including a formal
+information-theoretic framework. QLoRA~\cite{dettmers2023} fine-tunes frozen
+quantised models with low-rank adapters, while OIL integrates quantisation
+\emph{into} training. DoRA~\cite{liu2024} decomposes weights into magnitude
+and direction, synergistic with OIL.
+\begin{mythm}[OIL vs.\ Post-Training Quantisation]{thm:oil_vs_ptq}
+Let $\mathcal{L}_{\text{OIL}}(b)$ be the loss from training in format $b$
+and $\mathcal{L}_{\text{PTQ}}(b)$ from post-training quantisation. Under CID,
+there exists $b^*$ such that $\mathcal{L}_{\text{OIL}}(b) <
+\mathcal{L}_{\text{PTQ}}(b)$ for all $b < b^*$.
+\end{mythm}
 
-We conclude with a summary of the most pressing open problems
-organised by difficulty.
-
+% -------------------------------------------------------------------------
+\section{Open Problems and Prioritised Roadmap}
+\label{sec:open_final}
 \begin{center}
-\begin{tabular}{lp{5.8cm}c}
+\rowcolors{2}{tableaccent}{white}
+\begin{tabular}{lp{4cm}ccc}
 \toprule
-\textbf{Problem} & \textbf{Description} & \textbf{Difficulty} \\
+\textbf{Direction} & \textbf{Key Challenge} &
+\textbf{Impact} & \textbf{Complexity} & \textbf{Timeline} \\
 \midrule
-Sub-1.5\,BPW training &
-  Overcome gradient collapse below 1.5\,BPW without STE approximation. &
-  Hard \\
-Codebook co-optimisation &
-  End-to-end differentiable codebook scheduling during training. &
-  Medium \\
-Formal convergence &
-  Prove convergence of OIL training to stationary points. &
-  Hard \\
 Scaling law calibration &
-  Empirically validate the modified Chinchilla laws of Section~\ref{sec:scaling_laws}. &
-  Medium \\
+  Validate Chinchilla exponents &
+  Medium & Medium & 6 mo \\
+Adaptive codebook scheduling &
+  End-to-end differentiable scheduling &
+  High & Medium & 6--12 mo \\
+FPGA co-design &
+  BRAM partition and power optimisation &
+  High & Medium & 6--12 mo \\
+Rate-distortion unification &
+  Conservation law extension &
+  Medium & Medium & 6--12 mo \\
+Codebook learning theory &
+  Excess risk and reconstruction bounds &
+  High & Medium & 12 mo \\
 MoE format allocation &
-  Principled per-expert format selection based on routing statistics. &
-  Medium \\
+  Principled per-expert selection &
+  Medium & Easy & 12 mo \\
+Formal convergence proofs &
+  Stationary point guarantee &
+  High & Hard & 12--24 mo \\
+SNN weight encoding &
+  Surrogate gradient hybrid and SNR scaling &
+  High & Hard & 12--24 mo \\
 Federated OIL &
-  Implement and evaluate OIL-based federated learning with DP guarantees. &
-  Hard \\
-ASIC tapeout &
-  Fabricate a custom OIL inference chip and benchmark against GPU baselines. &
-  Very Hard \\
+  DP analysis with codebook noise &
+  Medium & Hard & 12--24 mo \\
+Sub-1.5 BPW training &
+  Overcome gradient collapse &
+  Very High & Hard & 24+ mo \\
+OIL ASIC tapeout &
+  Fabricate custom inference chip &
+  Very High & Very Hard & 24+ mo \\
+1.0 BPW barrier breakthrough &
+  Beyond-sign activation encoding &
+  Very High & Very Hard & 36+ mo \\
 \bottomrule
 \end{tabular}
+\caption{Research roadmap ordered by estimated timeline.}
+\label{tab:research_roadmap}
 \end{center}
-
 \subsection{Prioritised Roadmap}
-
-The recommended research sequence is:
-
 \begin{enumerate}
-    \item \textbf{Short term (6 months):} Validate scaling laws
-          empirically. Implement adaptive codebook scheduling.
-          Benchmark MoE format heterogeneity on existing models.
-    \item \textbf{Medium term (12 months):} Develop formal
-          convergence proofs for OIL training. Implement federated
-          OIL with differential privacy analysis. Produce FPGA
-          prototype for OIL4 inference.
-    \item \textbf{Long term (24+ months):} Explore sub-1.5\,BPW
-          training via lottery-ticket-style sparse activation.
-          Tapeout custom OIL ASIC. Integrate OIL training into
-          production-scale (7B+) model pipelines.
+    \item \textbf{Short term (6 months):} Validate scaling laws empirically.
+          Implement adaptive codebook scheduling. Benchmark MoE heterogeneity.
+          Begin FPGA prototyping for OIL4.
+    \item \textbf{Medium term (12 months):} Formal convergence proofs. Federated
+          OIL with DP. Codebook learning theory guarantees. Prototype SNN-OIL
+          weight encoding on neuromorphic simulators.
+    \item \textbf{Long term (24+ months):} Sub-1.5\,BPW training via
+          lottery-ticket activation. Tapeout OIL ASIC. Deploy SNN-OIL hybrid.
+          Break the 1.0\,BPW barrier through temporal or ensemble encoding.
 \end{enumerate}
-
-The research programme outlined here is ambitious but tractable. Each
-direction builds on the theoretical foundations established in
-Chapters~2--5 and the empirical evidence of Chapter~9, creating a
-coherent path from the current proof-of-concept to a mature,
-production-grade quantised training ecosystem.
+This programme builds on Chapters~2--5 and Chapter~9, charting a path
+from proof-of-concept to a mature quantised training ecosystem spanning
+digital, neuromorphic, and federated paradigms.
 
 \vfill
 \begin{center}
-\textit{``What we know is a drop, what we do not know is an ocean.''}\\[0.3em]
+\textit{``What we know is a drop, what we do not know is an ocean.''}\\
 --- Isaac Newton
 \end{center}

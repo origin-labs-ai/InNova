@@ -75,6 +75,7 @@ add_library(oil_format
   src/oil_engines_core.cpp
   src/oil_engines_fp.cpp
   src/oil_engines_oil1.cpp
+  src/oil_engines_oil2.cpp
   src/oil_engines_oil4.cpp
   src/oil_engines_oil8.cpp
   src/oil_engines_quant.cpp
@@ -309,7 +310,7 @@ endif()
 
 # Vulkan compute backend (dynamically loaded at runtime, no SDK required)
 option(OIL_VULKAN "Enable Vulkan compute backend (dynamically loaded)" ON)
-if(OIL_VULKAN)
+if(OIL_VULKAN AND WIN32)
   target_compile_definitions(oil_gpu PRIVATE OIL_USE_VULKAN)
 endif()
 

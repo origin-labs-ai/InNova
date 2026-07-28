@@ -22,8 +22,11 @@ struct FormatPlan {
     float achieved_bpw;
     std::vector<WeightBlock> blocks;
 
+    int num_oil32_blocks;
+    int num_oil16_blocks;
     int num_oil8_blocks;
     int num_oil4_blocks;
+    int num_oil2_blocks;
     int num_spark_blocks;
     int num_oil1_blocks;
 
@@ -63,7 +66,8 @@ public:
     static float estimate_bpw(const FormatPlan& plan);
     
     static void compute_format_mix(int num_blocks, float target_bpw,
-                                   int& oil8, int& oil4, int& spark, int& oil1);
+                                   int& oil32, int& oil16, int& oil8,
+                                   int& oil4, int& oil2, int& spark, int& oil1);
 
     static FormatPlan plan_for_target(float target_bpw, int num_blocks,
                                       int weights_per_block = 256);

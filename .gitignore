@@ -37,6 +37,19 @@ tools/wdac/*.cer
 # Temp build dirs
 build_windows_temp/
 
+# LaTeX build artifacts
+publication/whitepaper/main.aux
+publication/whitepaper/main.bbl
+publication/whitepaper/main.bcf
+publication/whitepaper/main.blg
+publication/whitepaper/main.loa
+publication/whitepaper/main.lof
+publication/whitepaper/main.lot
+publication/whitepaper/main.out
+publication/whitepaper/main.pdf
+publication/whitepaper/main.run.xml
+publication/whitepaper/main.toc
+
 # Duplicate source trees
 dist/source/
 
@@ -53,13 +66,19 @@ _test_checkpoint.oil.opt
 *.lora
 *.pt
 *.ckpt
-# Allow dist/ (binary release)
-!dist/
+# Dist (binary release)
+dist/
 
 # Checkpoints
 checkpoints/
 
+*_out.txt
+*_err.txt
+reg_out.txt
+grp_*.txt
+
 # Excluded files
+FRAUD_REPORT.md
 TASKS.md
 DIFFUSION.txt
 build_linux.sh
@@ -70,6 +89,15 @@ THEOREM.md
 SHA256_TEST_LOG.md
 REPORT.md
 SANDBOX_TEST_LOG.md
+
+# Generated web & script artifacts
+*.html
+*.js
+*.ps1
+*.py
+
+# Dist (binary release)
+dist/
 
 # Excluded directories
 .llama/

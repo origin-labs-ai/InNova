@@ -1,8 +1,10 @@
 #include "oil/oil_engines.h"
 #include "oil/math.h"
+#include "oil/codebook.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <cfloat>
 
 namespace oil {
 namespace engines {
@@ -614,6 +616,173 @@ static void quant_gemm_nf4_avx2(const float* ad, float* cd,
 }
 
 #endif // OIL_HAS_AVX2
+
+// ===========================================================================
+// OIL16 Engine: FP16 storage (2 bytes per weight), no codebook
+// ===========================================================================
+
+Tensor OIL16Engine::quantize(const Tensor& weight) const {
+    int64_t n = weight.numel();
+    Tensor out({n}, oil::DType::F16);
+    math::vec_fp32_to_fp16(out.data<uint16_t>(), weight.data<float>(), (int)n);
+    return out;
+}
+
+Tensor OIL16Engine::dequantize(const Tensor& packed, int64_t n) const {
+    Tensor out({n});
+    math::vec_fp16_to_fp32(out.data<float>(), packed.data<uint16_t>(), (int)n);
+    return out;
+}
+
+Tensor OIL16Engine::quantize_batch(const Tensor& t) const {
+    return quantize(t);
+}
+
+Tensor OIL16Engine::dequantize_batch(const Tensor& q) const {
+    return dequantize(q, q.numel());
+}
+
+Tensor OIL16Engine::quant_gemm(const Tensor& a, const Tensor& b_packed,
+                                int64_t M, int64_t N, int64_t K) const {
+    Tensor C({M, N});
+    C.zero_();
+    const float* ad = a.data<float>();
+    float* cd = C.data<float>();
+    const uint16_t* bd = b_packed.data<uint16_t>();
+    std::vector<float> b_deq((size_t)(K * N));
+    math::vec_fp16_to_fp32(b_deq.data(), bd, (int)(K * N));
+    for (int64_t m = 0; m < M; ++m) {
+        for (int64_t k = 0; k < K; ++k) {
+            float a_val = ad[m * K + k];
+            if (a_val == 0.0f) continue;
+            for (int64_t n = 0; n < N; ++n)
+                cd[m * N + n] += a_val * b_deq[(size_t)(k * N + n)];
+        }
+    }
+    return C;
+}
+
+void OIL16Engine::quantize_per_channel(const Tensor& t, int channel_dim,
+                                        Tensor& q, Tensor& scales) const {
+    OIL_CHECK(t.rank() == 2, "OIL16 per-channel expects 2D tensor");
+    int64_t d0 = t.dim(0), d1 = t.dim(1);
+    int64_t channels = (channel_dim == 0) ? d0 : d1;
+    int64_t other = (channel_dim == 0) ? d1 : d0;
+    q = Tensor(t.shape(), oil::DType::F16);
+    scales = Tensor({channels});
+    const float* td = t.data<float>();
+    uint16_t* qd = q.data<uint16_t>();
+    float* sd = scales.data<float>();
+    for (int64_t c = 0; c < channels; ++c) {
+        float max_abs = 0;
+        for (int64_t i = 0; i < other; ++i) {
+            int64_t idx = (channel_dim == 0) ? c * other + i : i * channels + c;
+            max_abs = std::max(max_abs, std::abs(td[idx]));
+        }
+        sd[c] = max_abs;
+        if (max_abs < 1e-10f) max_abs = 1.0f;
+        for (int64_t i = 0; i < other; ++i) {
+            int64_t idx = (channel_dim == 0) ? c * other + i : i * channels + c;
+            qd[idx] = CodebookOIL4::float_to_half(td[idx] / max_abs);
+        }
+    }
+}
+
+void OIL16Engine::dequantize_per_channel(const Tensor& q, const Tensor& scales,
+                                          int channel_dim, Tensor& out) const {
+    int64_t total = scales.numel();
+    int64_t d0 = total, d1 = 1;
+    if (channel_dim == 0) { d0 = total; d1 = q.numel() / total; }
+    else { d1 = total; d0 = q.numel() / total; }
+    out = Tensor({d0, d1});
+    const uint16_t* qd = q.data<uint16_t>();
+    const float* sd = scales.data<float>();
+    float* od = out.data<float>();
+    for (int64_t c = 0; c < total; ++c) {
+        float scale = sd[c];
+        int64_t other = out.numel() / total;
+        for (int64_t i = 0; i < other; ++i) {
+            int64_t idx = (channel_dim == 0) ? c * other + i : i * total + c;
+            od[idx] = CodebookOIL4::half_to_float(qd[idx]) * scale;
+        }
+    }
+}
+
+float OIL16Engine::quant_error(const Tensor& original, const Tensor& reconstructed) const {
+    return compute_quant_mse(original, reconstructed);
+}
+
+float OIL16Engine::quant_snr(const Tensor& original, const Tensor& reconstructed) const {
+    return compute_quant_snr(original, reconstructed);
+}
+
+// ===========================================================================
+// OIL32 Engine: FP32 identity (lossless) — just copies data
+// ===========================================================================
+
+Tensor OIL32Engine::quantize(const Tensor& weight) const {
+    Tensor out(weight.shape(), oil::DType::F32);
+    std::memcpy(out.data<float>(), weight.data<float>(), (size_t)weight.numel() * sizeof(float));
+    return out;
+}
+
+Tensor OIL32Engine::dequantize(const Tensor& packed, int64_t n) const {
+    Tensor out({n});
+    std::memcpy(out.data<float>(), packed.data<float>(), (size_t)n * sizeof(float));
+    return out;
+}
+
+Tensor OIL32Engine::quantize_batch(const Tensor& t) const {
+    return quantize(t);
+}
+
+Tensor OIL32Engine::dequantize_batch(const Tensor& q) const {
+    return dequantize(q, q.numel());
+}
+
+Tensor OIL32Engine::quant_gemm(const Tensor& a, const Tensor& b_packed,
+                                int64_t M, int64_t N, int64_t K) const {
+    Tensor C({M, N});
+    C.zero_();
+    const float* ad = a.data<float>();
+    const float* bd = b_packed.data<float>();
+    float* cd = C.data<float>();
+    for (int64_t m = 0; m < M; ++m) {
+        for (int64_t k = 0; k < K; ++k) {
+            float a_val = ad[m * K + k];
+            if (a_val == 0.0f) continue;
+            for (int64_t n = 0; n < N; ++n)
+                cd[m * N + n] += a_val * bd[k * N + n];
+        }
+    }
+    return C;
+}
+
+void OIL32Engine::quantize_per_channel(const Tensor& t, int channel_dim,
+                                        Tensor& q, Tensor& scales) const {
+    OIL_CHECK(t.rank() == 2, "OIL32 per-channel expects 2D tensor");
+    int64_t d0 = t.dim(0), d1 = t.dim(1);
+    int64_t channels = (channel_dim == 0) ? d0 : d1;
+    q = Tensor(t.shape(), oil::DType::F32);
+    scales = Tensor({channels});
+    std::memcpy(q.data<float>(), t.data<float>(), (size_t)t.numel() * sizeof(float));
+    std::fill(scales.data<float>(), scales.data<float>() + channels, 1.0f);
+}
+
+void OIL32Engine::dequantize_per_channel(const Tensor& q, const Tensor& scales,
+                                          int channel_dim, Tensor& out) const {
+    (void)scales; (void)channel_dim;
+    out = Tensor(q.shape(), oil::DType::F32);
+    std::memcpy(out.data<float>(), q.data<float>(), (size_t)q.numel() * sizeof(float));
+}
+
+float OIL32Engine::quant_error(const Tensor& original, const Tensor& reconstructed) const {
+    return compute_quant_mse(original, reconstructed);
+}
+
+float OIL32Engine::quant_snr(const Tensor& original, const Tensor& reconstructed) const {
+    return compute_quant_snr(original, reconstructed);
+}
 
 } // namespace engines
 } // namespace oil

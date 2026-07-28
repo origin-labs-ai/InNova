@@ -24,14 +24,14 @@ enum class Format : uint8_t {
     OIL8            = 4,   // 8.00 BPW, 256 centroids Lloyd-Max (lossy)
     OIL16           = 5,   // 16.00 BPW, FP16 storage (lossy)
     OIL32           = 6,   // 32.00 BPW, FP32 identity (lossless)
-    OIL1_GRP        = 7,   // 1.00 BPW, lossless grouped
-    SPARK_Q0_GRP    = 8,   // 1.50 BPW, lossless, sign + per-group scale
-    OIL2_GRP        = 9,   // 2.00 BPW, lossless grouped
-    OIL4_GRP        = 10,  // 4.00 BPW, lossless grouped
-    OIL8_GRP        = 11,  // 8.00 BPW, lossless grouped
-    OIL16_GRP       = 12,  // 16.00 BPW, lossless grouped
-    SPARK_SPARSE     = 13,  // ~2.00 BPW, lossy, sparse (index,value) pairs
-    SPARK_SPARSE_GRP = 14,  // ~2.00 BPW, lossless, sparse grouped scale
+    OIL1_GRP        = 7,   // 1.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
+    SPARK_Q0_GRP    = 8,   // 2.00 BPW, lossless grouped, sign + per-group scale
+    OIL2_GRP        = 9,   // 2.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
+    OIL4_GRP        = 10,  // 4.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
+    OIL8_GRP        = 11,  // 8.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
+    OIL16_GRP       = 12,  // 16.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
+    SPARK_SPARSE     = 13,  // 2.00 BPW, lossy, sparse (uint16 index, int8 value) pairs
+    SPARK_SPARSE_GRP = 14,  // 2.00 BPW, lossless grouped, sparse + per-group scale
 };
 
 inline const char* format_name(Format f) {
@@ -68,10 +68,10 @@ inline float format_bpw(Format f) {
         case Format::OIL4_GRP:  return 4.0f;
         case Format::OIL8_GRP:  return 8.0f;
         case Format::OIL16_GRP: return 16.0f;
-        case Format::SPARK_SPARSE:     return 1.5f;
+        case Format::SPARK_SPARSE:     return 2.0f;
         case Format::SPARK_SPARSE_GRP:  return 2.0f;
-        case Format::SPARK_Q0:          return 1.5f;
-        case Format::SPARK_Q0_GRP:      return 1.5f;
+        case Format::SPARK_Q0:          return 2.0f;
+        case Format::SPARK_Q0_GRP:      return 2.0f;
         default: return 0;
     }
 }
@@ -97,12 +97,21 @@ inline size_t dtype_size(DType dt) {
 
 inline DType format_to_dtype(Format f) {
     switch (f) {
-        case Format::OIL1:
-        case Format::OIL2:    return DType::U8;
-        case Format::OIL4:    return DType::U4;
-        case Format::OIL8:    return DType::U8;
-        case Format::OIL16:   return DType::F16;
-        case Format::OIL32:   return DType::F32;
+        case Format::OIL1:          return DType::U8;
+        case Format::OIL2:          return DType::U8;
+        case Format::OIL4:          return DType::U4;
+        case Format::OIL8:          return DType::U8;
+        case Format::OIL16:         return DType::F16;
+        case Format::OIL32:         return DType::F32;
+        case Format::OIL1_GRP:      return DType::U8;
+        case Format::OIL2_GRP:      return DType::U8;
+        case Format::OIL4_GRP:      return DType::U4;
+        case Format::OIL8_GRP:      return DType::U8;
+        case Format::OIL16_GRP:     return DType::F16;
+        case Format::SPARK_Q0:      return DType::U8;
+        case Format::SPARK_Q0_GRP:  return DType::U8;
+        case Format::SPARK_SPARSE:  return DType::U8;
+        case Format::SPARK_SPARSE_GRP: return DType::U8;
         default: return DType::F32;
     }
 }

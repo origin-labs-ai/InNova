@@ -106,6 +106,9 @@ public:
     static float compute_average_bpw(const std::vector<FormatDescriptor>& assignment);
 
     static QuantResult quantize_oil1(const float* data, int64_t n);
+    static QuantResult quantize_oil2(const float* data, int64_t n);
+    static QuantResult quantize_oil4(const float* data, int64_t n);
+    static QuantResult quantize_oil8(const float* data, int64_t n);
     static QuantResult quantize_spark_q0(const float* data, int64_t n, int block_size);
     static QuantResult quantize_spark_sparse(const float* data, int64_t n, float threshold);
 
@@ -115,11 +118,6 @@ private:
     static void quantize_normal(const float* data, int64_t n,
                                 float* centroids, int k,
                                 std::vector<uint8_t>& indices);
-    static void quantize_grp(const float* data, int64_t n,
-                             float* centroids, int k, int group_size,
-                             std::vector<uint8_t>& indices,
-                             std::vector<float>& group_scales,
-                             std::vector<float>& group_zero_points);
     static FormatDescriptor find_closest_single(float target_bpw);
 };
 

@@ -19,7 +19,7 @@
 | # | TODO | Status | Notes |
 |---|------|--------|-------|
 | 5 | Single Precision OIL kernels (OIL2, OIL4, OIL8, OIL16, OIL32) | ✅ DONE | Lloyd-Max quantize/dequantize in format_registry.cpp |
-| 6 | SPARK_Q0 + Binary + Ternary + GRP variants | ✅ DONE | Sub-block grouping FIXED: per-block split, K>=N lossless |
+| 6 | SPARK_Q0 + Binary + Ternary + GRP variants | ✅ DONE | Sub-block grouping FIXED: per-block split, per-group scale improves quality |
 | 7 | Twimix (2-mix) algorithmic core | ✅ DONE | 13 two-mix variants registered |
 | 8 | 4-mix algorithmic core | ✅ DONE | 4 four-mix variants registered |
 | 9 | Quality Heuristic Evaluator | 🔧 TODO | Perplexity/quality scoring function needed |

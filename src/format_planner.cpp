@@ -61,39 +61,64 @@ void FormatPlanner::score_importance_fisher(const Tensor& weights,
 }
 
 void FormatPlanner::compute_format_mix(int num_blocks, float target_bpw,
-                                        int& oil8, int& oil4,
-                                        int& spark, int& oil1) {
-    const float bpw_spark = 1.50f;
-    const float bpw_oil4 = 4.0f;
+                                        int& oil32, int& oil16, int& oil8,
+                                        int& oil4, int& oil2, int& spark, int& oil1) {
+    const float bpw_oil32 = 32.0f;
+    const float bpw_oil16 = 16.0f;
     const float bpw_oil8 = 8.0f;
-    const float regime_switch = 2.25f;
+    const float bpw_oil4 = 4.0f;
+    const float bpw_oil2 = 2.0f;
+    const float bpw_spark = 2.0f;
 
-    float f_oil8 = 0.0f, f_oil4 = 0.0f, f_spark = 0.0f;
+    float f32 = 0, f16 = 0, f8 = 0, f4 = 0, f2 = 0, f_sp = 0, f1 = 0;
 
-    if (target_bpw >= bpw_oil8) {
-        f_oil8 = 1.0f;
+    if (target_bpw >= bpw_oil32) {
+        f32 = 1.0f;
+    } else if (target_bpw >= bpw_oil16) {
+        f32 = (target_bpw - bpw_oil16) / (bpw_oil32 - bpw_oil16);
+        f16 = 1.0f - f32;
+    } else if (target_bpw >= bpw_oil8) {
+        f16 = (target_bpw - bpw_oil8) / (bpw_oil16 - bpw_oil8);
+        f8 = 1.0f - f16;
     } else if (target_bpw >= bpw_oil4) {
-        f_oil8 = (target_bpw - bpw_oil4) / (bpw_oil8 - bpw_oil4);
-        f_oil4 = 1.0f - f_oil8;
-    } else if (target_bpw >= regime_switch) {
-        f_oil4 = (target_bpw - bpw_spark) / (bpw_oil4 - bpw_spark);
-        f_spark = 1.0f - f_oil4;
+        f8 = (target_bpw - bpw_oil4) / (bpw_oil8 - bpw_oil4);
+        f4 = 1.0f - f8;
+    } else if (target_bpw >= bpw_oil2) {
+        f4 = (target_bpw - bpw_oil2) / (bpw_oil4 - bpw_oil2);
+        f2 = 1.0f - f4;
+    } else if (target_bpw >= 1.0f) {
+        // 1.0-2.0: linear OIL1 (1.0 BPW) to SPARK (2.0 BPW, lowest quality)
+        f_sp = (target_bpw - 1.0f) / (bpw_oil2 - 1.0f);
+        f1 = 1.0f - f_sp;
     } else {
-        f_oil8 = (target_bpw - bpw_spark) / (bpw_oil8 - bpw_spark);
-        if (f_oil8 < 0.0f) f_oil8 = 0.0f;
-        f_spark = 1.0f - f_oil8;
+        f1 = 1.0f;
     }
 
-    oil8 = (int)std::round(f_oil8 * (double)num_blocks);
-    oil4 = (int)std::round(f_oil4 * (double)num_blocks);
-    spark = (int)std::round(f_spark * (double)num_blocks);
-    oil1 = num_blocks - oil8 - oil4 - spark;
-    if (oil1 < 0) oil1 = 0;
+    oil32 = (int)std::round(f32 * (double)num_blocks);
+    oil16 = (int)std::round(f16 * (double)num_blocks);
+    oil8 = (int)std::round(f8 * (double)num_blocks);
+    oil4 = (int)std::round(f4 * (double)num_blocks);
+    oil2 = (int)std::round(f2 * (double)num_blocks);
+    spark = (int)std::round(f_sp * (double)num_blocks);
+    oil1 = (int)std::round(f1 * (double)num_blocks);
 
-    oil8 = (std::min)(oil8, num_blocks);
-    oil4 = (std::min)(oil4, num_blocks - oil8);
-    spark = (std::min)(spark, num_blocks - oil8 - oil4);
-    oil1 = num_blocks - oil8 - oil4 - spark;
+    // Normalize to exact block count
+    int total = oil32 + oil16 + oil8 + oil4 + oil2 + spark + oil1;
+    int diff = num_blocks - total;
+    if (diff > 0) oil1 += diff;
+    else if (diff < 0) {
+        if (oil1 >= -diff) oil1 += diff;
+        else { oil1 = 0; spark = (std::max)(0, spark + diff); }
+    }
+
+    oil32 = (std::min)(oil32, num_blocks);
+    oil16 = (std::min)(oil16, num_blocks - oil32);
+    oil8 = (std::min)(oil8, num_blocks - oil32 - oil16);
+    oil4 = (std::min)(oil4, num_blocks - oil32 - oil16 - oil8);
+    oil2 = (std::min)(oil2, num_blocks - oil32 - oil16 - oil8 - oil4);
+    spark = (std::min)(spark, num_blocks - oil32 - oil16 - oil8 - oil4 - oil2);
+    oil1 = num_blocks - oil32 - oil16 - oil8 - oil4 - oil2 - spark;
+    if (oil1 < 0) oil1 = 0;
 }
 
 static RegFormat bpw_to_reg_format(float bpw) {
@@ -101,7 +126,7 @@ static RegFormat bpw_to_reg_format(float bpw) {
     if (bpw >= 15.99f) return RegFormat::OIL16;
     if (bpw >= 7.99f)  return RegFormat::OIL8;
     if (bpw >= 3.99f)  return RegFormat::OIL4;
-    if (bpw >= 1.57f)  return RegFormat::SPARK_Q0;
+    if (bpw >= 1.99f)  return RegFormat::OIL2;
     return RegFormat::OIL1;
 }
 
@@ -109,8 +134,11 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
     FormatPlan plan;
     plan.target_bpw = target_bpw_;
     plan.blocks.resize(num_weight_blocks);
+    plan.num_oil32_blocks = 0;
+    plan.num_oil16_blocks = 0;
     plan.num_oil8_blocks = 0;
     plan.num_oil4_blocks = 0;
+    plan.num_oil2_blocks = 0;
     plan.num_spark_blocks = 0;
     plan.num_oil1_blocks = 0;
     plan.uses_mix = false;
@@ -166,10 +194,16 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
             plan.blocks[idx].num_weights = (uint32_t)weights_per_block;
             plan.blocks[idx].registry_format = (i < crit_count) ? crit_fmt : rest_fmt;
             RegFormat rf = plan.blocks[idx].registry_format;
-            if (rf == RegFormat::OIL8 || rf == RegFormat::OIL16 || rf == RegFormat::OIL32)
+            if (rf == RegFormat::OIL32)
+                plan.blocks[idx].assigned_format = Format::OIL32;
+            else if (rf == RegFormat::OIL16)
+                plan.blocks[idx].assigned_format = Format::OIL16;
+            else if (rf == RegFormat::OIL8)
                 plan.blocks[idx].assigned_format = Format::OIL8;
             else if (rf == RegFormat::OIL4)
                 plan.blocks[idx].assigned_format = Format::OIL4;
+            else if (rf == RegFormat::OIL2)
+                plan.blocks[idx].assigned_format = Format::OIL2;
             else if (rf == RegFormat::SPARK_Q0)
                 plan.blocks[idx].assigned_format = Format::SPARK_Q0;
             else
@@ -179,6 +213,19 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
             } else {
                 plan.blocks[idx].importance_score = 0;
             }
+        }
+        // Count format distribution
+        plan.num_oil32_blocks = plan.num_oil16_blocks = plan.num_oil8_blocks = 0;
+        plan.num_oil4_blocks = plan.num_oil2_blocks = 0;
+        plan.num_spark_blocks = plan.num_oil1_blocks = 0;
+        for (const auto& b : plan.blocks) {
+            if (b.assigned_format == Format::OIL32)      plan.num_oil32_blocks++;
+            else if (b.assigned_format == Format::OIL16)  plan.num_oil16_blocks++;
+            else if (b.assigned_format == Format::OIL8)   plan.num_oil8_blocks++;
+            else if (b.assigned_format == Format::OIL4)   plan.num_oil4_blocks++;
+            else if (b.assigned_format == Format::OIL2)   plan.num_oil2_blocks++;
+            else if (b.assigned_format == Format::SPARK_Q0) plan.num_spark_blocks++;
+            else plan.num_oil1_blocks++;
         }
     } else if (best_four_diff < single_diff && best_four_diff < best_two_diff) {
         plan.uses_mix = true;
@@ -218,10 +265,16 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
 
             {
                 RegFormat rf = plan.blocks[idx].registry_format;
-                if (rf == RegFormat::OIL32 || rf == RegFormat::OIL16 || rf == RegFormat::OIL8)
+                if (rf == RegFormat::OIL32)
+                    plan.blocks[idx].assigned_format = Format::OIL32;
+                else if (rf == RegFormat::OIL16)
+                    plan.blocks[idx].assigned_format = Format::OIL16;
+                else if (rf == RegFormat::OIL8)
                     plan.blocks[idx].assigned_format = Format::OIL8;
-                else if (rf == RegFormat::OIL4 || rf == RegFormat::OIL2)
+                else if (rf == RegFormat::OIL4)
                     plan.blocks[idx].assigned_format = Format::OIL4;
+                else if (rf == RegFormat::OIL2)
+                    plan.blocks[idx].assigned_format = Format::OIL2;
                 else if (rf == RegFormat::SPARK_Q0)
                     plan.blocks[idx].assigned_format = Format::SPARK_Q0;
                 else
@@ -233,6 +286,19 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
             } else {
                 plan.blocks[idx].importance_score = 0;
             }
+        }
+        // Count format distribution
+        plan.num_oil32_blocks = plan.num_oil16_blocks = plan.num_oil8_blocks = 0;
+        plan.num_oil4_blocks = plan.num_oil2_blocks = 0;
+        plan.num_spark_blocks = plan.num_oil1_blocks = 0;
+        for (const auto& b : plan.blocks) {
+            if (b.assigned_format == Format::OIL32)      plan.num_oil32_blocks++;
+            else if (b.assigned_format == Format::OIL16)  plan.num_oil16_blocks++;
+            else if (b.assigned_format == Format::OIL8)   plan.num_oil8_blocks++;
+            else if (b.assigned_format == Format::OIL4)   plan.num_oil4_blocks++;
+            else if (b.assigned_format == Format::OIL2)   plan.num_oil2_blocks++;
+            else if (b.assigned_format == Format::SPARK_Q0) plan.num_spark_blocks++;
+            else plan.num_oil1_blocks++;
         }
     } else {
         std::vector<int> indices(num_weight_blocks);
@@ -246,27 +312,36 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
             });
         }
 
-        int oil8_count = 0, oil4_count = 0, spark_count = 0, oil1_count = 0;
+        int o32 = 0, o16 = 0, o8 = 0, o4 = 0, o2 = 0, sp = 0, o1 = 0;
         compute_format_mix(num_weight_blocks, target_bpw_,
-                           oil8_count, oil4_count, spark_count, oil1_count);
+                           o32, o16, o8, o4, o2, sp, o1);
 
-        plan.num_oil8_blocks = oil8_count;
-        plan.num_oil4_blocks = oil4_count;
-        plan.num_spark_blocks = spark_count;
-        plan.num_oil1_blocks = oil1_count;
+        plan.num_oil32_blocks = o32;
+        plan.num_oil16_blocks = o16;
+        plan.num_oil8_blocks = o8;
+        plan.num_oil4_blocks = o4;
+        plan.num_oil2_blocks = o2;
+        plan.num_spark_blocks = sp;
+        plan.num_oil1_blocks = o1;
 
         for (int i = 0; i < num_weight_blocks; i++) {
             int idx = indices[i];
-            plan.blocks[idx].id = (uint32_t)idx;
-            plan.blocks[idx].weight_index = (uint32_t)(idx * weights_per_block);
-            plan.blocks[idx].num_weights = (uint32_t)weights_per_block;
-            if (i < oil8_count) {
+            if (i < o32) {
+                plan.blocks[idx].assigned_format = Format::OIL32;
+                plan.blocks[idx].registry_format = RegFormat::OIL32;
+            } else if (i < o32 + o16) {
+                plan.blocks[idx].assigned_format = Format::OIL16;
+                plan.blocks[idx].registry_format = RegFormat::OIL16;
+            } else if (i < o32 + o16 + o8) {
                 plan.blocks[idx].assigned_format = Format::OIL8;
                 plan.blocks[idx].registry_format = RegFormat::OIL8;
-            } else if (i < oil8_count + oil4_count) {
+            } else if (i < o32 + o16 + o8 + o4) {
                 plan.blocks[idx].assigned_format = Format::OIL4;
                 plan.blocks[idx].registry_format = RegFormat::OIL4;
-            } else if (i < oil8_count + oil4_count + spark_count) {
+            } else if (i < o32 + o16 + o8 + o4 + o2) {
+                plan.blocks[idx].assigned_format = Format::OIL2;
+                plan.blocks[idx].registry_format = RegFormat::OIL2;
+            } else if (i < o32 + o16 + o8 + o4 + o2 + sp) {
                 plan.blocks[idx].assigned_format = Format::SPARK_Q0;
                 plan.blocks[idx].registry_format = RegFormat::SPARK_Q0;
             } else {

@@ -45,7 +45,7 @@ constexpr int    OIL_FORMAT_COUNT      = 15;
 
 constexpr float  FP16_MAX_VALUE        = 65504.0f;
 constexpr float  FP32_EPSILON          = 1e-8f;
-constexpr float  SPARK_Q0_BPW          = 1.50f;
+constexpr float  SPARK_Q0_BPW          = 2.00f;
 
 // ── Training Defaults ─────────────────────────────────────────────────────
 

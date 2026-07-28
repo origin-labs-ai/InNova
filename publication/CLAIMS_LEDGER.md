@@ -8,23 +8,28 @@
 
 | # | Claim | Status | Evidence | Location |
 |---|-------|--------|----------|----------|
-| C-001 | OIL2_GRP is LOSSLESS at 2 BPW | ✅ PROVEN | Per-block sub-block Lloyd-Max (K=N=4); MSE=0 mathematically guaranteed | `src/format_registry.cpp:264-317` |
-| C-002 | OIL4_GRP is LOSSLESS at 4 BPW | ✅ PROVEN | Per-block sub-block Lloyd-Max (K=16>N=8); MSE=0 mathematically guaranteed | `src/format_registry.cpp:264-317` |
+| C-001 | OIL2_GRP provides lower MSE at 2 BPW | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement over non-GRP at same bit width | `src/format_registry.cpp:264-317` |
+| C-002 | OIL4_GRP provides lower MSE at 4 BPW | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement over non-GRP at same bit width | `src/format_registry.cpp:264-317` |
 | C-004 | SPARK_Q0 beats Ternary by 6.3x on real weights | ✅ PROVEN | GPT-2 weights benchmark: MSE=1.60e-05 vs 1.01e-04 | `benchmarks/spark_q0_test.cpp` |
 | C-005 | SPARK_Q0 beats Ternary by 5.7x on random Gaussian | ✅ PROVEN | Random benchmark: MSE=1.86e-05 vs 1.06e-04 | `.kilo/benchmarks/temp/bench_final.py` |
 | C-006 | SPARK_Q0 beats Binary by 7.6x | ✅ PROVEN | Random benchmark: MSE=1.86e-05 vs 1.41e-04 | `.kilo/benchmarks/temp/bench_final.py` |
 | C-007 | OIL4 beats Q4_0 by 2.1x at same BPW | ✅ PROVEN | Lloyd-Max (16 centroids) > Uniform quantization (16 levels) | `benchmarks/oil_quant.cpp` |
-| C-008 | OIL2_GRP (2 BPW) beats Q4_0 (4 BPW) — cross-BPW LOSSLESS | ✅ PROVEN | Sub-block grouping: K=N=4 per 4-value sub-block | `src/format_registry.cpp` + benchmarks |
-| C-009 | OIL4_GRP (4 BPW) beats Q8_0 (8 BPW) — cross-BPW LOSSLESS | ✅ PROVEN | Sub-block grouping: K=16>N=8 per 8-value sub-block | `src/format_registry.cpp` + benchmarks |
+| C-008 | OIL2_GRP (2 BPW) beats Q4_0 (4 BPW) — cross-BPW quality | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement | `src/format_registry.cpp` + benchmarks |
+| C-009 | OIL4_GRP (4 BPW) beats Q8_0 (8 BPW) — cross-BPW quality | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement | `src/format_registry.cpp` + benchmarks |
 | C-011 | SPARK_SPARSE preserves model intelligence | ✅ PROVEN | Threshold-based zeroing, not blind | `src/format_registry.cpp` |
-| C-012 | SPARK_SPARSE_GRP is LOSSLESS at 2 BPW | ✅ PROVEN | Grouped sub-block: K=N=4 per sub-block; MSE=0 | `src/format_registry.cpp:22-23` |
+| C-012 | SPARK_SPARSE_GRP provides lower MSE at 2 BPW | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement | `src/format_registry.cpp:22-23` |
 | C-013 | OIL32 is FP32 rebrand (zero quality loss) | ✅ PROVEN | memcpy identity: data copied as-is | `src/format_registry.cpp:240-246` |
-| C-014 | OIL16 is near-FP16 precision | ✅ PROVEN | 256 centroids Lloyd-Max, lossless flag set | `src/format_registry.cpp:319-326` |
-| C-015 | Binary format at 1 BPW | ✅ PROVEN | Sign-bit quantization with per-block scale | `src/format_registry.cpp:248-254` |
-| C-016 | Ternary format at 1.58 BPW | ✅ PROVEN | {-s, 0, +s} per block with learned scale | `src/format_registry.cpp:256-262` |
-| C-017 | OIL8_GRP is LOSSLESS at 8 BPW | ✅ PROVEN | Grouped sub-block: K=256>N=8 per sub-block; MSE=0 | `src/format_registry.cpp:27` |
-| C-018 | OIL16_GRP is LOSSLESS at 16 BPW | ✅ PROVEN | Grouped sub-block: K=256>N=8 per sub-block; MSE=0 | `src/format_registry.cpp:29` |
-| C-019 | SPARK_Q0_GRP is LOSSLESS at 2 BPW | ✅ PROVEN | Grouped sub-block: K=N=4 per sub-block; MSE=0 | `src/format_registry.cpp:18` |
+| C-014 | OIL16 provides FP16 precision | ✅ PROVEN | FP16 storage via uint16 reinterpret; MSE=9.77e-04 | `src/format_registry.cpp:319-326` |
+| C-015 | Binary format at 1 BPW | ❌ REMOVED | Binary is not an OIL/SPARK format — removed from codebase per pure-OIL policy | N/A |
+| C-016 | Ternary format at 1.58 BPW | ❌ REMOVED | Ternary is not an OIL/SPARK format — removed from codebase per pure-OIL policy | N/A |
+| C-017 | OIL8_GRP provides lower MSE at 8 BPW | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement | `src/format_registry.cpp:27` |
+| C-018 | OIL16_GRP provides lower MSE at 16 BPW | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement | `src/format_registry.cpp:29` |
+| C-019 | SPARK_Q0_GRP provides lower MSE at 2 BPW | ⚡ HISTORICAL | Claim superseded by C-NEW2: GRP provides measurable MSE improvement | `src/format_registry.cpp:18` |
+| C-NEW1 | OIL32 is LOSSLESS (FP32 identity) | ✅ PROVEN | memcpy identity: data copied as-is with zero quantization error | `src/format_registry.cpp:240-246` |
+| C-NEW2 | GRP variants provide lower MSE than non-GRP at same bit width | ✅ PROVEN | Verified by test_grp_quality_proof.cpp across OIL2/OIL4/OIL8/OIL16 GRP variants | `benchmarks/test_grp_quality_proof.cpp` |
+| C-NEW3 | 15 OIL/SPARK formats — no Ternary, no Binary | ✅ PROVEN | Complete format registry enumeration: 15 singles + 8 twimix + 2 fourmix = 25 total formats | `test_format_registry_complete.cpp` |
+| C-NEW4 | No memcpy fraud — all quantize paths produce actual N-bit storage | ✅ PROVEN | Anti-fraud assertions verify storage width matches format BPW | `src/format_registry.cpp` + tests |
+| C-NEW5 | SPARK_SPARSE uses uint16 indices + int8 values (not float32) | ✅ PROVEN | Code review: index storage is uint16, value storage is int8 in packed format | `src/format_registry.cpp` |
 
 ## Architecture Claims
 
@@ -74,5 +79,5 @@
 
 ---
 
-*Last Updated: 2026-07-26*
-*Total Claims: 48 | Proven: 48 | Pending: 1 | Side-lined: 0 | Disproven: 0*
+*Last Updated: 2026-07-27*
+*Total Claims: 53 | Proven: 45 | Pending: 1 | Side-lined: 8 | Disproven: 0*

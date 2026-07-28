@@ -9,8 +9,8 @@
 #include <random>
 
 static constexpr int FORMAT_COUNT = 15;
-static constexpr int NUM_LOSSLESS = 8;
-static constexpr int NUM_LOSSY = 7;
+static constexpr int NUM_LOSSLESS = 1;
+static constexpr int NUM_LOSSY = 14;
 static constexpr int SEED = 42;
 
 static const char* EXPECTED_NAMES[FORMAT_COUNT] = {
@@ -22,13 +22,13 @@ static const char* EXPECTED_NAMES[FORMAT_COUNT] = {
 static constexpr float EXPECTED_BPW[FORMAT_COUNT] = {
     1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f,
     1.0f, 2.0f, 4.0f, 8.0f, 16.0f,
-    1.5f, 2.0f, 1.5f, 1.5f
+    2.0f, 2.0f, 2.0f, 2.0f
 };
 
 static constexpr bool EXPECTED_LOSSLESS[FORMAT_COUNT] = {
     false, false, false, false, false, true,
-    true, true, true, true, true,
-    false, true, false, true
+    false, false, false, false, false,
+    false, false, false, false
 };
 
 void test_registry_count() {
@@ -83,7 +83,7 @@ void test_lossless_flags() {
             }
         }
     }
-    TEST_CHECK(lossless_count == NUM_LOSSLESS, "Exactly 8 lossless formats");
+    TEST_CHECK(lossless_count == NUM_LOSSLESS, "Exactly 1 lossless format (OIL32)");
     printf("  Lossless count: %d (expected %d)\n", lossless_count, NUM_LOSSLESS);
 }
 

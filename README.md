@@ -208,9 +208,9 @@ Every design decision in MYTHOS.cpp is grounded in peer-reviewed research.
 
 **Two kernels:**
 - **TL (Ternary Lookup Table):** Precompute all possible activation sums for groups of 2-3 ternary weights. During inference, just look up the precomputed value. TL2 achieves 1.67 BPW with element-wise mirror consolidation.
-- **I2_S (Int2 + Scale):** Pack 4 ternary values (2 bits each) into 1 byte with a shared scale factor. Uses MAD (multiply-add) computation, strictly matches training quantization for lossless inference.
+- **I2_S (Int2 + Scale):** Pack 4 ternary values (2 bits each) into 1 byte with a shared scale factor. Uses MAD (multiply-add) computation, strictly matches training quantization for correctness.
 
-**Impact on OIL:** We adopt both approaches — TL for fast batch inference, I2_S for lossless correctness. Our OIL4/OIL8 kernels extend the LUT concept to larger codebooks.
+**Impact on OIL:** We adopt both approaches — TL for fast batch inference, I2_S for correctness. Our OIL4/OIL8 kernels extend the LUT concept to larger codebooks.
 
 ### AWQ: Activation-Aware Weight Quantization (arXiv:2306.00978)
 
@@ -2090,7 +2090,7 @@ The **[wiki/](wiki/Home.md)** folder contains **repo-wiki style documentation** 
 
 | Statement | Verdict |
 |-----------|---------|
-| "100% lossless always" | ❌ — Info theory: compress → information loss. **Practical near-lossless = yes** |
+| "100% lossless always" | ❌ — Info theory: compress → information loss. **Near-lossless at high BPW = achievable** |
 | "512+ tok/s on any hardware" | ❌ — Weak HW + large model → single digits |
 | "48T train on 14GB RAM" | ❌ — Impossible regardless of format |
 | "Better than GPT-4 at 100× smaller" | ❌ — Scaling laws are real |

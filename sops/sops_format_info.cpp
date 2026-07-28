@@ -19,33 +19,34 @@ struct FormatInfo {
 
 static const FormatInfo base_formats[] = {
     {"OIL1",             1.0,   32.000},
-    {"SPARK_Q0",         1.5,   21.333},
-    {"SPARK_SPARSE",     1.5,   21.333},
-    {"SPARK",            1.58,  20.253},
+    {"SPARK_Q0",         2.0,   16.000},
+    {"SPARK_SPARSE",     2.0,   16.000},
     {"OIL2",             2.0,   16.000},
     {"OIL4",             4.0,    8.000},
     {"OIL8",             8.0,    4.000},
     {"OIL16",           16.0,    2.000},
     {"OIL32",           32.0,    1.000},
+    {"OIL1_GRP",         1.0,   32.000},
+    {"OIL2_GRP",         2.0,   16.000},
+    {"OIL4_GRP",         4.0,    8.000},
+    {"OIL8_GRP",         8.0,    4.000},
+    {"OIL16_GRP",       16.0,    2.000},
+    {"SPARK_Q0_GRP",     2.0,   16.000},
+    {"SPARK_SPARSE_GRP", 2.0,   16.000},
 };
-static constexpr int NUM_BASE = 9;
+static constexpr int NUM_BASE = 15;
 
 static const FormatInfo mix_formats[] = {
-    {"OIL8+BIN_1_99",       1.07,  29.907},
-    {"OIL8+Tern_1_99",      1.08,  29.630},
     {"OIL8+OIL2_1_99",      1.08,  29.630},
     {"OIL8+OIL4_5_95",      4.20,   7.619},
-    {"OIL4+BIN_5_95",       1.35,  23.704},
-    {"OIL4+Tern_5_95",      1.40,  22.857},
     {"OIL4+OIL2_10_90",     2.30,  13.913},
-    {"OIL8+Tern_5_95",      1.62,  19.753},
     {"OIL8+OIL2_10_90",     2.60,  12.308},
     {"SPARK+OIL8_5_95",     7.62,   4.199},
     {"OIL16+OIL4_1_99",     4.16,   7.692},
     {"OIL16+OIL8_5_95",     8.40,   3.810},
     {"OIL32+OIL8_1_99",     8.31,   3.852},
 };
-static constexpr int NUM_MIX = 13;
+static constexpr int NUM_MIX = 8;
 
 // ── Section 1: Base format table ─────────────────────────────────────────
 

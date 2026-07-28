@@ -197,7 +197,7 @@ int main() {
         assert(std::string(oil::format_name(oil::Format::OIL32)) == "OIL32");
         assert(std::string(oil::format_name(oil::Format::SPARK_Q0)) == "SPARK_Q0");
         assert(oil::format_bpw(oil::Format::OIL32) == 32.0f);
-        assert(oil::format_bpw(oil::Format::SPARK_Q0) == 1.5f);
+        assert(oil::format_bpw(oil::Format::SPARK_Q0) == 2.0f);
         assert(oil::format_bpw(oil::Format::OIL8) == 8.0f);
     }
 
