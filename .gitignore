@@ -103,6 +103,8 @@ dist/
 .llama/
 .kilo/
 .bitnet/
+publication/
+dist/windows/x64/
 
 # Linux binaries
 dist/linux/
