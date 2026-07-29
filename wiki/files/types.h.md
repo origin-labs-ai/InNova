@@ -8,12 +8,21 @@ Defines the foundational data types and format enums used throughout MYTHOS.cpp.
 
 ```cpp
 enum class Format : uint8_t {
-    BINARY  = 0, // 1-bit, {-1, +1}
-    TERNARY = 1, // 1.58-bit, {-1, 0, +1}
-    OIL4    = 2, // 4-bit, codebook 16 × FP16
-    OIL8    = 3, // 8-bit, codebook 256 × FP32
-    FP16    = 4, // 16-bit, native half
-    FP32    = 5, // 32-bit, native float
+    OIL1            = 0,  // 1.00 BPW, 1 centroid (lossy)
+    SPARK_Q0        = 1,  // 1.50 BPW, sign + shared FP16 scale (lossy)
+    OIL2            = 2,  // 2.00 BPW, 4 centroids Lloyd-Max (lossy)
+    OIL4            = 3,  // 4.00 BPW, 16 centroids Lloyd-Max (lossy)
+    OIL8            = 4,  // 8.00 BPW, 256 centroids Lloyd-Max (lossy)
+    OIL16           = 5,  // 16.00 BPW, FP16 storage (lossy)
+    OIL32           = 6,  // 32.00 BPW, FP32 identity (lossless)
+    OIL1_GRP        = 7,  // ~1.19 BPW, lossy grouped (per-group scale/zp)
+    SPARK_Q0_GRP    = 8,  // ~1.69 BPW, lossy grouped, sign + per-group scale
+    OIL2_GRP        = 9,  // ~2.19 BPW, lossy grouped (per-group scale/zp)
+    OIL4_GRP        = 10, // ~4.19 BPW, lossy grouped (per-group scale/zp)
+    OIL8_GRP        = 11, // ~8.19 BPW, lossy grouped (per-group scale/zp)
+    OIL16_GRP       = 12, // ~16.19 BPW, lossy grouped (per-group scale/zp)
+    SPARK_SPARSE     = 13, // variable BPW, lossy sparse (uint16 index, int8 value)
+    SPARK_SPARSE_GRP = 14, // variable BPW, lossy grouped sparse (+ per-group scale)
 };
 ```
 
@@ -23,8 +32,8 @@ Representation formats for model weights. Each format has a corresponding bits-p
 
 | Function | Description |
 |----------|-------------|
-| `format_name(Format)` | Returns human-readable name (`"binary"`, `"oil4"`, etc.) |
-| `format_bpw(Format)` | Returns bits-per-weight (1.0, 1.58, 4.0, 8.0, 16.0, 32.0) |
+| `format_name(Format)` | Returns human-readable name (`"OIL1"`, `"OIL4"`, etc.) |
+| `format_bpw(Format)` | Returns bits-per-weight (1.0, 1.50, 2.0, 4.0, 8.0, 16.0, 32.0) |
 
 ## DType Enum
 

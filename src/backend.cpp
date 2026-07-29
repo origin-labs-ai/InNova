@@ -163,14 +163,30 @@ public:
 
 #if defined(OIL_AVX2) && defined(OIL_AVX512)
 class CPUAVX512Backend : public ComputeBackend {
-    // AVX-512 specific kernels — currently delegates to AVX2 fallback
-    // for correctness; AVX-512 intrinsics (_mm512_*) can be added per-kernel
-    // for further throughput when OIL_AVX512 is defined.
     CPUAVX2Backend fallback;
 public:
     BackendType type() const override { return BackendType::CPU_AVX512; }
     const char* name() const override { return "CPU_AVX512"; }
-    void gemm(float a, const Tensor& A, const Tensor& B, float b, Tensor& C) override { fallback.gemm(a,A,B,b,C); }
+    void gemm(float a, const Tensor& A, const Tensor& B, float b, Tensor& C) override {
+        int64_t M = A.dim(0), K = A.dim(1), N = B.dim(1);
+        const float* ad = A.data<float>();
+        const float* bd = B.data<float>();
+        float* cd = C.data<float>();
+        if (b == 0.0f) std::memset(cd, 0, static_cast<size_t>(M * N) * sizeof(float));
+        for (int64_t m = 0; m < M; ++m) {
+            for (int64_t k = 0; k < K; ++k) {
+                __m512 a_val = _mm512_set1_ps(ad[m * K + k] * a);
+                int64_t n = 0;
+                for (; n + 16 <= N; n += 16) {
+                    __m512 bv = _mm512_loadu_ps(bd + k * N + n);
+                    __m512 cv = _mm512_loadu_ps(cd + m * N + n);
+                    _mm512_storeu_ps(cd + m * N + n, _mm512_fmadd_ps(a_val, bv, cv));
+                }
+                for (; n < N; ++n)
+                    cd[m * N + n] += a_val[0] * bd[k * N + n];
+            }
+        }
+    }
     void gemv(float a, const Tensor& A, const Tensor& x, float b, Tensor& y) override { fallback.gemv(a,A,x,b,y); }
     void softmax(const Tensor& x, Tensor& y, int a) override { fallback.softmax(x,y,a); }
     void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { fallback.layer_norm(x,g,bt,e,y); }

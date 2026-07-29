@@ -101,8 +101,7 @@ void DistributedDataParallel::sync_gradients() {
     if (ctx_.world_size() <= 1) return;
 
     if (mode_ == DDPMode::ASYNC) {
-        // In async mode, the loop runs automatically
-        // But we also sync here for safety
+        std::lock_guard<std::mutex> lock(async_mutex_);
     }
 
     for (auto& bucket : buckets_) {
@@ -348,6 +347,7 @@ void DistributedDataParallel::async_sync_loop() {
     while (async_running_.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         if (!async_running_.load()) break;
+        std::lock_guard<std::mutex> lock(async_mutex_);
         sync_gradients();
     }
 }

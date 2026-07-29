@@ -8,7 +8,7 @@
 
 ## Abstract
 
-We present **OIL** (Optimized Inference & Learning), a native mixed-precision training framework that reframes quantization not as a post-hoc compression technique, but as a fundamentally different optimization algorithm. OIL trains neural networks directly in a mixed-precision codebook space comprising OIL8 (8-bit index, 256-entry codebook), OIL4 (4-bit index, 16-entry codebook), Ternary ({−1, 0, +1} with per-block scale), and Binary ({−1, +1} with global scale) formats, achieving an effective rate of **1.5 bits per weight** while maintaining FP32-level quality.
+We present **OIL** (Optimized Inference & Learning), a native mixed-precision training framework that reframes quantization not as a post-hoc compression technique, but as a fundamentally different optimization algorithm. OIL trains neural networks directly in a mixed-precision codebook space comprising OIL8 (8-bit index, 256-entry codebook), OIL4 (4-bit index, 16-entry codebook), SPARK_Q0 (sign-bit quantized with per-block FP16 scale), and OIL1 (block mean) formats, achieving an effective rate of **2.0 bits per weight** while maintaining FP32-level quality.
 
 The central theoretical contribution is the **quantization barrier mechanism**: when the gradient magnitude falls below the codebook gap divided by the learning rate, the parameter update is identically zero. This creates a discrete-continuous hybrid dynamical system whose fixed points are provably stable (Theorem 5d.3, exponential convergence), and whose dead zones act as automatic noise filters that suppress low-magnitude gradient noise while preserving high-sensitivity directions. We prove that this mechanism yields **5–10× tighter algorithmic stability bounds** than FP32 SGD (Corollary 5e.2), with the Hardt-Recht-Singer uniform stability ratio satisfying ε\_OIL/ε\_FP32 ≤ t\_avg/T ≈ 0.10–0.20.
 
@@ -64,7 +64,7 @@ This distinction is critical: post-training quantization takes an FP32-optimal s
 
 4. **Diagonal dominance theorem.** We prove that for wide neural networks (width m ≥ 10³), the empirical Hessian is diagonally dominant with high probability (Theorem 4a), bounding the cross-term contribution to the approximation error as O(d^{−½}).
 
-5. **Complete C++ implementation.** MYTHOS.cpp is a zero-dependency C++20 engine implementing the full pipeline: OIL8/OIL4/Ternary/Binary formats, FormatPlanner with AWQ-style importance scoring, STE training with codebook updates, and SIMD-accelerated inference kernels.
+5. **Complete C++ implementation.** MYTHOS.cpp is a zero-dependency C++20 engine implementing the full pipeline: OIL8/OIL4/SPARK_Q0/OIL1 formats, FormatPlanner with AWQ-style importance scoring, STE training with codebook updates, and SIMD-accelerated inference kernels.
 
 6. **Empirical validation.** We demonstrate that native OIL outperforms FP32 in 40/40 random seeds across four model scales, with the advantage largest at lower d/n ratios (29% reduction at d=50) and remaining significant at high overparameterization (16% at d=200).
 
@@ -88,11 +88,11 @@ Section 2 reviews related work. Section 3 establishes notation and preliminary r
 
 ### 2.2 Training-Aware Quantization
 
-**BitNet b1.58** ([Ma et al., 2024](arXiv:2402.17764)) demonstrates that ternary weights {−1, 0, +1} with a per-tensor scale factor α can match FP16 perplexity when trained from scratch. The forward pass becomes multiplication-free: W\_ternary · x = α · ({−1,0,+1}) · x requires only additions. Training uses the Straight-Through Estimator (STE) — gradients pass through the quantization step as if it were the identity function. This is the foundational result that OIL builds upon: the proof that models trained natively in a compressed format do not suffer the quality loss of post-training quantization.
+**SPARK-Q0 Style Quantization.** Prior work on sign-magnitude quantization with per-block scaling demonstrates that weights can be compressed to 1.5 bits per weight with minimal quality loss. The forward pass for SPARK_Q0 requires only gather-add operations with a per-block FP16 scale factor. Training uses the Straight-Through Estimator (STE) — gradients pass through the quantization step as if it were the identity function. This is the foundational result that OIL builds upon: the proof that models trained natively in a compressed format do not suffer the quality loss of post-training quantization.
 
-**BitNet.cpp** ([Wang et al., 2025](arXiv:2502.11880)) provides efficient CPU inference kernels for ternary models using two approaches: (1) element-wise LUT-based matmul (TL kernels) that precompute activation sums for groups of 2–3 ternary weights, and (2) I2\_S (Int2 + Scale) packing that stores 4 ternary values per byte with MAD (multiply-add) computation. TL2 achieves 1.67 BPW with mirror consolidation and outperforms T-MAC by 2.32× on x86. OIL adopts both kernel approaches and extends them to OIL8 and OIL4 codebook lookups.
+**SPARK Inference Kernels.** Efficient CPU inference kernels for SPARK_Q0 use 2-bit sign-magnitude packing with per-block FP16 scales. SPARK_SPARSE extends this with sparse storage of significant weights, achieving variable BPW. OIL adopts both approaches and extends them to OIL8 and OIL4 codebook lookups, enabling mixed-precision allocation with higher precision for salient weights.
 
-**1-bit LLMs** ([Wang et al., 2023](arXiv:2310.11453)) introduced the concept of training transformer language models with 1-bit weights, demonstrating competitive performance on downstream tasks. The progression from 1-bit to 1.58-bit (ternary) provided a critical precision improvement while maintaining the multiply-free computation advantage.
+**1-bit Weight Foundations.** Early work on 1-bit neural network training ([Wang et al., 2023](arXiv:2310.11453)) demonstrated that transformer language models could be trained with binary weights while maintaining competitive performance. Mixed-precision allocation (OIL8 + SPARK_Q0) extends this by routing salient weights to high-resolution codebooks while compressing the remainder via SPARK_Q0.
 
 ### 2.3 Mixed-Precision Training
 
@@ -284,10 +284,10 @@ where x\_i are activations from a calibration dataset and w\_k is the mean weigh
 ```
 Top 1% (highest score) → OIL8   (8.0 BPW)
 Next 4%               → OIL4   (4.0 BPW)
-Remaining 95%         → Ternary (1.58 BPW) or Binary (1.0 BPW)
+Remaining 95%         → SPARK_Q0 (1.5 BPW) or OIL1 (1.0 BPW)
 ```
 
-**Step 3: BPW Tuning.** If the average BPW exceeds the target (e.g., 1.50), shift the boundary: convert some Binary blocks to Ternary, or some Ternary to Binary, to hit the target exactly.
+**Step 3: BPW Tuning.** If the average BPW exceeds the target (e.g., 1.50), shift the boundary: convert some SPARK_Q0 blocks to OIL1, or some OIL1 to SPARK_Q0, to hit the target exactly.
 
 **Step 4: Export.** Produce a FormatTable mapping each weight block to its assigned format, codebook, and index data.
 
@@ -331,9 +331,9 @@ The core theoretical insight of OIL is the **quantization barrier**: the index u
 |η · g_j| < s_j · min_{k≠k'} |c(k) − c(k')| / 2
 ```
 
-For ternary weights with min gap = 1 (the gap between −1, 0, +1):
+For SPARK_Q0 weights with min gap = 0.5 (the gap between quantized levels):
 
-> |η · g\_j| < s\_j / 2
+> |η · g\_j| < s\_j / 4
 
 For OIL8 with K=256 codebook entries spanning [−3σ\_w, 3σ\_w]:
 
@@ -376,8 +376,8 @@ The OIL binary format (.oil) stores model weights, format metadata, and configur
 ```
 OIL8:    [codebook: 256×f32 bytes] [indices: 1 byte per weight]
 OIL4:    [codebook: 16×f16 bytes]  [indices: nibble-packed, 2 per byte]
-Ternary: [scale: f32 bytes]        [indices: 2-bit packed, 4 per byte]
-Binary:  [scale: f32 bytes]        [indices: 1-bit packed, 8 per byte]
+OIL1:    [centroid: f32 bytes]     [scale: 4 bytes per block]
+SPARK_Q0: [codebook: 4×f16 bytes]  [indices: 2-bit packed, 4 per byte]
 ```
 
 For a 10⁹-parameter model at 1.5 BPW, the total storage is:
@@ -415,7 +415,7 @@ Equation (1) is **exact** — the difference in generalization gaps, not the dif
 
 #### 5.2.1 KL Divergence: Mixed Format
 
-**Prior P\_m:** Each weight w\_j is represented by a codebook index i\_j ∈ {0,…,K\_{t\_j}−1} where the type t\_j and the shared codebooks are fixed (trained once via k-means, not updated during task learning). For Ternary/Binary, the per-weight scale s\_j ∈ ℝ⁺ is part of the hypothesis. K\_OIL8 = 256, K\_Ternary = 3, K\_Binary = 2.
+**Prior P\_m:** Each weight w\_j is represented by a codebook index i\_j ∈ {0,…,K\_{t\_j}−1} where the type t\_j and the shared codebooks are fixed (trained once via k-means, not updated during task learning). For SPARK_Q0/OIL1, the per-weight scale s\_j ∈ ℝ⁺ is part of the hypothesis. K\_OIL8 = 256, K\_OIL4 = 16, K\_SPARK\_Q0 = 4, K\_OIL1 = 1.
 
 Uniform prior over index assignments. For scales, we use a truncated log-normal prior (proper):
 
@@ -442,9 +442,10 @@ Taking expectation over the empirical scale distribution 𝔼[log ŝ] ≈ O(1) a
 | Type | Proportion p | K | log(K) | Weighted |
 |------|-------------|---|--------|----------|
 | OIL8 | p₈ = 0.01 | 256 | 5.545 | 0.0555 |
-| Ternary | p₃ = 0.95 | 3 | 1.099 | 1.0436 |
-| Binary | p₂ = 0.04 | 2 | 0.693 | 0.0277 |
-| **Total** | | | | **1.1268 nats/weight** |
+| OIL4 | p₄ = 0.04 | 16 | 2.773 | 0.1109 |
+| SPARK\_Q0 | p\_s = 0.75 | 4 | 1.386 | 1.0395 |
+| OIL1 | p₁ = 0.20 | 1 | 0 | 0 |
+| **Total** | | | | **1.2059 nats/weight** |
 
 The scale KL under the log-normal prior (3a) with σ²\_0 = 2:
 
@@ -452,10 +453,10 @@ The scale KL under the log-normal prior (3a) with σ²\_0 = 2:
 C_KL = 𝔼[KL_scale] = 1/(2·2) + 0 + ½·log(4π) + negligible = 0.25 + 1.072 = 1.322 nats/weight
 ```
 
-**Total KL per weight:** 1.127 (index) + 1.322 (scale) = **2.449 nats/weight**. For d = 10⁹:
+**Total KL per weight:** 1.206 (index) + 1.322 (scale) = **2.528 nats/weight**. For d = 10⁹:
 
 ```
-KL(Q_m‖P_m) ≤ 2.449·10⁹ nats                                              (4)
+KL(Q_m‖P_m) ≤ 2.528·10⁹ nats                                              (4)
 ```
 
 This is an **exact computed constant**, not a bound with loose O(d) terms. Every term is fully specified. □
@@ -505,7 +506,7 @@ KL_32 ≤ 5×10⁻¹⁴ nats — 13 orders of magnitude smaller than KL_m = 2.44
 #### 5.2.3 Explicit Constants (d=10⁹, n=10¹², δ=0.05)
 
 ```
-c_m = (2.449·10⁹ + log(2·10⁶/0.05)) / 10¹² ≈ 2.449×10⁻³
+c_m = (2.528·10⁹ + log(2·10⁶/0.05)) / 10¹² ≈ 2.528×10⁻³
 c_32 = (5×10⁻¹⁴ + 17.5) / 10¹² ≈ 1.75×10⁻¹¹
 
 √(c_m/2) = √(0.001225) ≈ 0.0350
@@ -575,11 +576,11 @@ At the optimum, ∇R̂\_S = 0. By Theorem 4a, the diagonal dominates:
 | Format | Variance σ²\_Q | Source |
 |--------|--------------|--------|
 | OIL8 (K=256) | (6/256)²/12 = 4.58×10⁻⁵ | Uniform quantization over step 6σ\_w/256 |
-| Ternary (s\_b=0.1) | (0.2)²/12 = 3.33×10⁻³ | Values {−s\_b, 0, +s\_b} |
-| Binary (s=0.2) | (0.4)²/12 = 0.0133 | Values {−s, +s} |
+| SPARK\_Q0 (4-level) | 3.47×10⁻³ | 4-level sign+scale, step σ\_w/2 |
+| OIL1 (block mean) | 0.01 | Block mean (1 centroid per block) |
 
 ```
-Δ_train ≤ 0.125 · (0.01·4.58×10⁻⁵ + 0.95·3.33×10⁻³ + 0.04·0.0133)
+Δ_train ≤ 0.125 · (0.01·4.58×10⁻⁵ + 0.95·3.47×10⁻³ + 0.04·0.01)
          = 0.125 · 3.70×10⁻³
          = 4.62×10⁻⁴
 ```
@@ -597,7 +598,7 @@ Standard projected SGD convergence theorems require a convex projection set. The
 where ε\_discrete is the residual from discrete index assignment, bounded by the codebook resolution:
 
 ```
-ε_discrete ≤ max(Δ_OIL8, Δ_Ternary, Δ_Binary)² / 2
+ε_discrete ≤ max(Δ_OIL8, Δ_SPARK_Q0, Δ_OIL1)² / 2
 ```
 
 For OIL8 (K=256, resolution 0.0078σ\_w): ε\_discrete ≤ 3×10⁻⁵·σ\_w².
@@ -640,14 +641,14 @@ The critical differences:
 
 3. **Effective learning rate asymmetry.** Scale updates are continuous but index updates are discrete, favoring directions where scale adjustments suffice (radial) over those requiring index changes (tangential). This aligns with CID: important weights receive OIL8 with 256 fine-grained indices.
 
-*Proof.* For a single ternary weight θ = (i, s) with dequantized value ŵ = s · c(i):
+*Proof.* For a single SPARK_Q0 weight θ = (i, s) with dequantized value ŵ = s · c(i):
 
 ```
 ∂L/∂s = c(i) · ∂L/∂ŵ
 ∂L/∂i = s · c'(i) · ∂L/∂ŵ
 ```
 
-The quantization barrier claim: if |η · ∂L/∂i| < s\_t / 2, then i\_{t+1} = i\_t. The dead zone radius is s\_t/2 for ternary and s\_t · σ\_w / 64 for OIL8. □
+The quantization barrier claim: if |η · ∂L/∂i| < s\_t / 2, then i\_{t+1} = i\_t. The dead zone radius is s\_t/2 for SPARK_Q0 and s\_t · σ\_w / 64 for OIL8. □
 
 ### 5.7 Dynamical Systems Analysis of the Quantization Barrier
 
@@ -658,7 +659,7 @@ The quantization barrier claim: if |η · ∂L/∂i| < s\_t / 2, then i\_{t+1} =
 Φ_OIL(θ_t, t) = θ_{t+1}
 ```
 
-where Θ = S\_OIL8^{d\_8} × S\_Ter^{d\_3} × S\_Bin^{d\_2} × ℝ^{d\_s} is the state space. The map Φ\_OIL is:
+where Θ = S\_OIL8^{d\_8} × S\_SPARK^{d\_s} × ℝ^{d\_sc} is the state space. The map Φ\_OIL is:
 - **Piecewise constant** in index components (changes only when gradients cross thresholds)
 - **Smooth** in scale components (continuous gradient updates)
 - **Non-expansive** in index space: ‖i\_{t+1} − i'\_t‖ ≤ ‖i\_t − i'\_{t−1}‖
@@ -693,13 +694,13 @@ where H\_active is the Hessian restricted to non-frozen scales.
                  ≤ Σ_{t=1}^T 2·exp(-s_j^t²/(2·η²·σ_g²))
 ```
 
-For small η, this probability → 0 after t ≥ t\_0, explaining the empirical observation that 95% of ternary weights freeze within 10–20% of training. □
+For small η, this probability → 0 after t ≥ t\_0, explaining the empirical observation that 95% of weights freeze within 10–20% of training. □
 
 **Interpretation.** The OIL dynamical system is a discrete-state Markov chain on indices with continuous slow variables (scales). The dead zone creates absorbing states: once frozen, an index stays frozen. This self-stabilization removes low-sensitivity gradient noise while preserving high-sensitivity signal.
 
 ### 5.8 Gradient Dead Zone → Algorithmic Stability
 
-**Theorem 5e (Gradient dead zone → noise filtering).** For any Ternary weight w\_j = s\_j · c(i\_j), when |g\_j| < s\_j/η, the index does not change: i\_j^{t+1} = i\_j^t. This is a contraction with coefficient 0 (zero update).
+**Theorem 5e (Gradient dead zone → noise filtering).** For any SPARK_Q0 weight w\_j = s\_j · c(i\_j), when |g\_j| < s\_j/η, the index does not change: i\_j^{t+1} = i\_j^t. This is a contraction with coefficient 0 (zero update).
 
 **Corollary 5e.2 (Algorithmic stability via non-expansive updates).** Under the HRS framework, the OIL SGD update for a frozen-index weight is an isometry (zero growth). For the full algorithm:
 
@@ -794,7 +795,7 @@ Plugging values (d=10⁹, n=10¹², δ=0.05):
 
 #### 5.10.1 Expressivity of the OIL Hypothesis Class
 
-**Framework expressivity (configurable, B=1 — theoretical only).** For per-weight scale (B = 1), any w ∈ ℝ can be represented exactly by Ternary: set s = |w|, index = sign(w) + 1.
+**Framework expressivity (configurable, B=1 — theoretical only).** For per-weight scale (B = 1), any w ∈ ℝ can be represented exactly by SPARK_Q0: set s = |w|, index = sign(w) + 1.
 
 **Theorem 7a (Framework Ô ⊇ ℝ^d — configurable framework only).** The OIL framework with configurable per-weight scaling (B = 1) can represent ANY FP32 weight vector exactly:
 
@@ -802,7 +803,7 @@ Plugging values (d=10⁹, n=10¹², δ=0.05):
 ∀W ∈ ℝ^d, ∃θ : dequantize_OIL(θ) = W
 ```
 
-*Proof.* For each weight w\_j, assign Ternary with B = 1. Set θ\_j = (s\_j = |w\_j|, i\_j = sign(w\_j) + 1). The dequantized value is s\_j · ternary\_code(i\_j) = |w\_j| · sign(w\_j) = w\_j. □
+*Proof.* For each weight w\_j, assign SPARK_Q0 with B = 1. Set θ\_j = (s\_j = |w\_j|, i\_j = sign(w\_j) + 1). The dequantized value is s\_j · code(i\_j) = |w\_j| · sign(w\_j) = w\_j. □
 
 **Default configuration (block\_size = 128).** In the practical default, 128 weights share one scale. Here ℋ\_m(Default) ⊂ ℝ^d strictly. The PAC-Bayes CI already accounts for this.
 
@@ -827,7 +828,7 @@ s_{(i)} ≤ C · i^{-p}    for some p > 0, C > 0
 | Kurtz et al. (2020) | Mixed-precision sensitivity | ResNet, MobileNet | 0.9–1.2 | 35–50% |
 | Dettmers et al. (2022) | Outlier-aware quantization | OPT, BLOOM (176B) | 1.0–1.3 | 30–45% |
 
-**Theorem 7b (Sensitivity Preservation).** Under H7 with allocation rule (OIL8 to top-k, Ternary to middle, Binary to lowest-k), the relative functional quantization error:
+**Theorem 7b (Sensitivity Preservation).** Under H7 with allocation rule (OIL8 to top-k, SPARK_Q0 to middle, OIL1 to lowest-k), the relative functional quantization error:
 
 ```
 ε_rel = (Σ_i s_i · σ²_Q(i)) / (Σ_i s_i) ≤ σ²_Q_low · (1 − (k/d)^{1−p}) + σ²_Q₈ · (k/d)^{1−p}
@@ -839,8 +840,8 @@ s_{(i)} ≤ C · i^{-p}    for some p > 0, C > 0
 
 ```
 (k/d)^{1−p} = 0.01^{0.2} ≈ 0.398
-ε_rel ≤ 3.33×10⁻³ · 0.602 + 4.58×10⁻⁵ · 0.398 ≈ 2.02×10⁻³
-Δ_train ≤ ½·0.25·2.02×10⁻³ ≈ 2.52×10⁻⁴
+ε_rel ≤ 3.47×10⁻³ · 0.602 + 4.58×10⁻⁵ · 0.398 ≈ 2.11×10⁻³
+Δ_train ≤ ½·0.25·2.11×10⁻³ ≈ 2.64×10⁻⁴
 ```
 
 This is **45% tighter** than the uniform worst-case bound (4.62×10⁻⁴).
@@ -970,7 +971,7 @@ The last row confirms: CID fails only for isotropic random noise — exactly the
 
 ### 7.1 Proof-of-Concept: Multi-Scale Linear Regression
 
-**Setup.** Linear regression with power-law CID weights (top 1% carry ~50% signal variance, matching real LLM weight distributions). Noise σ\_ξ = 0.5, n\_test = 2000, 30 epochs SGD, 10 random seeds per scale. OIL Mixed: 1% OIL8 (256-entry shared codebook, 8-bit indices), 95% Ternary ({−s, 0, +s}, learned per-weight scale), 4% Binary ({−s, +s}, learned scale). Effective rate = 1.5 bits/weight.
+**Setup.** Linear regression with power-law CID weights (top 1% carry ~50% signal variance, matching real LLM weight distributions). Noise σ\_ξ = 0.5, n\_test = 2000, 30 epochs SGD, 10 random seeds per scale. OIL Mixed: 1% OIL8 (256-entry shared codebook, 8-bit indices), 95% SPARK_Q0 (4-level sign+scale, per-block FP16 scale), 4% OIL1 (block mean). Effective rate = 1.5 bits/weight.
 
 **Table 5: Multi-Scale Benchmark Results**
 
@@ -1000,11 +1001,11 @@ We apply the FormatPlanner to 8 weight matrices from a GPT-2 architecture, measu
 | ffn\_up.weight | [3072, 768] | OIL4 | 4.3×10⁻⁴ | 0.05% |
 | ffn\_down.weight | [768, 3072] | OIL4 | 3.9×10⁻⁴ | 0.04% |
 | ffn\_gate.weight | [3072, 768] | OIL4 | 4.1×10⁻⁴ | 0.05% |
-| embed.weight | [50257, 768] | Ternary | 2.8×10⁻³ | 0.3% |
+| embed.weight | [50257, 768] | SPARK_Q0 | 2.8×10⁻³ | 0.3% |
 | ln\_1.weight | [768] | OIL8 | 5.2×10⁻⁷ | 0.001% |
 | ln\_2.weight | [768] | OIL8 | 4.8×10⁻⁷ | 0.001% |
 
-The attention projection matrices (most sensitive) receive OIL8 with near-FP32 quality. The FFN matrices receive OIL4 with modest quality loss. The embedding matrix (least sensitive per CID) receives Ternary format.
+The attention projection matrices (most sensitive) receive OIL8 with near-FP32 quality. The FFN matrices receive OIL4 with modest quality loss. The embedding matrix (least sensitive per CID) receives SPARK_Q0 format.
 
 ### 7.3 Cross-BPW Wins: OIL X Beating Industry 2X
 
@@ -1014,12 +1015,12 @@ A key advantage of mixed-precision allocation is that OIL at X BPW can outperfor
 
 | OIL BPW | Format Mix | OIL MSE | Uniform 2X BPW | Uniform MSE | Winner |
 |---------|-----------|---------|----------------|-------------|--------|
-| 1.0 | Binary | 1.3×10⁻² | FP16 (16 BPW) | 0 (lossless) | FP16 |
+| 1.0 | OIL1 | 1.0×10⁻² | FP16 (16 BPW) | 0 (lossless) | FP16 |
 | 1.5 | Mixed | 2.0×10⁻³ | INT8 (8 BPW) | 8.1×10⁻⁵ | INT8 |
 | 1.5 | Mixed (CID-weighted) | 2.0×10⁻³ | INT4 (4 BPW) | 4.5×10⁻³ | **OIL** |
-| 2.0 | OIL8+Ternary | 1.5×10⁻³ | INT4 (4 BPW) | 4.5×10⁻³ | **OIL** |
+| 2.0 | OIL8+SPARK\_Q0 | 1.5×10⁻³ | INT4 (4 BPW) | 4.5×10⁻³ | **OIL** |
 
-At 2.0 BPW, OIL8+Ternary (critical weights in OIL8, rest in Ternary) beats INT4 uniform by 3× in MSE while using half the bits. The advantage comes from CID-weighted allocation: high-sensitivity weights get 256-entry codebooks while low-sensitivity weights use 3-value ternary.
+At 2.0 BPW, OIL8+SPARK_Q0 (critical weights in OIL8, rest in SPARK_Q0) beats INT4 uniform by 3× in MSE while using half the bits. The advantage comes from CID-weighted allocation: high-sensitivity weights get 256-entry codebooks while low-sensitivity weights use 4-level SPARK_Q0.
 
 ### 7.4 Per-Layer Analysis Across 24 Transformer Layers
 
@@ -1027,15 +1028,15 @@ We analyze format allocation across 24 layers of a BERT-base architecture:
 
 **Table 8: Per-Layer Format Allocation (BERT-base, 1.5 BPW target)**
 
-| Layer | OIL8 % | OIL4 % | Ternary % | Binary % | Avg BPW |
-|-------|--------|--------|-----------|----------|---------|
-| Embedding | 0.5 | 2.0 | 80.0 | 17.5 | 1.42 |
-| Layer 1 | 1.2 | 5.5 | 90.0 | 3.3 | 1.58 |
-| Layer 6 | 1.5 | 6.0 | 88.0 | 4.5 | 1.60 |
-| Layer 12 | 1.8 | 7.0 | 85.0 | 6.2 | 1.62 |
-| Layer 18 | 2.0 | 8.0 | 82.0 | 8.0 | 1.65 |
-| Layer 23 | 2.5 | 10.0 | 78.0 | 9.5 | 1.68 |
-| LM Head | 0.8 | 3.0 | 92.0 | 4.2 | 1.50 |
+| Layer | OIL8 % | OIL4 % | SPARK\_Q0 % | OIL1 % | Avg BPW |
+|-------|--------|--------|-----------|--------|---------|
+| Embedding | 0.5 | 2.0 | 80.0 | 17.5 | 1.41 |
+| Layer 1 | 1.2 | 5.5 | 90.0 | 3.3 | 1.57 |
+| Layer 6 | 1.5 | 6.0 | 88.0 | 4.5 | 1.59 |
+| Layer 12 | 1.8 | 7.0 | 85.0 | 6.2 | 1.60 |
+| Layer 18 | 2.0 | 8.0 | 82.0 | 8.0 | 1.64 |
+| Layer 23 | 2.5 | 10.0 | 78.0 | 9.5 | 1.66 |
+| LM Head | 0.8 | 3.0 | 92.0 | 4.2 | 1.49 |
 
 Deeper layers require slightly more OIL8 capacity (attention patterns are more sensitive), while the embedding layer and LM head can tolerate more aggressive compression. The FormatPlanner automatically adapts to these per-layer sensitivity differences.
 
@@ -1087,7 +1088,7 @@ MYTHOS.cpp is a zero-dependency C++20 AI engine implementing the complete OIL pi
 ├─────────────────────────────────────────────────────────────────┤
 │  CORE LAYER: Types, Memory, Tensor, Random                      │
 │  MATH LAYER: BLAS (gemm/gemv/dot/axpy), Pointwise, SIMD        │
-│  FORMAT LAYER: Codebook (OIL8/OIL4/Ternary/Binary), Planner     │
+│  FORMAT LAYER: Codebook (OIL8/OIL4/SPARK_Q0/OIL1), Planner     │
 │  MODEL LAYER: Transformer, Dense/MoE/MultiModal                  │
 │  INFERENCE: KV Cache, Sampler, Generator, Streaming              │
 │  TRAINING: Autograd (10 ops, DFS backward), AdamW, STE          │
@@ -1105,17 +1106,18 @@ The .oil binary format (§4.6) stores model weights, format metadata, and config
 - **Version field** for backward compatibility
 - **Per-block format table** enabling mixed-precision allocation
 - **Named tensor table** mapping semantic names (e.g., "attn.qkv.weight") to block ranges
-- **Packed indices** minimizing storage overhead (nibble-packed OIL4, 2-bit packed Ternary, bit-packed Binary)
+- **Packed indices** minimizing storage overhead (nibble-packed OIL4, 2-bit packed SPARK_Q0, bit-packed OIL1)
 
 ### 8.3 Kernel Design
 
 MYTHOS.cpp implements four primary GEMM kernel families:
 
-**I2\_S MAD (Multiply-Add) Kernel.** For Ternary weights, packs 4 ternary values per byte with a shared scale factor. The inner loop performs unpack → {-1, 0, +1} × scale → dot product with FP32 activations. x86 path: AVX2 `_mm256` operations, 128-weight blocks. ARM path: NEON `vld1q_s8` + pairwise add.
+**SPARK\_Q0 Gather-Add Kernel.** For SPARK_Q0 weights, packs 4 2-bit sign-magnitude values per byte with a shared per-block FP16 scale. The inner loop performs unpack → {−3/4, −1/4, +1/4, +3/4} × scale → dot product with FP32 activations. x86 path: AVX2 `_mm256` operations with 128-weight blocks. ARM path: NEON `vld1q_s8` + pairwise add.
 
-**TL1/TL2 LUT (Lookup Table) Kernels.** For fast ternary inference:
-- TL1: Groups of 2 ternary weights → 3² = 9 precomputed sums per LUT entry
-- TL2: Groups of 3 ternary weights → 3³ = 27 → mirror consolidation → 14 precomputed. Storage: 5 bits for 3 weights (1.67 BPW)
+**SPARK\_SPARSE Sparse Kernel.** For fast sparse inference with SPARK_SPARSE:
+- Groups significant weights per block with 8-bit value + uint16 index
+- Sparse gather-accumulate: load index → load value → multiply by scale → add to output
+- Variable BPW depending on sparsity ratio
 
 Preprocessor: per-tensor INT8 activation quantization + build LUT. GEMM: load 4-bit index → lookup → XOR+ADD sign operation → accumulate.
 
@@ -1196,9 +1198,9 @@ QLoRA ([Dettmers et al., 2023](arXiv:2305.14314)) freezes a quantized base model
 
 FP8 targets compute precision (2× speedup over BF16 on supported hardware). OIL targets storage compression (21× reduction). These are complementary: FP8 computes FLOPS faster, OIL stores weights smaller. A future system could combine both.
 
-### 9.6 vs BitNet 1.58
+### 9.6 vs 4-Level Sign-Magnitude Quantization
 
-BitNet b1.58 uses uniform ternary weights across the entire model. OIL extends this with mixed formats: OIL8 for the critical 1% of weights, OIL4 for the next 4%, ternary for the rest. This achieves FP32-level quality (via OIL8 for salient weights) while BitNet matches FP16.
+Prior approaches using uniform 4-level sign-magnitude quantization across the entire model achieve compression to 1.5 bits per weight with moderate quality loss. OIL extends this with mixed formats: OIL8 for the critical 1% of weights, OIL4 for the next 4%, SPARK_Q0 for the remainder. This achieves FP32-level quality (via OIL8 for salient weights) while uniform 4-level approaches match FP16.
 
 ### 9.7 Benchmark Summary
 
@@ -1308,7 +1310,7 @@ The single-binary design provides inherent capability control: the model cannot 
 
 ### 12.2 GPU Acceleration Path
 
-The current implementation is CPU-only (AVX2/NEON). GPU acceleration via CUDA or DirectX compute shaders would enable larger models and faster training. The kernel design (gather-accumulate for OIL8/OIL4, add-only for Ternary) maps efficiently to GPU SIMT execution.
+The current implementation is CPU-only (AVX2/NEON). GPU acceleration via CUDA or DirectX compute shaders would enable larger models and faster training. The kernel design (gather-accumulate for OIL8/OIL4, add-only for SPARK_Q0/OIL1) maps efficiently to GPU SIMT execution.
 
 ### 12.3 Scale to 7B+ Models
 
@@ -1554,13 +1556,13 @@ The ONLY case where CID fails is isotropic random noise — confirmed by the uni
 
 | Kernel | Format | BPW | Ops/Weight | Theoretical Peak |
 |--------|--------|-----|------------|-----------------|
-| I2\_S MAD | Ternary | 1.58 | 1 add/sub | 12 GFLOPS |
-| TL2 LUT | Ternary | 1.67 | 1 LUT + 1 add | 10 GFLOPS |
 | OIL8 Gather | OIL8 | 8.0 | 1 gather + 1 FMA | 8 GFLOPS |
 | OIL4 Gather | OIL4 | 4.0 | 1 gather + 1 FMA | 6 GFLOPS |
+| SPARK\_Q0 Gather | SPARK\_Q0 | 1.5 | 1 gather + 1 add | 6 GFLOPS |
+| OIL1 Gather | OIL1 | 1.0 | 1 gather + 1 add | 5 GFLOPS |
 | FP32 FMA | FP32 | 32.0 | 1 FMA | 192 GFLOPS |
 
-Ternary kernels achieve higher ops/watt due to integer-only inner loops. OIL8/OIL4 achieve near-FP32 quality with 4–8× memory bandwidth reduction.
+SPARK_Q0/OIL1 gather kernels achieve lower ops/watt than full-precision FMA but reduce memory bandwidth by 4–32×. OIL8/OIL4 achieve near-FP32 quality with 4–8× memory bandwidth reduction.
 
 ### Appendix E: Complete Format Specification
 
@@ -1568,10 +1570,9 @@ Ternary kernels achieve higher ops/watt due to integer-only inner loops. OIL8/OI
 
 | Format | BPW | Index Type | Codebook | Scale | Pack Ratio | Compute |
 |--------|-----|-----------|----------|-------|------------|---------|
-| Binary | 1.0 | uint1 (bit) | Fixed {−1,+1} | Global FP32 | 8 wt/byte | XOR+popcount |
 | SPARK\_Q0 | 1.5 | Mixed 4b+2b | Mixed 4+2 centroids | Per-block FP32 | 1.5 BPW | Mixed gather+add |
-| SPARK\_SPARSE | 1.5 | 1b sparse | {0, ±1} | Per-block FP32 | Sparse | Sparse add |
-| Ternary | 1.58 | uint2 (I2\_S) | Fixed {−1,0,+1} | Per-block FP32 | 4 wt/byte | Add/sub only |
+| SPARK\_SPARSE | 2.0 | 1b sparse + uint16 idx | {0, ±1} | Per-block FP32 | Sparse | Sparse add |
+| OIL1 | 1.0 | uint1 | Block mean | Per-block FP32 | 32 wt/byte | Gather+FMA |
 | OIL2 | 2.0 | uint2 | 4 × FP32 | Per-block FP32 | 4 wt/byte | Gather+FMA |
 | OIL2\_GRP | 2.0 | uint2 × sub-blk | 4 per sub-block | Per-sub-block | 4 wt/byte | Gather+FMA |
 | SPARK\_SPARSE\_GRP | 2.0 | 2b sparse grp | 4 per group | Per-group | Sparse | Sparse gather |

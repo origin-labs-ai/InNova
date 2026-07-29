@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <random>
 
 #if defined(OIL_AVX2) || defined(__AVX2__)
 #include <immintrin.h>
@@ -36,9 +37,15 @@ static inline float dot_product_avx2(const float* a, const float* b, int64_t d) 
 
 Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V,
                                const Tensor& mask, float dropout_p, bool causal) {
+    static thread_local std::mt19937 drop_rng(std::random_device{}());
+    static thread_local std::uniform_real_distribution<float> drop_dist(0.0f, 1.0f);
+
     (void)dropout_p;
     int64_t B = Q.dim(0), H = Q.dim(1), N = Q.dim(2), D = Q.dim(3);
     float scale = 1.0f / std::sqrt((float)D);
+
+    float drop_keep = 1.0f - dropout_p;
+    bool do_drop = (dropout_p > 0.0f);
 
     Tensor output({B, H, N, D});
     output.zero_();
@@ -154,6 +161,11 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
                 for (int64_t d = 0; d < D; ++d)
                     o_row[d] *= inv_sum;
 #endif
+                if (do_drop) {
+                    float mask_val = (drop_dist(drop_rng) < drop_keep) ? (1.0f / drop_keep) : 0.0f;
+                    for (int64_t d = 0; d < D; ++d)
+                        o_row[d] *= mask_val;
+                }
             }
         }
     }

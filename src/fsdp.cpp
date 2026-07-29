@@ -194,31 +194,37 @@ void FullyShardedDataParallel::backward(float loss_value) {
         }
     }
 
-    // Simulate backward pass by computing gradient estimates via autograd graph traversal
+    // Backward: compute gradients from autograd if available
     for (auto& shard : shards_) {
         shard.local_grad.zero_();
-        // Approximate gradient as zero-mean noise scaled by loss
-        float* g = shard.local_grad.data<float>();
-        for (int64_t i = 0; i < shard.shard_numel; i++) {
-            g[i] = loss_value * 1e-4f;
+        if (shard.local_param.has_grad()) {
+            const float* src_grad = shard.local_param.grad().data<float>();
+            float* dst_grad = shard.local_grad.data<float>();
+            int64_t n = std::min(shard.shard_numel, static_cast<int64_t>(shard.local_param.grad().numel()));
+            std::memcpy(dst_grad, src_grad, static_cast<size_t>(n) * sizeof(float));
         }
     }
 }
 
 void FullyShardedDataParallel::optimizer_step() {
     step_++;
+    float lr = 0.001f;
+    float beta1 = 0.9f, beta2 = 0.999f;
+    float eps = 1e-8f;
+    float wd = 0.01f;
     for (auto& shard : shards_) {
         if (config_.mixed_precision) {
-            // Mixed precision: update FP32 master, then convert back
             float* fp32 = shard.fp32_master.data<float>();
             const float* grad = shard.local_grad.data<float>();
+            float* m = shard.optimizer_m.data<float>();
+            float* v = shard.optimizer_v.data<float>();
             for (int64_t i = 0; i < shard.shard_numel; i++) {
-                // AdamW update on FP32 master
-                float m = 0.9f * (i < shard.shard_numel ? 0.0f : 0.0f) + 0.1f * grad[i];
-                float v = 0.999f * (i < shard.shard_numel ? 0.0f : 0.0f) + 0.001f * grad[i] * grad[i];
-                fp32[i] -= 0.001f * m / (std::sqrt(v) + 1e-8f);
+                m[i] = beta1 * m[i] + (1.0f - beta1) * grad[i];
+                v[i] = beta2 * v[i] + (1.0f - beta2) * grad[i] * grad[i];
+                float m_hat = m[i] / (1.0f - std::pow(beta1, static_cast<float>(step_)));
+                float v_hat = v[i] / (1.0f - std::pow(beta2, static_cast<float>(step_)));
+                fp32[i] -= lr * (m_hat / (std::sqrt(v_hat) + eps) + wd * fp32[i]);
             }
-            // Copy back to local param
             if (shard.shard_numel <= shard.local_param.numel()) {
                 std::memcpy(shard.local_param.data<float>(), fp32,
                             shard.shard_numel * sizeof(float));
@@ -226,13 +232,18 @@ void FullyShardedDataParallel::optimizer_step() {
         } else {
             float* p = shard.local_param.data<float>();
             const float* g = shard.local_grad.data<float>();
+            float* m = shard.optimizer_m.data<float>();
+            float* v = shard.optimizer_v.data<float>();
             for (int64_t i = 0; i < shard.shard_numel; i++) {
-                p[i] -= 0.001f * g[i];
+                m[i] = beta1 * m[i] + (1.0f - beta1) * g[i];
+                v[i] = beta2 * v[i] + (1.0f - beta2) * g[i] * g[i];
+                float m_hat = m[i] / (1.0f - std::pow(beta1, static_cast<float>(step_)));
+                float v_hat = v[i] / (1.0f - std::pow(beta2, static_cast<float>(step_)));
+                p[i] -= lr * (m_hat / (std::sqrt(v_hat) + eps) + wd * p[i]);
             }
         }
     }
 
-    // ReduceScatter gradients for Stage 2 and Stage 3
     if (config_.stage == ZeROStage::STAGE_2 ||
         config_.stage == ZeROStage::STAGE_3) {
         reduce_scatter_grads();

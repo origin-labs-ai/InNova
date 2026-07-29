@@ -19,8 +19,7 @@ std::vector<int> Generator::generate_tokens(const std::vector<int>& input_ids,
     Tensor input_tensor(Shape{B, seq_len}, DType::F32);
     float* id_ptr = input_tensor.data<float>();
     for (size_t i = 0; i < input_ids.size(); i++) {
-        float fval = static_cast<float>(input_ids[i]);
-        std::memcpy(id_ptr + i, &fval, sizeof(float));
+        id_ptr[i] = static_cast<float>(input_ids[i]);
     }
     
     Tensor positions(Shape{B, seq_len}, DType::F32);

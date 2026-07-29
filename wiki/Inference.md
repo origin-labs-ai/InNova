@@ -70,11 +70,11 @@ Vulkan compute shaders are available for GPU-accelerated inference, offloading G
 
 ## Performance
 
-| Model Size | FP16 | OIL4 (1.5 BPW) | OIL8 (0.85 BPW) |
+| Model Size | FP16 | OIL4 (4.0 BPW) | OIL8 (8.0 BPW) |
 |-----------|------|-----------------|------------------|
-| 7B | 14 GB | 1.3 GB | 0.74 GB |
-| 13B | 26 GB | 2.4 GB | 1.4 GB |
-| 70B | 140 GB | 13 GB | 7.4 GB |
+| 7B | 14 GB | 3.5 GB | 7.0 GB |
+| 13B | 26 GB | 6.5 GB | 13 GB |
+| 70B | 140 GB | 35 GB | 70 GB |
 
 ## Related Files
 

@@ -2,12 +2,11 @@
 
 #define OIL_VERSION_MAJOR 0
 #define OIL_VERSION_MINOR 1
-#define OIL_VERSION_PATCH 0
+#define OIL_VERSION_PATCH 2
 
 #cmakedefine OIL_AVX2
 #cmakedefine OIL_AVX512
 #cmakedefine OIL_NEON
 #cmakedefine OIL_USE_DIRECTX
-#cmakedefine OIL_USE_CUDA
 #cmakedefine OIL_USE_VULKAN
 #cmakedefine OIL_DEBUG

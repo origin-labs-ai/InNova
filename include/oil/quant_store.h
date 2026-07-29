@@ -107,7 +107,8 @@ private:
     static void dequantize_oil4(const uint8_t* src, float* dst, int64_t n);
     static void dequantize_i2s(const uint8_t* src, float* dst, int64_t n);
     static void dequantize_spark_q0(const uint8_t* src, float* dst, int64_t n);
-    static void dequantize_oil1(const uint8_t* src, float* dst, int64_t n);
+    static void dequantize_oil1(const uint8_t* src, float* dst, int64_t n,
+                                     const float* block_means = nullptr, int64_t num_blocks = 0);
 };
 
 } // namespace oil

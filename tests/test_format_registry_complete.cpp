@@ -21,8 +21,8 @@ static const char* EXPECTED_NAMES[FORMAT_COUNT] = {
 
 static constexpr float EXPECTED_BPW[FORMAT_COUNT] = {
     1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f,
-    1.0f, 2.0f, 4.0f, 8.0f, 16.0f,
-    2.0f, 2.0f, 2.0f, 2.0f
+    1.19f, 2.19f, 4.19f, 8.19f, 16.19f,
+    2.0f, 2.0f, 1.50f, 1.69f
 };
 
 static constexpr bool EXPECTED_LOSSLESS[FORMAT_COUNT] = {

@@ -26,7 +26,7 @@ void VectorQuantizer::initialize_codebook() {
     // Xavier-like initialization
     float scale = std::sqrt(2.0f / cfg_.embedding_dim) * cfg_.codebook_init_std;
     float* cb = codebook_.data<float>();
-    std::mt19937 rng(42);
+    std::mt19937 rng(std::random_device{}());
     std::normal_distribution<float> dist(0.0f, scale);
     for (int64_t i = 0; i < cfg_.codebook_size * cfg_.embedding_dim; ++i) {
         cb[i] = dist(rng);

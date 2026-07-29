@@ -65,7 +65,7 @@ MYTHOS.cpp defines **25 total formats**: 15 single-precision, 8 two-mix (twimix)
 | Variant | BPW | Storage | Centroids |
 |---------|-----|---------|-----------|
 | `OIL1` | 1.00 | 1 centroid per 32 weights | 1 (block mean) |
-| `SPARK_Q0` | 2.00 | 2 bits/weight + per-block FP16 scale | 4 sign bins |
+| `SPARK_Q0` | 1.50 | 2 bits/weight + per-block FP16 scale | 4 sign bins |
 | `SPARK_SPARSE` | 2.00 | uint16 index + int8 value pairs | threshold sparsity |
 | `OIL2` | 2.00 | 2 bits/weight | 4 centroids |
 | `OIL4` | 4.00 | 4 bits/weight + 16×FP16 codebook | 16 centroids |
@@ -75,7 +75,7 @@ MYTHOS.cpp defines **25 total formats**: 15 single-precision, 8 two-mix (twimix)
 
 ### GRP (Grouped) Variants
 
-All base formats have GRP variants (OIL1_GRP, OIL2_GRP, OIL4_GRP, OIL8_GRP, OIL16_GRP, SPARK_Q0_GRP, SPARK_SPARSE_GRP) that add per-group scale/zp for lossless reconstruction when codebook size exceeds group size.
+Most base formats have GRP variants (OIL2_GRP, OIL4_GRP, OIL8_GRP, SPARK_Q0_GRP, SPARK_SPARSE_GRP) that add per-group scale/zp. OIL1_GRP, OIL16_GRP, and OIL32_GRP are not implemented. GRP variants are lossy (improved quality via per-group scale/zp), not lossless.
 
 ## Quantization Format Details
 

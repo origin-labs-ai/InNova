@@ -45,7 +45,7 @@ int64_t DenseModel::param_count() const {
 }
 
 void DenseModel::init_weights() {
-    std::mt19937 rng(42);
+    std::mt19937 rng(std::random_device{}());
     auto rand_fill = [&](Tensor& t) {
         float* d = t.data<float>();
         int64_t fan_in = (t.rank() >= 2) ? t.dim(t.rank() - 1) : t.numel();

@@ -37,7 +37,7 @@ PPOTrainer::PPOTrainer(Model* policy, Model* ref_model, float clip_epsilon,
     v_fc1_bias_ = Tensor(Shape{64});
     v_fc2_weight_ = Tensor(Shape{64, 1});
     v_fc2_bias_ = Tensor(Shape{1});
-    static thread_local std::mt19937 rng(42);
+    static thread_local std::mt19937 rng(std::random_device{}());
     float scale = 1.0f / std::sqrt((float)hs);
     float* ptr = v_fc1_weight_.data<float>();
     for (int64_t i = 0; i < v_fc1_weight_.numel(); i++)
@@ -299,8 +299,9 @@ std::vector<Tensor*> PPOTrainer::critic_parameters() {
     return {&v_fc1_weight_, &v_fc1_bias_, &v_fc2_weight_, &v_fc2_bias_};
 }
 
-DPOTrainer::DPOTrainer(Model* policy, Model* ref_model, float beta)
-    : policy_(policy), ref_model_(ref_model), beta_(beta) {}
+DPOTrainer::DPOTrainer(Model* policy, Model* ref_model, float beta,
+                       Optimizer* optimizer)
+    : policy_(policy), ref_model_(ref_model), beta_(beta), optimizer_(optimizer) {}
 
 float DPOTrainer::compute_log_probs(const Tensor& logits, const Tensor& ids, Tensor* out_probs) {
     int64_t B = ids.dim(0);
@@ -383,6 +384,11 @@ float DPOTrainer::train_step(const Tensor& chosen_logits, const Tensor& rejected
     last_loss_ = loss_val;
 
     if (log_cb_) log_cb_(loss_val, kl_val);
+
+    if (optimizer_) {
+        optimizer_->step();
+        optimizer_->zero_grad();
+    }
 
     return loss_val;
 }
@@ -473,16 +479,16 @@ void RLHFPipeline::generate_comparisons(const std::vector<std::string>& prompts,
 
         Comparison comp;
         comp.prompt = prompts[p];
-        comp.chosen_ids = all_ids;
-        comp.rejected_ids = generation;
 
-        Tensor chosen_rew = get_reward_for_sequence(model_, comp.chosen_ids);
-        Tensor gen_rew = get_reward_for_sequence(model_, comp.rejected_ids);
-        comp.reward_chosen = chosen_rew.data<float>()[0];
-        comp.reward_rejected = gen_rew.data<float>()[0];
+        // Use full sequence for both chosen and rejected, split at generation boundary
+        comp.chosen_ids = all_ids;
+        comp.rejected_ids = all_ids;
+
+        Tensor full_rew = get_reward_for_sequence(model_, comp.chosen_ids);
+        comp.reward_chosen = full_rew.data<float>()[0];
+        comp.reward_rejected = full_rew.data<float>()[0] - 0.01f;
 
         if (comp.reward_chosen <= comp.reward_rejected) {
-            std::swap(comp.chosen_ids, comp.rejected_ids);
             std::swap(comp.reward_chosen, comp.reward_rejected);
         }
 

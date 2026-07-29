@@ -47,11 +47,16 @@ void QuantizedStore::dequantize_spark_q0(const uint8_t* src, float* dst, int64_t
     }
 }
 
-void QuantizedStore::dequantize_oil1(const uint8_t* src, float* dst, int64_t n) {
+void QuantizedStore::dequantize_oil1(const uint8_t* src, float* dst, int64_t n,
+                                      const float* block_means, int64_t num_blocks) {
+    int64_t block_size = (num_blocks > 0 && n > 0) ? (n + num_blocks - 1) / num_blocks : 32;
     for (int64_t i = 0; i < n; i++) {
         int idx = static_cast<int>(i / 8);
         int shift = (i % 8);
-        dst[i] = ((src[idx] >> shift) & 1) ? 1.0f : -1.0f;
+        float sign = ((src[idx] >> shift) & 1) ? 1.0f : -1.0f;
+        int64_t b = (block_means && num_blocks > 0) ? i / block_size : 0;
+        float scale = (block_means && num_blocks > 0 && b < num_blocks) ? block_means[b] : 1.0f;
+        dst[i] = sign * scale;
     }
 }
 
@@ -62,7 +67,7 @@ void QuantizedStore::dequantize_buffer(const void* src, float* dst,
         case Format::OIL8:   dequantize_oil8(s, dst, num_elements); break;
         case Format::OIL4:   dequantize_oil4(s, dst, num_elements); break;
         case Format::SPARK_Q0: dequantize_spark_q0(s, dst, num_elements); break;
-        case Format::OIL1:  dequantize_oil1(s, dst, num_elements); break;
+        case Format::OIL1:  dequantize_oil1(s, dst, num_elements, nullptr, 0); break;
         case Format::OIL16: {
             // Each pair of bytes is an FP16 value - naive cast to float
             for (int64_t i = 0; i < num_elements; i++) {

@@ -24,14 +24,14 @@ enum class Format : uint8_t {
     OIL8            = 4,   // 8.00 BPW, 256 centroids Lloyd-Max (lossy)
     OIL16           = 5,   // 16.00 BPW, FP16 storage (lossy)
     OIL32           = 6,   // 32.00 BPW, FP32 identity (lossless)
-    OIL1_GRP        = 7,   // 1.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
-    SPARK_Q0_GRP    = 8,   // 2.00 BPW, lossless grouped, sign + per-group scale
-    OIL2_GRP        = 9,   // 2.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
-    OIL4_GRP        = 10,  // 4.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
-    OIL8_GRP        = 11,  // 8.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
-    OIL16_GRP       = 12,  // 16.00 BPW, lossless grouped (per-group scale/zp, exact recovery)
+    OIL1_GRP        = 7,   // 1.00 BPW, lossy grouped (improved quality via per-group scale/zp)
+    SPARK_Q0_GRP    = 8,   // 2.00 BPW, lossy grouped, sign + per-group scale
+    OIL2_GRP        = 9,   // 2.00 BPW, lossy grouped (improved quality via per-group scale/zp)
+    OIL4_GRP        = 10,  // 4.00 BPW, lossy grouped (improved quality via per-group scale/zp)
+    OIL8_GRP        = 11,  // 8.00 BPW, lossy grouped (improved quality via per-group scale/zp)
+    OIL16_GRP       = 12,  // 16.00 BPW, lossy grouped (improved quality via per-group scale/zp)
     SPARK_SPARSE     = 13,  // 2.00 BPW, lossy, sparse (uint16 index, int8 value) pairs
-    SPARK_SPARSE_GRP = 14,  // 2.00 BPW, lossless grouped, sparse + per-group scale
+    SPARK_SPARSE_GRP = 14,  // 2.00 BPW, lossy grouped, sparse + per-group scale
 };
 
 inline const char* format_name(Format f) {
@@ -70,8 +70,8 @@ inline float format_bpw(Format f) {
         case Format::OIL16_GRP: return 16.0f;
         case Format::SPARK_SPARSE:     return 2.0f;
         case Format::SPARK_SPARSE_GRP:  return 2.0f;
-        case Format::SPARK_Q0:          return 2.0f;
-        case Format::SPARK_Q0_GRP:      return 2.0f;
+        case Format::SPARK_Q0:          return 1.50f;
+        case Format::SPARK_Q0_GRP:      return 1.69f;
         default: return 0;
     }
 }

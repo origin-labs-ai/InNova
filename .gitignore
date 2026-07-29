@@ -99,12 +99,12 @@ SANDBOX_TEST_LOG.md
 # Dist (binary release)
 dist/
 
+# Linux binaries
+dist/linux/
+
 # Excluded directories
 .llama/
 .kilo/
 .bitnet/
 publication/
 dist/windows/x64/
-
-# Linux binaries
-dist/linux/

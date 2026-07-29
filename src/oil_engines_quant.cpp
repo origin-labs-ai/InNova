@@ -39,9 +39,18 @@ Tensor AWQQuantizer::quantize(const Tensor& weight) {
     int64_t N = weight.dim(0);
     int64_t K = weight.dim(1);
     int64_t num_groups = (K + group_size_ - 1) / group_size_;
-    Tensor q_weight({N, K});
-    float* qd = q_weight.data<float>();
+
+    size_t packed_bytes = static_cast<size_t>((N * K + 1) / 2);
+    size_t scales_bytes = static_cast<size_t>(N * num_groups);
+    Tensor q_weight({static_cast<int64_t>(packed_bytes + scales_bytes + 8)});
+    uint8_t* qd = q_weight.data<uint8_t>();
     const float* wd = weight.data<float>();
+
+    uint32_t header = static_cast<uint32_t>(packed_bytes);
+    std::memcpy(qd, &header, 4);
+    std::memset(qd + 4, 0, packed_bytes);
+    float* sdc = reinterpret_cast<float*>(qd + 4 + packed_bytes);
+
     for (int64_t n = 0; n < N; ++n) {
         float s = scales_[(size_t)n];
         for (int64_t g = 0; g < num_groups; ++g) {
@@ -52,10 +61,14 @@ Tensor AWQQuantizer::quantize(const Tensor& weight) {
                 max_abs = std::max(max_abs, std::abs(wd[n * K + k] * s));
             float scale = max_abs / 7.0f;
             if (scale < 1e-10f) scale = 1e-10f;
+            sdc[static_cast<size_t>(n) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)] = scale / s;
             for (int64_t k = start; k < end; ++k) {
                 int q = (int)std::round(wd[n * K + k] * s / scale);
                 q = std::max(-8, std::min(7, q));
-                qd[n * K + k] = (float)q * scale / s;
+                int64_t idx = n * K + k;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                qd[4 + byte_idx] = (qd[4 + byte_idx] & ~(0xF << bit_off)) | ((static_cast<uint8_t>(q + 8) & 0xF) << bit_off);
             }
         }
     }
@@ -63,7 +76,34 @@ Tensor AWQQuantizer::quantize(const Tensor& weight) {
 }
 
 Tensor AWQQuantizer::dequantize(const Tensor& q_weight) {
-    return q_weight;
+    const uint8_t* qd = q_weight.data<uint8_t>();
+    uint32_t packed_bytes;
+    std::memcpy(&packed_bytes, qd, 4);
+    int64_t total_pairs = static_cast<int64_t>(packed_bytes * 2);
+    int64_t N = static_cast<int64_t>(scales_.size());
+    int64_t K = N > 0 ? total_pairs / N : total_pairs;
+    int64_t num_groups = (K + group_size_ - 1) / group_size_;
+
+    Tensor out({N, K});
+    float* od = out.data<float>();
+    const float* sdc = reinterpret_cast<const float*>(qd + 4 + packed_bytes);
+
+    for (int64_t n = 0; n < N; ++n) {
+        for (int64_t g = 0; g < num_groups; ++g) {
+            int64_t start = g * group_size_;
+            int64_t end = std::min(start + group_size_, K);
+            float group_scale = sdc[static_cast<size_t>(n) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)];
+            for (int64_t k = start; k < end; ++k) {
+                int64_t idx = n * K + k;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                int packed = (qd[4 + byte_idx] >> bit_off) & 0xF;
+                int q = packed - 8;
+                od[idx] = static_cast<float>(q) * group_scale;
+            }
+        }
+    }
+    return out;
 }
 
 // ===========================================================================
@@ -80,10 +120,20 @@ GPTQQuantizer::GPTQQuantizer(int64_t group_size, int bits)
 Tensor GPTQQuantizer::quantize(const Tensor& weight, const Tensor& hessian) {
     int64_t N = weight.dim(0);
     int64_t K = weight.dim(1);
-    Tensor q_weight({N, K});
-    float* qd = q_weight.data<float>();
+    int64_t num_groups = (K + group_size_ - 1) / group_size_;
+
+    size_t packed_bytes = static_cast<size_t>((N * K + 1) / 2);
+    size_t scales_bytes = static_cast<size_t>(N * num_groups);
+    Tensor q_weight({static_cast<int64_t>(packed_bytes + scales_bytes + 8)});
+    uint8_t* qd = q_weight.data<uint8_t>();
     const float* wd = weight.data<float>();
     const float* hd = hessian.data<float>();
+
+    uint32_t header = static_cast<uint32_t>(packed_bytes);
+    std::memcpy(qd, &header, 4);
+    std::memset(qd + 4, 0, packed_bytes);
+    float* sdc = reinterpret_cast<float*>(qd + 4 + packed_bytes);
+
     for (int64_t n = 0; n < N; ++n) {
         int64_t num_groups = (K + group_size_ - 1) / group_size_;
         for (int64_t g = 0; g < num_groups; ++g) {
@@ -95,10 +145,14 @@ Tensor GPTQQuantizer::quantize(const Tensor& weight, const Tensor& hessian) {
                 scale = std::max(scale, std::abs(wd[n * K + k]) / (h + 1e-8f));
             }
             scale = std::max(1e-10f, scale / max_q_);
+            sdc[static_cast<size_t>(n) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)] = scale;
             for (int64_t k = start; k < end; ++k) {
                 int q = (int)std::round(wd[n * K + k] / scale);
-                q = (int)std::max((float)min_q_, std::min((float)max_q_, (float)q));
-                qd[n * K + k] = (float)q * scale;
+                q = (int)std::max(min_q_, std::min(max_q_, (float)q));
+                int64_t idx = n * K + k;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                qd[4 + byte_idx] = (qd[4 + byte_idx] & ~(0xF << bit_off)) | ((static_cast<uint8_t>(q + 8) & 0xF) << bit_off);
             }
         }
     }
@@ -106,11 +160,29 @@ Tensor GPTQQuantizer::quantize(const Tensor& weight, const Tensor& hessian) {
 }
 
 Tensor GPTQQuantizer::dequantize(const Tensor& q_weight) {
-    return q_weight;
+    const uint8_t* qd = q_weight.data<uint8_t>();
+    uint32_t packed_bytes;
+    std::memcpy(&packed_bytes, qd, 4);
+    int64_t total_pairs = static_cast<int64_t>(packed_bytes * 2);
+
+    Tensor out({1, total_pairs});
+    float* od = out.data<float>();
+    const float* sdc = reinterpret_cast<const float*>(qd + 4 + packed_bytes);
+    int64_t num_groups_flat = (total_pairs + group_size_ - 1) / group_size_;
+    for (int64_t i = 0; i < total_pairs; ++i) {
+        size_t byte_idx = static_cast<size_t>(i / 2);
+        int bit_off = static_cast<int>((i % 2) * 4);
+        int packed = (qd[4 + byte_idx] >> bit_off) & 0xF;
+        int q = packed - 8;
+        int64_t g = i / group_size_;
+        float gs = (g < num_groups_flat) ? sdc[g] : 1.0f;
+        od[i] = static_cast<float>(q) * gs;
+    }
+    return out;
 }
 
 // ===========================================================================
-// I2S Engine: wraps SparkEngine (identical ternary per-block quantization)
+// I2S Engine: wraps SparkEngine (identical per-block quantization)
 // ===========================================================================
 
 I2SEngine::I2SEngine(int64_t block_size) : spark_(block_size), block_size_(block_size) {}
@@ -140,14 +212,40 @@ Tensor AWQQuantizer::quant_gemm(const Tensor& a, const Tensor& b_q,
     Tensor C({M, N});
     C.zero_();
     const float* ad = a.data<float>();
-    const float* bd = b_q.data<float>();
     float* cd = C.data<float>();
+
+    const uint8_t* bd = b_q.data<uint8_t>();
+    uint32_t packed_bytes;
+    std::memcpy(&packed_bytes, bd, 4);
+    int64_t total_pairs = static_cast<int64_t>(packed_bytes * 2);
+    int64_t num_groups = (K + group_size_ - 1) / group_size_;
+    N = N > 0 ? N : (total_pairs / K);
+
+    const float* sdc = reinterpret_cast<const float*>(bd + 4 + packed_bytes);
+
+    std::vector<float> b_fp32(static_cast<size_t>(K * N));
+    for (int64_t n = 0; n < N; ++n) {
+        for (int64_t g = 0; g < num_groups; ++g) {
+            int64_t start = g * group_size_;
+            int64_t end = std::min(start + group_size_, K);
+            float group_scale = sdc[static_cast<size_t>(n) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)];
+            for (int64_t k = start; k < end; ++k) {
+                int64_t idx = n * K + k;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                int packed = (bd[4 + byte_idx] >> bit_off) & 0xF;
+                int q = packed - 8;
+                b_fp32[static_cast<size_t>(idx)] = static_cast<float>(q) * group_scale;
+            }
+        }
+    }
+
     for (int64_t m = 0; m < M; ++m) {
         for (int64_t k = 0; k < K; ++k) {
             float a_val = ad[m * K + k];
             if (a_val == 0.0f) continue;
             for (int64_t n = 0; n < N; ++n)
-                cd[m * N + n] += a_val * bd[k * N + n];
+                cd[m * N + n] += a_val * b_fp32[static_cast<size_t>(k * N + n)];
         }
     }
     return C;
@@ -159,11 +257,22 @@ void AWQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
     int64_t d0 = t.dim(0), d1 = t.dim(1);
     int64_t channels = (channel_dim == 0) ? d0 : d1;
     int64_t other = (channel_dim == 0) ? d1 : d0;
-    q = Tensor(t.shape());
+    int64_t num_groups = (other + group_size_ - 1) / group_size_;
+
+    size_t packed_bytes = static_cast<size_t>((d0 * d1 + 1) / 2);
+    size_t scales_count = static_cast<size_t>(channels * num_groups);
+    q = Tensor({static_cast<int64_t>(packed_bytes + scales_count * 4 + 8)});
     scales = Tensor({channels});
+
+    uint8_t* qd = q.data<uint8_t>();
+    uint32_t header = static_cast<uint32_t>(packed_bytes);
+    std::memcpy(qd, &header, 4);
+    std::memset(qd + 4, 0, packed_bytes);
+    float* sdc = reinterpret_cast<float*>(qd + 4 + packed_bytes);
+
     const float* td = t.data<float>();
-    float* qd = q.data<float>();
     float* sd = scales.data<float>();
+
     for (int64_t c = 0; c < channels; ++c) {
         float max_abs = 0;
         for (int64_t i = 0; i < other; ++i) {
@@ -172,7 +281,6 @@ void AWQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
         }
         if (max_abs < 1e-10f) max_abs = 1.0f;
         sd[c] = max_abs;
-        int64_t num_groups = (other + group_size_ - 1) / group_size_;
         for (int64_t g = 0; g < num_groups; ++g) {
             int64_t start = g * group_size_;
             int64_t end = std::min(start + group_size_, other);
@@ -183,11 +291,14 @@ void AWQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
             }
             float group_scale = gmax / 7.0f;
             if (group_scale < 1e-10f) group_scale = 1e-10f;
+            sdc[static_cast<size_t>(c) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)] = group_scale;
             for (int64_t i = start; i < end; ++i) {
                 int64_t idx = (channel_dim == 0) ? c * other + i : i * channels + c;
                 int qv = (int)std::round(td[idx] / group_scale);
                 qv = std::max(-8, std::min(7, qv));
-                qd[idx] = (float)qv * group_scale;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                qd[4 + byte_idx] = (qd[4 + byte_idx] & ~(0xF << bit_off)) | ((static_cast<uint8_t>(qv + 8) & 0xF) << bit_off);
             }
         }
     }
@@ -195,7 +306,36 @@ void AWQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
 
 void AWQQuantizer::dequantize_per_channel(const Tensor& q, const Tensor& scales,
                                            int channel_dim, Tensor& out) {
-    out = q;
+    const uint8_t* qd = q.data<uint8_t>();
+    uint32_t packed_bytes;
+    std::memcpy(&packed_bytes, qd, 4);
+    int64_t total_elems = static_cast<int64_t>(packed_bytes * 2);
+
+    int64_t channels = scales.dim(0);
+    int64_t other = channels > 0 ? total_elems / channels : total_elems;
+    int64_t num_groups = (other + group_size_ - 1) / group_size_;
+
+    int64_t d0 = (channel_dim == 0) ? channels : other;
+    int64_t d1 = (channel_dim == 0) ? other : channels;
+    out = Tensor({d0, d1});
+    float* od = out.data<float>();
+    const float* sdc = reinterpret_cast<const float*>(qd + 4 + packed_bytes);
+
+    for (int64_t c = 0; c < channels; ++c) {
+        for (int64_t g = 0; g < num_groups; ++g) {
+            int64_t start = g * group_size_;
+            int64_t end = std::min(start + group_size_, other);
+            float group_scale = sdc[static_cast<size_t>(c) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)];
+            for (int64_t i = start; i < end; ++i) {
+                int64_t idx = (channel_dim == 0) ? c * other + i : i * channels + c;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                int packed = (qd[4 + byte_idx] >> bit_off) & 0xF;
+                int qv = packed - 8;
+                od[idx] = static_cast<float>(qv) * group_scale;
+            }
+        }
+    }
 }
 
 float AWQQuantizer::quant_error(const Tensor& original, const Tensor& reconstructed) {
@@ -225,14 +365,40 @@ Tensor GPTQQuantizer::quant_gemm(const Tensor& a, const Tensor& b_q,
     Tensor C({M, N});
     C.zero_();
     const float* ad = a.data<float>();
-    const float* bd = b_q.data<float>();
     float* cd = C.data<float>();
+
+    const uint8_t* bd = b_q.data<uint8_t>();
+    uint32_t packed_bytes;
+    std::memcpy(&packed_bytes, bd, 4);
+    int64_t total_pairs = static_cast<int64_t>(packed_bytes * 2);
+    int64_t num_groups = (K + group_size_ - 1) / group_size_;
+    N = N > 0 ? N : (total_pairs / K);
+
+    const float* sdc = reinterpret_cast<const float*>(bd + 4 + packed_bytes);
+
+    std::vector<float> b_fp32(static_cast<size_t>(K * N));
+    for (int64_t n = 0; n < N; ++n) {
+        for (int64_t g = 0; g < num_groups; ++g) {
+            int64_t start = g * group_size_;
+            int64_t end = std::min(start + group_size_, K);
+            float group_scale = sdc[static_cast<size_t>(n) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)];
+            for (int64_t k = start; k < end; ++k) {
+                int64_t idx = n * K + k;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                int packed = (bd[4 + byte_idx] >> bit_off) & 0xF;
+                int q = packed - 8;
+                b_fp32[static_cast<size_t>(idx)] = static_cast<float>(q) * group_scale;
+            }
+        }
+    }
+
     for (int64_t m = 0; m < M; ++m) {
         for (int64_t k = 0; k < K; ++k) {
             float a_val = ad[m * K + k];
             if (a_val == 0.0f) continue;
             for (int64_t n = 0; n < N; ++n)
-                cd[m * N + n] += a_val * bd[k * N + n];
+                cd[m * N + n] += a_val * b_fp32[static_cast<size_t>(k * N + n)];
         }
     }
     return C;
@@ -244,11 +410,22 @@ void GPTQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
     int64_t d0 = t.dim(0), d1 = t.dim(1);
     int64_t channels = (channel_dim == 0) ? d0 : d1;
     int64_t other = (channel_dim == 0) ? d1 : d0;
-    q = Tensor(t.shape());
+    int64_t num_groups = (other + group_size_ - 1) / group_size_;
+
+    size_t packed_bytes = static_cast<size_t>((d0 * d1 + 1) / 2);
+    size_t scales_count = static_cast<size_t>(channels * num_groups);
+    q = Tensor({static_cast<int64_t>(packed_bytes + scales_count * 4 + 8)});
     scales = Tensor({channels});
+
+    uint8_t* qd = q.data<uint8_t>();
+    uint32_t header = static_cast<uint32_t>(packed_bytes);
+    std::memcpy(qd, &header, 4);
+    std::memset(qd + 4, 0, packed_bytes);
+    float* sdc = reinterpret_cast<float*>(qd + 4 + packed_bytes);
+
     const float* td = t.data<float>();
-    float* qd = q.data<float>();
     float* sd = scales.data<float>();
+
     for (int64_t c = 0; c < channels; ++c) {
         float max_abs = 0;
         for (int64_t i = 0; i < other; ++i) {
@@ -257,7 +434,6 @@ void GPTQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
         }
         if (max_abs < 1e-10f) max_abs = 1.0f;
         sd[c] = max_abs;
-        int64_t num_groups = (other + group_size_ - 1) / group_size_;
         for (int64_t g = 0; g < num_groups; ++g) {
             int64_t start = g * group_size_;
             int64_t end = std::min(start + group_size_, other);
@@ -268,11 +444,14 @@ void GPTQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
             }
             float group_scale = gmax / max_q_;
             if (group_scale < 1e-10f) group_scale = 1e-10f;
+            sdc[static_cast<size_t>(c) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)] = group_scale;
             for (int64_t i = start; i < end; ++i) {
                 int64_t idx = (channel_dim == 0) ? c * other + i : i * channels + c;
                 int qv = (int)std::round(td[idx] / group_scale);
                 qv = (int)std::max(min_q_, std::min(max_q_, (float)qv));
-                qd[idx] = (float)qv * group_scale;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                qd[4 + byte_idx] = (qd[4 + byte_idx] & ~(0xF << bit_off)) | ((static_cast<uint8_t>(qv + 8) & 0xF) << bit_off);
             }
         }
     }
@@ -280,7 +459,36 @@ void GPTQQuantizer::quantize_per_channel(const Tensor& t, int channel_dim,
 
 void GPTQQuantizer::dequantize_per_channel(const Tensor& q, const Tensor& scales,
                                             int channel_dim, Tensor& out) {
-    out = q;
+    const uint8_t* qd = q.data<uint8_t>();
+    uint32_t packed_bytes;
+    std::memcpy(&packed_bytes, qd, 4);
+    int64_t total_elems = static_cast<int64_t>(packed_bytes * 2);
+
+    int64_t channels = scales.dim(0);
+    int64_t other = channels > 0 ? total_elems / channels : total_elems;
+    int64_t num_groups = (other + group_size_ - 1) / group_size_;
+
+    int64_t d0 = (channel_dim == 0) ? channels : other;
+    int64_t d1 = (channel_dim == 0) ? other : channels;
+    out = Tensor({d0, d1});
+    float* od = out.data<float>();
+    const float* sdc = reinterpret_cast<const float*>(qd + 4 + packed_bytes);
+
+    for (int64_t c = 0; c < channels; ++c) {
+        for (int64_t g = 0; g < num_groups; ++g) {
+            int64_t start = g * group_size_;
+            int64_t end = std::min(start + group_size_, other);
+            float group_scale = sdc[static_cast<size_t>(c) * static_cast<size_t>(num_groups) + static_cast<size_t>(g)];
+            for (int64_t i = start; i < end; ++i) {
+                int64_t idx = (channel_dim == 0) ? c * other + i : i * channels + c;
+                size_t byte_idx = static_cast<size_t>(idx / 2);
+                int bit_off = static_cast<int>((idx % 2) * 4);
+                int packed = (qd[4 + byte_idx] >> bit_off) & 0xF;
+                int qv = packed - 8;
+                od[idx] = static_cast<float>(qv) * group_scale;
+            }
+        }
+    }
 }
 
 float GPTQQuantizer::quant_error(const Tensor& original, const Tensor& reconstructed) {

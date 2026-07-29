@@ -27,27 +27,6 @@ namespace asi {
 
 namespace {
 
-// Simple character-level tokenization (no external tokenizer needed)
-std::vector<int> simple_encode(const std::string& text, int vocab_size) {
-    std::vector<int> ids;
-    int offset = 5;
-    int mod = std::max(1, vocab_size - offset);
-    for (char c : text) {
-        ids.push_back((int)(unsigned char)c % mod + offset);
-    }
-    return ids;
-}
-
-std::string simple_decode(const std::vector<int>& ids) {
-    std::string s;
-    for (int id : ids) {
-        int c = id - 5;
-        if (c >= 0 && c < 256) s += (char)c;
-        else s += '?';
-    }
-    return s;
-}
-
 int greedy_argmax(const float* logits, int n) {
     return (int)(std::max_element(logits, logits + n) - logits);
 }
@@ -867,9 +846,9 @@ std::string Flywheel::self_play() {
     if (model_) {
         int vocab_size = (int)model_->config.vocab_size;
         std::string prompt = "Generate a C++ implementation task similar to: " + task + " Task:";
-        auto ids = simple_encode(prompt, vocab_size);
+        auto ids = oil::asi::util::simple_encode(prompt, vocab_size);
         auto gen = generate_new_tokens(model_, ids, vocab_size, 20);
-        std::string model_task = simple_decode(gen);
+        std::string model_task = oil::asi::util::simple_decode(gen);
         if (!model_task.empty() && model_task.size() > 10) {
             task = model_task;
         }
@@ -1859,9 +1838,9 @@ void Flywheel::run(int max_iters) {
         if (model_) {
             int vocab_size = (int)model_->config.vocab_size;
             std::string prompt = "Write C++ code to solve this problem:\n" + task + "\n\nCode:";
-            auto ids = simple_encode(prompt, vocab_size);
+            auto ids = oil::asi::util::simple_encode(prompt, vocab_size);
             auto gen = generate_new_tokens(model_, ids, vocab_size, 100);
-            solution = simple_decode(gen);
+            solution = oil::asi::util::simple_decode(gen);
         }
 
         if (solution.empty()) {

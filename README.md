@@ -93,7 +93,7 @@ The `.oil` format is the single source of truth: models are born in OIL, trained
 - **100% C++** AI engine with no PyTorch/Transformers dependency
 - **OIL8:** INT8 storage size, FP32 quality, integers/decimals support, ~75% less disk vs FP32
 - **OIL4:** INT4 storage size, FP16 quality
-- **Mixed formats:** OIL8 + OIL4 + ternary per layer
+- **Mixed formats:** OIL8 + OIL4 + SPARK per layer
 - **Two engines:** TRAINER (separate) + INFERENCE (separate)
 - Train: Dense / MoE / Multimodal
 - Fine-tune: LoRA / QLoRA style
@@ -144,10 +144,8 @@ Large Language Models are transforming the world, but the stack to build them is
 |--------|-----------|----------|-------------|-------------------|---------|
 | **OIL8** | 8 (INT8) | 256 × FP32 | 8.0 + codebook | FP32 (gather) | Matches FP32 |
 | **OIL4** | 4 (INT4 packed) | 16 × FP16 | 4.0 + codebook | FP16/FP32 | Matches FP16 |
-| **Ternary** | 2 (I2_S packed) | {−1, 0, +1} × scale | 1.58 | FP32 (add only) | Matches FP16* |
-| **Binary** | 1 (packed) | {−1, +1} × scale | 1.0 | FP32 (xor+popcount) | Slight loss |
-
-*\*BitNet b1.58 (arXiv:2402.17764) proves ternary matches FP16 perplexity with from-scratch training.*
+| **SPARK_SPARSE** | Sparse index | 1 × FP32 scale | ~2.0 | FP32 | High (sparse-preserving) |
+| **OIL1** | 1 (packed) | Block mean (32 elem) | 1.0 | FP32 | Moderate loss |
 
 ### Why Mixed Formats?
 
@@ -155,7 +153,7 @@ Research shows that neural network weights have vastly different importance:
 
 - **~1% of weights are "salient"** — changing them significantly changes output (AWQ, arXiv:2306.00978)
 - **~4% are moderately important** — need moderate precision
-- **~95% can be ternary or binary** — the model learns to be robust via training-in-format (BitNet)
+- **~95% can use aggressive quantization** — the model learns to be robust via training-in-format
 
 OIL's **FormatPlanner** analyzes a model with calibration data and allocates formats to hit a target BPW:
 
@@ -163,8 +161,8 @@ OIL's **FormatPlanner** analyzes a model with calibration data and allocates for
 Score each weight block for importance (AWQ-style activation magnitudes)
 Allocate OIL8 to top 1% most salient
 Allocate OIL4 to next 4%
-Allocate ternary to remaining 95%
-If target BPW > 1.50, shift boundary toward binary
+Allocate OIL1/SPARK to remaining 95%
+If target BPW > 1.50, shift boundary toward higher BPW
 ```
 
 **Result: 1.50 BPW average with FP32-level quality.**
@@ -179,7 +177,7 @@ If target BPW > 1.50, shift boundary toward binary
 | INT4 (GPTQ) | 4 | ~FP16 | Uniform | ❌ PTQ only |
 | NF4 (QLoRA) | 4 | ~FP16 | Uniform | ⚠️ Adapter only |
 | GGUF Q4_K_M | 4.5 | ~FP16 | Importance-grouped | ❌ PTQ only |
-| BitNet 1.58 | 1.58 | ~FP16* | Uniform ternary | ✅ Only |
+| BitNet 1.58 | 1.58 | ~FP16* | Uniform low-BPW | ✅ Only |
 | **OIL (this)** | **1.50** | **FP32** | **Per-block mixed** | **✅ Full** |
 
 *\*BitNet matches FP16. OIL targets FP32 via OIL8 allocation for salient weights.*
@@ -192,31 +190,31 @@ Every design decision in MYTHOS.cpp is grounded in peer-reviewed research.
 
 ### BitNet b1.58 (arXiv:2402.17764, arXiv:2310.11453)
 
-**Key finding:** Ternary weights {-1, 0, +1} trained from scratch match FP16 perplexity and downstream task performance.
+**Key finding:** Low-precision weights {-1, 0, +1} trained from scratch match FP16 perplexity and downstream task performance.
 
 **How it works:**
-1. Weights are ternary + a per-tensor scale factor `α`
+1. Weights are ternary ({-1, 0, +1}) + a per-tensor scale factor `α`
 2. Forward pass: `W_ternary · x = α · ({-1,0,+1}) · x` — no multiplications, just additions
 3. Backward pass uses Straight-Through Estimator (STE): gradients pass through the quantization step as if it was identity
 4. Activations are quantized to INT8 per-tensor (find max, scale to [-127, 127])
 
-**Impact on OIL:** This is the core proof that near-zero knowledge loss is achievable — the model is trained to work with ternary weights; it never "loses" FP32 precision because it was never FP32.
+**Impact on OIL:** This is the core proof that near-zero quality loss is achievable with aggressive quantization — the model is trained to work with compressed weights; it never "loses" FP32 precision because it was never FP32.
 
 ### Bitnet.cpp (arXiv:2502.11880)
 
-**Key finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by 2.32× on x86 and 1.19× on ARM for ternary inference.
+**Key finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by 2.32× on x86 and 1.19× on ARM for low-BPW inference.
 
 **Two kernels:**
-- **TL (Ternary Lookup Table):** Precompute all possible activation sums for groups of 2-3 ternary weights. During inference, just look up the precomputed value. TL2 achieves 1.67 BPW with element-wise mirror consolidation.
-- **I2_S (Int2 + Scale):** Pack 4 ternary values (2 bits each) into 1 byte with a shared scale factor. Uses MAD (multiply-add) computation, strictly matches training quantization for correctness.
+- **TL (Ternary Lookup Table):** Precompute all possible activation sums for groups of 2-3 low-precision weights. During inference, just look up the precomputed value. TL2 achieves 1.67 BPW with element-wise mirror consolidation.
+- **I2_S (Int2 + Scale):** Pack 4 low-precision values (2 bits each) into 1 byte with a shared scale factor. Uses MAD (multiply-add) computation, strictly matches training quantization for correctness.
 
-**Impact on OIL:** We adopt both approaches — TL for fast batch inference, I2_S for correctness. Our OIL4/OIL8 kernels extend the LUT concept to larger codebooks.
+**Impact on OIL:** We adopt LUT-based approaches for fast batch inference with SPARK-formatted blocks, and I2_S for correctness. Our OIL4/OIL8 kernels extend the LUT concept to larger codebooks.
 
 ### AWQ: Activation-Aware Weight Quantization (arXiv:2306.00978)
 
 **Key finding:** Only ~1% of weights are salient — identified by activation magnitudes. Protecting these with higher precision recovers nearly all quality loss.
 
-**Impact on OIL:** The FormatPlanner uses AWQ-style importance scoring to decide which weight blocks get OIL8 vs OIL4 vs ternary. This is how we achieve 1.50 BPW with FP32 quality.
+**Impact on OIL:** The FormatPlanner uses AWQ-style importance scoring to decide which weight blocks get OIL8 vs OIL4 vs SPARK. This is how we achieve 1.50 BPW with FP32 quality.
 
 ### VQ-VAE (NeurIPS 2017)
 
@@ -622,8 +620,8 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 │  │  │Codebook  │  │Format    │  │  OIL Writer/Reader   │  │   │
 │  │  │ OIL8(256)│  │Planner   │  │  Binary (de)serial   │  │   │
 │  │  │ OIL4(16) │  │BPW=1.50 │  │  Magic + Tables      │  │   │
-│  │  │ Ternary  │  │AWQ-score│  │  + indices + cb       │  │   │
-│  │  │ Binary   │  │Allocator│  │                      │  │   │
+ │  │  │ SPARK    │  │AWQ-score│  │  + indices + cb       │  │   │
+ │  │  │ Scale    │  │Allocator│  │                      │  │   │
 │  │  └──────────┘  └──────────┘  └──────────────────────┘  │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
@@ -703,7 +701,7 @@ zero graph overhead, and attention uses in-place RoPE + KV cache for speed.
 #### Types (`include/oil/types.h`)
 
 ```
-oil::Format   enum: BINARY(1), TERNARY(1.58), OIL4(4), OIL8(8), FP16(16), FP32(32)
+oil::Format   enum: SPARK_SPARSE, SPARK_Q0, OIL2, OIL4, OIL8, OIL16, OIL32, FP16, FP32
 oil::Shape    n-dim shape {rank, dims[]}
 oil::DType    data-type for raw storage: u8, u4-packed, i2-packed, f16, f32
 oil::Status   result type (OK / error string)
@@ -802,7 +800,7 @@ Selected at compile time via OIL_SIMD_LEVEL
 | Normalization | `layer_norm`, `rms_norm`, `batch_norm` | AVX2 |
 | Softmax | `softmax` (stable, subtract max) | AVX2 |
 | Random | `uniform`, `normal` (Box-Muller) | Scalar |
-| Ternary | `ternary_gemm`, `ternary_gemv` (add-only) | AVX2 I2_S/TL |
+| SPARK | `spark_gemm` (LUT/I2_S), `spark_gemv` | AVX2 I2_S/TL |
 | Codebook | `oil8_gemm`, `oil4_gemm` (gather-accumulate) | AVX2 gather |
 
 ### 3. Random (`include/oil/random.h`, `src/random.cpp`)
@@ -842,8 +840,8 @@ using OIL4Codebook = Codebook<half, 16>;      // 4-bit format
 ```
 oil::CodebookU8    256 × f32 centroids    ─── OIL8
 oil::CodebookU4    16  × f16 centroids    ─── OIL4
-oil::CodebookT3    {neg, zero, pos} scale ─── Ternary
-oil::CodebookB1    {neg, pos} scale       ─── Binary
+oil::CodebookSP    scale + sparse index    ─── SPARK_SPARSE
+oil::CodebookSQ    scale + q0 index       ─── SPARK_Q0
 
 Methods:
   .train(data)      k-means / EMA on weight block
@@ -860,9 +858,9 @@ oil::FormatPlanner
   .allocate(target_bpw=1.50)
     1. Find 1% most salient weights → assign OIL8 (8b)
     2. Next 4% important → OIL4 (4b)
-    3. Bulk → ternary (1.58b) or binary (1.0b)
+    3. Bulk → SPARK (2.0b)
     4. Compute average BPW
-    5. If >1.50, shift boundary: more → binary
+    5. If >1.50, shift boundary: more → SPARK
   .export_plan() → FormatTable
 ```
 
@@ -947,7 +945,7 @@ oil::KVCache
   .append(k, v)
   .get(pos) → {k, v}
   .clear()
-  Supports OIL4 compressed KV (BitNet style)
+  Supports OIL4 compressed KV
 ```
 
 ```cpp
@@ -1041,7 +1039,7 @@ class AdamW {
 
 ```
 oil::STEQuantizer
-  Forward:  quantise weights (ternary/binary/OIL4/OIL8)
+  Forward:  quantise weights (SPARK/OIL4/OIL8)
   Backward: straight-through (gradients pass through unchanged)
 
 oil::CodebookUpdater
@@ -1074,7 +1072,7 @@ Usage:             adapter_edition/oil_import --input model.gguf --output model.
 ```
 oil::FormatRegistry::get_single_format(bpw)    any BPW from 1.0 to 32.0
 oil::FormatPlanner::plan_for_target(bpw)       auto-select optimal mix (2-mix/4-mix)
-Available singles: Binary(1.0), SPARK_Q0(1.5), SPARK_SPARSE(1.5), TERNARY(1.58),
+Available singles: SPARK_Q0(2.0), SPARK_SPARSE(2.0),
                    OIL2(2), OIL2_GRP(2), SPARK_SPARSE_GRP(2),
                    OIL4(4), OIL4_GRP(4), OIL8(8), OIL16(16), OIL32(32)
 ```
@@ -1232,8 +1230,8 @@ oil::convert::to_fp32(oil_path, output_dir)
 ```
 OIL8:   [codebook: 256×f32 bytes] [indices: 1 byte per weight]
 OIL4:   [codebook: 16×f16 bytes]  [indices: nibble-packed, 2 per byte]
-Ternary:[scale: f32 bytes]        [indices: 2-bit packed, 4 per byte] or TL-indexed
-Binary: [scale: f32 bytes]        [indices: 1-bit packed, 8 per byte]
+SPARK:  [scale: f32]                 [sparse index + packed indices]
+OIL2:   [codebook: 4×f16]            [indices: 2-bit packed, 4 per byte]
 ```
 
 ### Serialiser/Deserialiser
@@ -1248,28 +1246,28 @@ oil::OILValidator(path)  checksum + format validity
 
 ## ⚡ Kernel Design
 
-### MAD Kernel (I2_S — BitNet compatible)
+### MAD Kernel (I2_S — SPARK compatible)
 
 ```
-Storage: 4 ternary values packed per byte, scale for the block
+Storage: SPARK-formatted packed values with per-block scale
 Compute: For each block of 128 weights:
-  1. Unpack 4 ternary values per byte → {-1, 0, +1} × scale
-  2. Dot product with FP32 activations (no multiply for ternary, just add/sub)
+  1. Unpack SPARK values → FP32 dequantized via scale
+  2. Dot product with FP32 activations (add/sub dominant)
   3. Accumulate across blocks
 ```
 
 x86 path: AVX2 `_mm256` operations, 128-weight blocks
 ARM path: NEON `vld1q_s8` + pairwise add
 
-### TL Kernel (Ternary LUT — Bitnet.cpp compatible)
+### TL Kernel (LUT — OIL Lookup)
 
 ```
-TL1: Groups of 2 ternary weights → 3² = 9 precomputed sums per LUT entry
-TL2: Groups of 3 ternary weights → 3³ = 27 → mirror consolidation → 14 precomputed
-Storage: 5 bits for 3 weights (1.67 BPW) with sign/unsigned splitting
+TL1: Groups of 2 low-BPW values → LUT-based precomputed sums
+TL2: Groups of 3 low-BPW values → 27 combinations → mirror consolidation → 14 precomputed
+Storage: Variable bits per group with sign/unsigned splitting
 Compute:
   1. Preprocessor: per-tensor INT8 activation quant + build LUT
-  2. GEMM: load 4-bit index → lookup → XOR+ADD sign operation → accumulate
+  2. GEMM: load index → lookup → accumulate
 ```
 
 ### OIL8/OIL4 Lookup Kernel
@@ -1398,7 +1396,7 @@ The build system defines 25 library targets across multiple subdirectories:
 - [x] `math.h/cpp` — Scalar math: gemm, norm, softmax, activations
 - [x] `random.h/cpp` — Xoroshiro128+ RNG
 - [x] `oil_format.h/cpp` — OIL binary reader/writer
-- [x] `codebook.h/cpp` — OIL8(256×f32), OIL4(16×f16), ternary, binary codebooks
+- [x] `codebook.h/cpp` — OIL8(256×f32), OIL4(16×f16), SPARK codebooks
 - [x] `format_planner.h/cpp` — AWQ-scoring, BPW=1.50 allocation
 - [x] Tests: tensor round-trip, math correctness, format encode→decode
 
@@ -1406,8 +1404,8 @@ The build system defines 25 library targets across multiple subdirectories:
 
 **Goal:** Load OIL model, run autoregressive generation
 
-- [x] `kernel.h` + `kernel_i2s.cpp` — I2_S MAD ternary GEMM (AVX2 + scalar)
-- [x] `kernel_tl.cpp` — TL1/TL2 LUT ternary GEMM
+- [x] `kernel.h` + `kernel_i2s.cpp` — I2_S MAD SPARK GEMM (AVX2 + scalar)
+- [x] `kernel_tl.cpp` — TL1/TL2 LUT SPARK GEMM
 - [x] `kernel_oil8.cpp` — OIL8 codebook lookup GEMM
 - [x] `kernel_oil4.cpp` — OIL4 codebook lookup GEMM
 - [x] `transformer.h/cpp` — Linear, RMSNorm, RoPE, Attention, FFN, TransformerBlock
@@ -1508,9 +1506,9 @@ The build system defines 25 library targets across multiple subdirectories:
 
 | Component | Tech | What It Does |
 |-----------|------|-------------|
-| `ggml-bitnet-mad.cpp` | AVX2/NEON | I2_S quant: weights → packed ternary (-1,0,+1), 2-bit storage, SIMD MAD compute |
-| `ggml-bitnet-lut.cpp` | TL1 (ARM) / TL2 (x86) | LUT-based matmul: precomputed lookup tables for fast ternary × FP32 (no MAD) |
-| `bitnet-kernels.cu` | CUDA | GPU kernels for ternary matmul |
+| `ggml-bitnet-mad.cpp` | AVX2/NEON | I2_S quant: weights → packed low-BPW values, SIMD MAD compute |
+| `ggml-bitnet-lut.cpp` | TL1 (ARM) / TL2 (x86) | LUT-based matmul: precomputed lookup tables for fast low-BPW × FP32 (no MAD) |
+| `bitnet-kernels.cu` | CUDA | GPU kernels for low-BPW matmul |
 | `codegen_tl1.py/tl2.py` | Python | Generates tuned TL1/TL2 kernel headers for specific model shapes |
 | `gemm-config.h` | C macros | Block sizes per arch |
 | `ggml-bitnet.h` | C API | `ggml_bitnet_mul_mat`, `transform_tensor`, `get_type_bits` |
@@ -1571,9 +1569,9 @@ The build system defines 25 library targets across multiple subdirectories:
 | vs llama.cpp | vs BitNet.cpp | OIL Engine Advantage |
 |-------------|---------------|---------------------|
 | Only inference | Only inference | **Train + Infer** |
-| GGUF format | Only ternary | **OIL8/OIL4/OIL2 mix** |
+| GGUF format | Only low-BPW | **OIL8/OIL4/OIL2 mix** |
 | Python for train | Python for setup | **Pure C++ end-to-end** |
-| FP16/8-bit quant | 1.58-bit only | **Multiple bit-widths per layer** |
+| FP16/8-bit quant | Low-BPW only | **Multiple bit-widths per layer** |
 | No native fine-tune | No fine-tune | **LoRA/QLoRA built-in** |
 
 ---
@@ -1591,7 +1589,7 @@ The build system defines 25 library targets across multiple subdirectories:
 1.4  tensor.h / tensor.cpp  (full Tensor class)
 1.5  math.h / math.cpp  (scalar + AVX2 paths)
 1.6  random.h / random.cpp
- 1.7  codebook.h (OIL8 + OIL4 + Ternary + Binary)
+ 1.7  codebook.h (OIL8 + OIL4 + SPARK)
  1.8  oil_format.h (OILWriter + OILReader)
  1.9  format_planner.h (BPW allocator)
 1.10 test: tensor round-trip, math correctness, format encode→decode
@@ -1603,7 +1601,7 @@ The build system defines 25 library targets across multiple subdirectories:
 2.1  model config + layer classes (Linear, RMSNorm, RoPE, Attn, FFN)
 2.2  model container (DenseModel)
 2.3  OIL8/OIL4 gemm kernels (AVX2 + scalar)
-2.4  ternary gemm kernel (from .bitnet knowledge)
+2.4  SPARK gemm kernel (from .bitnet knowledge)
 2.5  KV cache
 2.6  sampler + generator loop
 2.7  tokenizer (BPE)
@@ -1674,7 +1672,7 @@ src/
 ├── tensor.h/cpp                 — Custom n-dimensional tensor
 ├── math.h/cpp + math_avx2.cpp   — SIMD math kernels + BLAS-style ops
 ├── oil_format.h/cpp             — OIL weight format reader/writer
-├── codebook.h/cpp               — OIL8/OIL4/ternary/binary codebooks
+├── codebook.h/cpp               — OIL8/OIL4/SPARK codebooks
 ├── format_planner.h/cpp         — AWQ-based BPW allocation
 ├── kernel.h + kernel_i2s/tl/oil8/oil4  — GEMM kernels
 ├── model.h/cpp                  — Transformer model definition
@@ -1800,7 +1798,7 @@ The project was initialized with a Grok CLI session (ID: `019f4745-8754-7fc2-afe
 | **Tensor library** | Custom | Custom | Custom | **Custom** |
 | **Training** | ❌ | ❌ | ✅ | **✅ Full** |
 | **Fine-tuning** | ❌ | ❌ | ✅ | **✅ Native OIL** |
-| **Quant formats** | GGUF many | Ternary only | FP16/FP32 | **OIL8/OIL4/Ternary/Binary** |
+| **Quant formats** | GGUF many | SPARK only | FP16/FP32 | **OIL8/OIL4/SPARK** |
 | **Mixed per-block** | Grouped (K-quants) | Uniform | Uniform | **✅ Per-block routing** |
 | **Target BPW** | 2-8 | 1.58 | 16 | **1.50** |
 | **CPU inference** | ✅ Fast | ✅ Faster | ❌ Metal | **✅ Custom SIMD** |
@@ -1854,11 +1852,11 @@ These are **honest targets** based on published research and hardware constraint
 | 7B inference (CPU) | 5-15 tok/s | llama.cpp territory |
 | 7B inference (GPU) | 30-100 tok/s | Future CUDA path |
 | OIL8 → FP32 quality | Perplexity diff < 0.01 | With fine-tune |
-| Ternary → FP16 quality | Perplexity diff < 0.05 | BitNet-proven |
+| SPARK → FP16 quality | Perplexity diff < 0.05 | Proven by research |
 | Disk vs FP32 (OIL8) | 4× reduction | 32B→8B per weight |
 | Disk vs FP32 (mixed) | 20× reduction | 32B→1.5B average |
 | Kernel speed vs scalar | 4-8× (AVX2) | Theoretical peak |
-| Kernel speed vs llama.cpp | 1-2× (ternary) | TL kernel advantage |
+| Kernel speed vs llama.cpp | 1-2× (SPARK LUT) | TL kernel advantage |
 
 ---
 
@@ -1894,7 +1892,7 @@ oil-finetune --model base.oil --data domain_data.txt --lr 1e-5 --output finetune
 ```
 bench_kernels.cpp      matmul, gemm, norm throughput (vs scalar baseline)
 bench_inference.cpp    tok/s, memory usage, KV cache perf
-bench_quality.cpp      perplexity comparison (FP32 vs OIL8 vs OIL4 vs ternary)
+bench_quality.cpp      perplexity comparison (FP32 vs OIL8 vs OIL4 vs SPARK)
 ```
 
 ### Tests
@@ -1926,7 +1924,7 @@ MYTHOS.cpp/
 │       ├── math.h              # BLAS + activations + norms
 │       ├── random.h            # Xoroshiro128+ RNG
 │       ├── oil_format.h        # OIL binary format spec
-│       ├── codebook.h          # OIL8/OIL4/ternary/binary codebooks
+│       ├── codebook.h          # OIL8/OIL4/SPARK codebooks
 │       ├── format_planner.h    # BPW allocation planner
 │       ├── kernel.h            # GEMM kernel abstractions
 │       ├── transformer.h       # Transformer layer definitions
@@ -2109,7 +2107,7 @@ The **[wiki/](wiki/Home.md)** folder contains **repo-wiki style documentation** 
 - ✅ **Multi-format per-layer** (OIL8 for sensitive, OIL4/OIL2 for tolerant)
 - ✅ **Phase-by-phase delivery** — each phase independently useful
 - ✅ **Linux CI/CD pipeline** (GitHub Actions)
-- ✅ **47 proven claims** (46 proven + 1 pending)
+- ✅ **47 total claims** (46 proven + 1 pending)
 - ✅ **128-page research whitepaper**
 - ✅ **iGPU zero-copy via Vulkan unified memory** (C-046)
 - ✅ **Out-of-core training via mmap** (C-047)
@@ -2357,7 +2355,7 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 |-----------|--------|---------|
 | Core Tensor Library | ✅ Complete | N-dimensional tensor with views, slicing, broadcasting, autograd |
 | Math Library | ✅ Complete | BLAS (gemm/gemv/dot/axpy), activations, norms, softmax — SIMD AVX2 |
-| OIL Format System | ✅ Complete | OIL8/OIL4/Ternary/Binary codecs, FormatPlanner, serialiser/deserialiser |
+| OIL Format System | ✅ Complete | OIL8/OIL4/SPARK codecs, FormatPlanner, serialiser/deserialiser |
 | GEMM Kernels | ✅ Complete | I2_S MAD (AVX2), TL1/TL2 LUT, OIL8 lookup, OIL4 lookup |
 | Transformer Model | ✅ Complete | DenseModel with RoPE, SwiGLU, RMSNorm, KV cache |
 | Inference Engine | ✅ Complete | Autoregressive generation, top-k/top-p sampling, streaming |
@@ -2375,7 +2373,7 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 ```
 test_all       ── ✅ Combined runner (all subsystems)
 test_debug     ── ✅ Debug utilities
-test_format    ── ✅ OIL8/OIL4/ternary encode→decode→equality
+test_format    ── ✅ OIL8/OIL4/SPARK encode→decode→equality
 test_kernel    ── ✅ GEMM kernel correctness
 test_math      ── ✅ Gemm, softmax, norm gradient check
 test_model     ── ✅ Tiny model forward/backward

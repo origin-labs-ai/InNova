@@ -303,6 +303,49 @@ void main(uint3 t : SV_DispatchThreadID) {
     out[t.x] = sum_exp > 0 ? acc / sum_exp : 0;
 })";
 
+static const char* g_attn_fwd_cs = R"(
+// Scaled dot-product attention: O = softmax(Q*K^T/sqrt(D) + causal_mask) * V
+cbuffer Const : register(b0) { uint B,H,T,D,causal,_p1,_p2,_p3; };
+RWStructuredBuffer<float> out : register(u0);
+StructuredBuffer<float> Q : register(t0);
+StructuredBuffer<float> K : register(t1);
+StructuredBuffer<float> V : register(t2);
+[numthreads(256,1,1)]
+void main(uint3 t : SV_DispatchThreadID) {
+    if (t.x >= B * H * T * D) return;
+    uint d = t.x % D;
+    uint t_q = (t.x / D) % T;
+    uint h = (t.x / (D * T)) % H;
+    uint b = t.x / (D * T * H);
+    float scale = rsqrt(float(D));
+    float mv = -1e30;
+    uint q_offset = b * H * T * D + h * T * D + t_q * D;
+    uint kv_base = b * H * T * D + h * T * D;
+    for (uint t_k = 0; t_k < T; t_k++) {
+        if (causal && t_k > t_q) continue;
+        float dot = 0;
+        uint kv_offset = kv_base + t_k * D;
+        for (uint dd = 0; dd < D; dd++)
+            dot += Q[q_offset + dd] * K[kv_offset + dd];
+        dot *= scale;
+        if (dot > mv) mv = dot;
+    }
+    float sum_exp = 0;
+    float acc = 0;
+    for (uint t_k = 0; t_k < T; t_k++) {
+        if (causal && t_k > t_q) continue;
+        float dot = 0;
+        uint kv_offset = kv_base + t_k * D;
+        for (uint dd = 0; dd < D; dd++)
+            dot += Q[q_offset + dd] * K[kv_offset + dd];
+        dot *= scale;
+        float w = exp(dot - mv);
+        sum_exp += w;
+        acc += w * V[kv_offset + d];
+    }
+    out[t.x] = sum_exp > 0 ? acc / sum_exp : 0;
+})";
+
 namespace {
 
 static void throw_hr(HRESULT hr, const char* msg) {
@@ -335,7 +378,6 @@ struct GPUComputeFull::Impl {
     HANDLE fenceEvent = nullptr;
     UINT64 fenceVal = 1;
     bool ok = false;
-    bool use_cpu_fallback = false;
 
     ComPtr<ID3D12RootSignature> rootSig;
     ComPtr<ID3D12DescriptorHeap> heap;
@@ -361,29 +403,27 @@ struct GPUComputeFull::Impl {
     void init(int64_t) {
         if (ok) return;
         HRESULT hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
-        if (FAILED(hr)) {
-            use_cpu_fallback = true;
-            return;
-        }
+        if (FAILED(hr))
+            throw std::runtime_error("GPU init: D3D12CreateDevice failed");
 
         D3D12_COMMAND_QUEUE_DESC qd = {};
         qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         hr = device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue));
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: CreateCommandQueue failed");
 
         hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: CreateCommandAllocator failed");
 
         hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(),
                                        nullptr, IID_PPV_ARGS(&list));
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: CreateCommandList failed");
         list->Close();
 
         hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: CreateFence failed");
 
         fenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
-        if (!fenceEvent) { use_cpu_fallback = true; return; }
+        if (!fenceEvent) throw std::runtime_error("GPU init: CreateEvent failed");
 
         D3D12_DESCRIPTOR_RANGE dr[5] = {};
         dr[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
@@ -420,21 +460,20 @@ struct GPUComputeFull::Impl {
 
         ComPtr<ID3DBlob> sig, err;
         hr = D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err);
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: D3D12SerializeRootSignature failed");
         hr = device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(),
                                          IID_PPV_ARGS(&rootSig));
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: CreateRootSignature failed");
 
         D3D12_DESCRIPTOR_HEAP_DESC hd = {};
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         hd.NumDescriptors = 64;
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap));
-        if (FAILED(hr)) { use_cpu_fallback = true; return; }
+        if (FAILED(hr)) throw std::runtime_error("GPU init: CreateDescriptorHeap failed");
         heapIncSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         ok = true;
-        use_cpu_fallback = false;
     }
 
     void flush() {
@@ -565,19 +604,13 @@ GPUComputeFull::GPUComputeFull() : impl_(new Impl()) {}
 GPUComputeFull::~GPUComputeFull() { delete impl_; }
 
 bool GPUComputeFull::init(int64_t device_id) {
-    if (impl_->ok || impl_->use_cpu_fallback) return impl_->ok;
-    try {
-        impl_->init(device_id);
-        return impl_->ok;
-    } catch (...) {
-        std::fprintf(stderr, "[WARN] Exception caught: %s (GPU full init failed, CPU fallback)\n", __func__);
-        impl_->use_cpu_fallback = true;
-        return false;
-    }
+    if (impl_->ok) return true;
+    impl_->init(device_id);
+    return impl_->ok;
 }
 
 bool GPUComputeFull::is_initialized() const { return impl_->ok; }
-bool GPUComputeFull::has_gpu() const { return impl_->ok && !impl_->use_cpu_fallback; }
+bool GPUComputeFull::has_gpu() const { return impl_->ok; }
 
 void GPUComputeFull::shutdown() {
     if (impl_) impl_->shutdown();
@@ -708,10 +741,6 @@ void GPUComputeFull::gpu_to_gpu(void* dst, const void* src, int64_t bytes) {
 void GPUComputeFull::gemm_tiled(float alpha, const void* A, const void* B,
                                  float beta, void* C, int64_t M, int64_t N,
                                  int64_t K, int64_t tile_size) {
-    if (impl_->use_cpu_fallback) {
-        CPUTensorFallback::gemm_fallback(alpha, A, B, beta, C, M, N, K);
-        return;
-    }
     if (!impl_->ok) return;
     (void)tile_size;
 
@@ -1094,7 +1123,6 @@ void GPUComputeFull::reduce_max_axis(const float* x, float* out, int64_t rows,
 void GPUComputeFull::attention_fwd(const void* Q, const void* K, const void* V,
                                     void* out, int64_t B, int64_t H, int64_t T,
                                     int64_t D, bool causal) {
-    (void)causal;
     if (!impl_->ok) return;
     Impl::GpuBuf *bQ = nullptr, *bK = nullptr, *bV = nullptr, *bO = nullptr;
     for (auto& buf : impl_->all_bufs) {
@@ -1107,13 +1135,13 @@ void GPUComputeFull::attention_fwd(const void* Q, const void* K, const void* V,
     auto ps = impl_->make_pso(g_cross_attn_cs, "main");
     ID3D12Resource* uavs[] = { bO->res.Get() };
     UINT64 uavSizes[] = { bO->size };
-    ID3D12Resource* srvs[] = { bQ->res.Get(), bK->res.Get() };
-    UINT64 srvSizes[] = { bQ->size, bK->size };
+    ID3D12Resource* srvs[] = { bQ->res.Get(), bK->res.Get(), bV->res.Get() };
+    UINT64 srvSizes[] = { bQ->size, bK->size, bV->size };
     UINT rc[8];
     rc[0] = (UINT)B; rc[1] = (UINT)H; rc[2] = (UINT)T; rc[3] = (UINT)T;
-    rc[4] = (UINT)D; rc[5] = 0; rc[6] = 0; rc[7] = 0;
+    rc[4] = (UINT)D; rc[5] = (UINT)(causal ? 1 : 0); rc[6] = 0; rc[7] = 0;
     int64_t total = B * H * T * D;
-    impl_->dispatch_kernel(ps, 1, uavs, uavSizes, 2, srvs, srvSizes, rc,
+    impl_->dispatch_kernel(ps, 1, uavs, uavSizes, 3, srvs, srvSizes, rc,
                            (int)((total + 255) / 256), 1, 1);
     impl_->flush();
 }
@@ -1144,11 +1172,6 @@ void GPUComputeFull::attention_cross(const void* Q, const void* KV, void* out,
 
 void GPUComputeFull::layer_norm(const void* x, const void* gamma, const void* beta,
                                  void* y, float eps, int64_t n, int64_t d) {
-    if (impl_->use_cpu_fallback) {
-        CPUTensorFallback::layernorm_fallback((const float*)x, (const float*)gamma,
-                                              (const float*)beta, (float*)y, eps, n, d);
-        return;
-    }
     if (!impl_->ok) return;
     Impl::GpuBuf *bx = nullptr, *bg = nullptr, *bb = nullptr, *by = nullptr;
     for (auto& buf : impl_->all_bufs) {
@@ -1173,11 +1196,6 @@ void GPUComputeFull::layer_norm(const void* x, const void* gamma, const void* be
 
 void GPUComputeFull::rms_norm(const void* x, const void* gamma, void* y,
                                float eps, int64_t n, int64_t d) {
-    if (impl_->use_cpu_fallback) {
-        CPUTensorFallback::rmsnorm_fallback((const float*)x, (const float*)gamma,
-                                            (float*)y, eps, n, d);
-        return;
-    }
     if (!impl_->ok) return;
     Impl::GpuBuf *bx = nullptr, *bg = nullptr, *by = nullptr;
     for (auto& buf : impl_->all_bufs) {
@@ -1223,10 +1241,6 @@ void GPUComputeFull::batch_norm(const void* x, const void* gamma, const void* be
 }
 
 void GPUComputeFull::softmax_stable(const void* x, void* y, int64_t rows, int64_t cols) {
-    if (impl_->use_cpu_fallback) {
-        CPUTensorFallback::softmax_fallback((const float*)x, (float*)y, rows, cols);
-        return;
-    }
     if (!impl_->ok) return;
     Impl::GpuBuf *bx = nullptr, *by = nullptr;
     for (auto& buf : impl_->all_bufs) {
@@ -1359,8 +1373,12 @@ void GPUComputeFull::transpose_2d(const void* x, void* y, int64_t rows, int64_t 
 
 void GPUComputeFull::embedding_lookup(const float* table, const int64_t* indices,
                                        float* out, int64_t n, int64_t d) {
-    (void)table; (void)indices; (void)out; (void)n; (void)d;
     if (!impl_->ok) return;
+    for (int64_t i = 0; i < n; i++) {
+        int64_t idx = indices[i];
+        if (idx < 0) idx = 0;
+        std::memcpy(out + i * d, table + idx * d, static_cast<size_t>(d) * sizeof(float));
+    }
 }
 
 GPUComputeFull& GPUComputeFull::instance() {

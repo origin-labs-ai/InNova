@@ -110,7 +110,7 @@ public:
     static QuantResult quantize_oil4(const float* data, int64_t n);
     static QuantResult quantize_oil8(const float* data, int64_t n);
     static QuantResult quantize_spark_q0(const float* data, int64_t n, int block_size);
-    static QuantResult quantize_spark_sparse(const float* data, int64_t n, float threshold);
+    static QuantResult quantize_spark_sparse(const float* data, int64_t n);
 
 private:
     static void lloyd_max_train(const float* data, size_t n, float* centroids, int k);

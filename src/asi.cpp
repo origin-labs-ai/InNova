@@ -26,7 +26,44 @@ namespace oil {
 namespace asi {
 
 // ========================================================================
-// G1: Self-Monitoring
+// RollingStats implementation
+// ========================================================================
+void RollingStats::update(float value) {
+    recent_values.push_back(value);
+    if (recent_values.size() > window_size) {
+        recent_values.pop_front();
+    }
+    size_t n = recent_values.size();
+    if (n == 0) return;
+    float sum = 0;
+    min_val = INFINITY;
+    max_val = -INFINITY;
+    for (float v : recent_values) {
+        sum += v;
+        if (v < min_val) min_val = v;
+        if (v > max_val) max_val = v;
+    }
+    mean = sum / (float)n;
+    float sq_sum = 0;
+    for (float v : recent_values) {
+        float d = v - mean;
+        sq_sum += d * d;
+    }
+    variance = sq_sum / (float)n;
+}
+
+float RollingStats::z_score(float value) const {
+    float stddev = std::sqrt(variance + 1e-10f);
+    return (value - mean) / stddev;
+}
+
+bool RollingStats::is_anomalous(float value, float threshold) const {
+    if (recent_values.size() < 5) return false;
+    return std::abs(z_score(value)) > threshold;
+}
+
+// ========================================================================
+// Subsystem 1: SelfMonitor — confidence, drift, anomaly, rolling stats, alerts
 // ========================================================================
 SelfMonitor::SelfMonitor(Model* model) : model_(model) {}
 
@@ -43,7 +80,9 @@ float SelfMonitor::estimate_confidence(const Tensor& logits) {
         float max_prob = std::exp(lp[i * V + 0] - max_l) / (sum + 1e-10f);
         total_conf += max_prob;
     }
-    return total_conf / (float)(S > 0 ? S : 1);
+    float conf = total_conf / (float)(S > 0 ? S : 1);
+    confidence_stats_.update(conf);
+    return conf;
 }
 
 MetaCognitionState SelfMonitor::analyze(const std::string& input, const std::string& output) {
@@ -55,14 +94,18 @@ MetaCognitionState SelfMonitor::analyze(const std::string& input, const std::str
         state.recommendation = "no model";
         state.needs_reanalysis = false;
         state.reasoning_depth = 1;
+        state.epistemic_uncertainty = 1.0f;
+        state.aleatoric_uncertainty = 0.0f;
+        state.knowledge_boundary_score = 0.0f;
+        state.reasoning_quality_score = 0.0f;
+        state.should_refuse = false;
         return state;
     }
     int vocab_size = (int)model_->config.vocab_size;
-
     auto input_ids = simple_encode(input, vocab_size);
     auto output_ids = simple_encode(output, vocab_size);
-
     int64_t seq_len = std::max((int64_t)1, (int64_t)output_ids.size());
+
     Tensor input_tensor({1, seq_len});
     Tensor pos_tensor({1, seq_len});
     float* idp = input_tensor.data<float>();
@@ -85,11 +128,9 @@ MetaCognitionState SelfMonitor::analyze(const std::string& input, const std::str
         for (int64_t v = 0; v < V; v++) max_l = std::max(max_l, lp[i * V + v]);
         float sum = 0;
         for (int64_t v = 0; v < V; v++) sum += std::exp(lp[i * V + v] - max_l);
-
         float max_prob = std::exp(lp[i * V + 0] - max_l) / (sum + 1e-10f);
         total_conf += max_prob;
         state.token_confidences.push_back(max_prob);
-
         float entropy = 0;
         for (int64_t v = 0; v < V; v++) {
             float p = std::exp(lp[i * V + v] - max_l) / (sum + 1e-10f);
@@ -99,10 +140,13 @@ MetaCognitionState SelfMonitor::analyze(const std::string& input, const std::str
     }
 
     state.confidence = total_conf / (float)seq_len;
+    confidence_stats_.update(state.confidence);
+
     float max_entropy = std::log((float)V + 1e-10f);
     state.uncertainty = total_entropy / (float)seq_len / (max_entropy > 0 ? max_entropy : 1.0f);
-    state.reasoning_depth = (int)output_ids.size();
+    uncertainty_stats_.update(state.uncertainty);
 
+    state.reasoning_depth = (int)output_ids.size();
     float ratio = (float)output.size() / (float)std::max(input.size(), (size_t)1);
     state.needs_reanalysis = ratio < 0.3f || ratio > 3.0f || state.confidence < 0.5f;
 
@@ -114,11 +158,108 @@ MetaCognitionState SelfMonitor::analyze(const std::string& input, const std::str
         state.recommendation = "verify with caution";
     }
 
+    state.epistemic_uncertainty = 1.0f - state.confidence;
+    state.aleatoric_uncertainty = state.uncertainty * 0.5f;
+    state.knowledge_boundary_score = state.confidence * (1.0f - state.uncertainty);
+    state.reasoning_quality_score = state.confidence * (1.0f - state.uncertainty * 0.3f);
+
+    if (confidence_stats_.is_anomalous(state.confidence)) {
+        add_alert("warning", "SelfMonitor",
+                  "Confidence anomaly detected: " + std::to_string(state.confidence),
+                  state.confidence);
+    }
+    if (uncertainty_stats_.is_anomalous(state.uncertainty)) {
+        add_alert("info", "SelfMonitor",
+                  "Uncertainty spike detected: " + std::to_string(state.uncertainty),
+                  state.uncertainty);
+    }
+    if (state.confidence < 0.3f) {
+        add_alert("critical", "SelfMonitor",
+                  "Critically low confidence: " + std::to_string(state.confidence),
+                  state.confidence);
+    }
+
     return state;
 }
 
+bool SelfMonitor::detect_drift(const Tensor& current_logits, const Tensor& reference_logits) {
+    float shift = distribution_shift(current_logits, reference_logits);
+    bool drifted = shift > 0.15f;
+    if (drifted) {
+        add_alert("warning", "SelfMonitor",
+                  "Distribution drift detected: shift=" + std::to_string(shift), shift);
+    }
+    return drifted;
+}
+
+float SelfMonitor::distribution_shift(const Tensor& current, const Tensor& reference) {
+    int64_t n = std::min(current.numel(), reference.numel());
+    if (n == 0) return 0.0f;
+    const float* cd = current.data<float>();
+    const float* rd = reference.data<float>();
+    float kl_sum = 0;
+    int count = 0;
+    for (int64_t i = 0; i < n; i += 64) {
+        int64_t end = std::min(i + 64, n);
+        float sum_c = 0, sum_r = 0;
+        for (int64_t j = i; j < end; j++) {
+            sum_c += cd[j] * cd[j];
+            sum_r += rd[j] * rd[j];
+        }
+        if (sum_c > 0 && sum_r > 0) {
+            for (int64_t j = i; j < end; j++) {
+                float pc = (cd[j] * cd[j]) / (sum_c + 1e-10f);
+                float pr = (rd[j] * rd[j]) / (sum_r + 1e-10f);
+                if (pc > 1e-10f && pr > 1e-10f) {
+                    kl_sum += pc * std::log(pc / (pr + 1e-10f));
+                }
+                count++;
+            }
+        }
+    }
+    return count > 0 ? kl_sum / (float)count : 0.0f;
+}
+
+bool SelfMonitor::check_anomaly(const MetaCognitionState& state) {
+    bool confidence_anom = confidence_stats_.is_anomalous(state.confidence);
+    bool uncertainty_anom = uncertainty_stats_.is_anomalous(state.uncertainty);
+    bool low_conf = state.confidence < 0.2f;
+    bool high_uncert = state.uncertainty > 0.8f;
+    return confidence_anom || uncertainty_anom || (low_conf && high_uncert);
+}
+
+std::vector<AlertEntry> SelfMonitor::get_recent_alerts(int count) const {
+    std::lock_guard<std::mutex> lock(alert_mutex_);
+    std::vector<AlertEntry> recent;
+    int start = std::max(0, (int)alerts_.size() - count);
+    for (int i = start; i < (int)alerts_.size(); i++) {
+        recent.push_back(alerts_[i]);
+    }
+    return recent;
+}
+
+void SelfMonitor::clear_alerts() {
+    std::lock_guard<std::mutex> lock(alert_mutex_);
+    alerts_.clear();
+}
+
+void SelfMonitor::add_alert(const std::string& severity, const std::string& source,
+                             const std::string& message, float value) {
+    std::lock_guard<std::mutex> lock(alert_mutex_);
+    AlertEntry entry;
+    entry.timestamp = std::time(nullptr);
+    entry.severity = severity;
+    entry.source = source;
+    entry.message = message;
+    entry.value = value;
+    alerts_.push_back(entry);
+    if (alerts_.size() > 1000) {
+        alerts_.erase(alerts_.begin(), alerts_.begin() + (alerts_.size() - 1000));
+    }
+}
+
 // ========================================================================
-// G2: Self-reflection
+// Subsystem 2: SelfReflection — consistency, ECE calibration, error ID
 // ========================================================================
 SelfReflector::SelfReflector(Model* model) : model_(model) {}
 
@@ -140,15 +281,327 @@ std::string SelfReflector::refine(const std::string& original, const std::string
     return simple_decode(gen);
 }
 
+float SelfReflector::consistency_check(const std::string& output1, const std::string& output2) {
+    if (output1.empty() || output2.empty()) return 0.0f;
+    std::string o1 = output1, o2 = output2;
+    std::transform(o1.begin(), o1.end(), o1.begin(), ::tolower);
+    std::transform(o2.begin(), o2.end(), o2.begin(), ::tolower);
+    std::vector<std::string> tokens1, tokens2;
+    std::istringstream ss1(o1), ss2(o2);
+    std::string word;
+    while (ss1 >> word) tokens1.push_back(word);
+    while (ss2 >> word) tokens2.push_back(word);
+    if (tokens1.empty() || tokens2.empty()) return 0.0f;
+    std::set<std::string> set1(tokens1.begin(), tokens1.end());
+    std::set<std::string> set2(tokens2.begin(), tokens2.end());
+    int intersection = 0;
+    for (const auto& w : set1) {
+        if (set2.find(w) != set2.end()) intersection++;
+    }
+    int denom = (int)std::max(set1.size(), set2.size());
+    float jaccard = denom > 0 ? (float)intersection / (float)denom : 0.0f;
+    float edit_sim = 0.0f;
+    if (o1.size() < 1000 && o2.size() < 1000) {
+        int m = (int)o1.size(), n = (int)o2.size();
+        std::vector<int> dp(n + 1, 0);
+        for (int j = 0; j <= n; j++) dp[j] = j;
+        for (int i = 1; i <= m; i++) {
+            int prev = dp[0];
+            dp[0] = i;
+            for (int j = 1; j <= n; j++) {
+                int temp = dp[j];
+                if (o1[i - 1] == o2[j - 1]) {
+                    dp[j] = prev;
+                } else {
+                    dp[j] = 1 + std::min({prev, dp[j - 1], dp[j]});
+                }
+                prev = temp;
+            }
+        }
+        int edit_dist = dp[n];
+        float max_len = (float)std::max(m, n);
+        edit_sim = max_len > 0 ? 1.0f - (float)edit_dist / max_len : 0.0f;
+    }
+    return jaccard * 0.4f + edit_sim * 0.6f;
+}
+
+float SelfReflector::ece_calibration(const std::vector<float>& confidences,
+                                      const std::vector<bool>& correctness, int n_bins) {
+    if (confidences.empty() || confidences.size() != correctness.size()) return 1.0f;
+    int n = (int)confidences.size();
+    float ece = 0.0f;
+    for (int b = 0; b < n_bins; b++) {
+        float bin_start = (float)b / (float)n_bins;
+        float bin_end = (float)(b + 1) / (float)n_bins;
+        float bin_acc = 0.0f;
+        float bin_conf = 0.0f;
+        int bin_count = 0;
+        for (int i = 0; i < n; i++) {
+            if (confidences[i] >= bin_start && confidences[i] < bin_end) {
+                bin_acc += correctness[i] ? 1.0f : 0.0f;
+                bin_conf += confidences[i];
+                bin_count++;
+            }
+        }
+        if (bin_count > 0) {
+            float acc = bin_acc / (float)bin_count;
+            float conf = bin_conf / (float)bin_count;
+            float weight = (float)bin_count / (float)n;
+            ece += weight * std::abs(acc - conf);
+        }
+    }
+    return ece;
+}
+
+std::vector<std::string> SelfReflector::identify_errors(const std::string& input,
+                                                         const std::string& output,
+                                                         const std::string& expected) {
+    std::vector<std::string> errors;
+    if (output.empty()) {
+        errors.push_back("empty output: model produced no response");
+        return errors;
+    }
+    if (expected.empty()) return errors;
+    std::string out_lower = output;
+    std::string exp_lower = expected;
+    std::transform(out_lower.begin(), out_lower.end(), out_lower.begin(), ::tolower);
+    std::transform(exp_lower.begin(), exp_lower.end(), exp_lower.begin(), ::tolower);
+    for (char c : {'?', '.', '!', ',', ';', ':'}) {
+        std::replace(out_lower.begin(), out_lower.end(), c, ' ');
+        std::replace(exp_lower.begin(), exp_lower.end(), c, ' ');
+    }
+    std::istringstream exp_ss(exp_lower);
+    std::set<std::string> expected_words;
+    std::string word;
+    while (exp_ss >> word) {
+        if (word.size() > 2) expected_words.insert(word);
+    }
+    int missing_count = 0;
+    int extra_count = 0;
+    std::istringstream out_ss(out_lower);
+    std::set<std::string> output_words;
+    while (out_ss >> word) {
+        if (word.size() > 2) output_words.insert(word);
+    }
+    for (const auto& ew : expected_words) {
+        if (output_words.find(ew) == output_words.end()) {
+            missing_count++;
+            if (missing_count <= 3) {
+                errors.push_back("missing keyword: \"" + ew + "\" expected but not found");
+            }
+        }
+    }
+    for (const auto& ow : output_words) {
+        if (expected_words.find(ow) == expected_words.end()) {
+            extra_count++;
+            if (extra_count <= 2) {
+                errors.push_back("unexpected token: \"" + ow + "\" in output but not expected");
+            }
+        }
+    }
+    if (missing_count > 0) {
+        errors.push_back("total missing: " + std::to_string(missing_count) + " keywords absent");
+    }
+    if (extra_count > 3) {
+        errors.push_back("excessive extra tokens: " + std::to_string(extra_count) + " unexpected words");
+    }
+    float consistency = consistency_check(output, expected);
+    if (consistency < 0.5f) {
+        errors.push_back("low consistency with expected output: jaccard=" + std::to_string(consistency));
+    }
+    if (output.size() > expected.size() * 3 && expected.size() > 10) {
+        errors.push_back("output excessively verbose: " + std::to_string(output.size()) +
+                         " chars vs " + std::to_string(expected.size()) + " expected");
+    }
+    if (output.size() < expected.size() / 3 && expected.size() > 10) {
+        errors.push_back("output too brief: " + std::to_string(output.size()) +
+                         " chars vs " + std::to_string(expected.size()) + " expected");
+    }
+    return errors;
+}
+
 // ========================================================================
-// G5: Recursive Self-Improvement
+// Subsystem 3: MetaCognition — knowledge boundaries, uncertainty, refusal, reasoning quality, self-model update
+// ========================================================================
+MetaCognition::MetaCognition(Model* model) : model_(model) {}
+
+float MetaCognition::knowledge_boundary_score(const std::string& query) {
+    if (knowledge_map_.empty()) {
+        knowledge_map_["what"] = 0.9f;
+        knowledge_map_["how"] = 0.6f;
+        knowledge_map_["why"] = 0.5f;
+        knowledge_map_["define"] = 0.8f;
+        knowledge_map_["explain"] = 0.7f;
+        knowledge_map_["list"] = 0.85f;
+        knowledge_map_["compare"] = 0.6f;
+        knowledge_map_["solve"] = 0.5f;
+        knowledge_map_["calculate"] = 0.4f;
+        knowledge_map_["unknown"] = 0.2f;
+    }
+    std::string q = query;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    std::istringstream ss(q);
+    std::string word;
+    float total_score = 0;
+    int count = 0;
+    while (ss >> word) {
+        for (auto& [key, val] : knowledge_map_) {
+            if (word.find(key) != std::string::npos || key.find(word) != std::string::npos) {
+                total_score += val;
+                count++;
+                break;
+            }
+        }
+    }
+    if (!model_) {
+        return count > 0 ? total_score / (float)count : 0.3f;
+    }
+    int vocab_size = (int)model_->config.vocab_size;
+    auto ids = simple_encode("answer knowledge about: " + query, vocab_size);
+    auto gen = generate_new_tokens(model_, ids, vocab_size, 20);
+    std::string response = simple_decode(gen);
+    float response_len_score = std::min(1.0f, (float)response.size() / 50.0f);
+    float word_score = count > 0 ? total_score / (float)count : 0.3f;
+    return word_score * 0.6f + response_len_score * 0.4f;
+}
+
+float MetaCognition::epistemic_uncertainty(const Tensor& logits) {
+    int64_t V = logits.dim(logits.rank() - 1);
+    int64_t S = logits.numel() / V;
+    const float* lp = logits.data<float>();
+    float top2_margin_sum = 0;
+    int count = 0;
+    for (int64_t i = 0; i < S; i++) {
+        float top1_val = -INFINITY, top2_val = -INFINITY;
+        for (int64_t v = 0; v < V; v++) {
+            float val = lp[i * V + v];
+            if (val > top1_val) {
+                top2_val = top1_val;
+                top1_val = val;
+            } else if (val > top2_val) {
+                top2_val = val;
+            }
+        }
+        top2_margin_sum += top1_val - top2_val;
+        count++;
+    }
+    float avg_margin = count > 0 ? top2_margin_sum / (float)count : 0.0f;
+    return 1.0f / (1.0f + std::exp(avg_margin));
+}
+
+float MetaCognition::aleatoric_uncertainty(const Tensor& logits) {
+    int64_t V = logits.dim(logits.rank() - 1);
+    int64_t S = logits.numel() / V;
+    const float* lp = logits.data<float>();
+    float total_entropy = 0;
+    int count = 0;
+    for (int64_t i = 0; i < S; i++) {
+        float max_l = -INFINITY;
+        for (int64_t v = 0; v < V; v++) max_l = std::max(max_l, lp[i * V + v]);
+        float sum = 0;
+        for (int64_t v = 0; v < V; v++) sum += std::exp(lp[i * V + v] - max_l);
+        float entropy = 0;
+        for (int64_t v = 0; v < V; v++) {
+            float p = std::exp(lp[i * V + v] - max_l) / (sum + 1e-10f);
+            if (p > 1e-10f) entropy -= p * std::log(p + 1e-10f);
+        }
+        total_entropy += entropy;
+        count++;
+    }
+    float avg_entropy = count > 0 ? total_entropy / (float)count : 0.0f;
+    float max_entropy = std::log((float)V + 1e-10f);
+    return max_entropy > 0 ? avg_entropy / max_entropy : 0.0f;
+}
+
+float MetaCognition::total_uncertainty(const Tensor& logits) {
+    float epi = epistemic_uncertainty(logits);
+    float alea = aleatoric_uncertainty(logits);
+    return std::min(1.0f, epi + alea - epi * alea);
+}
+
+bool MetaCognition::should_refuse(const std::string& query, float uncertainty_threshold) {
+    if (!model_) return true;
+    int vocab_size = (int)model_->config.vocab_size;
+    auto ids = simple_encode(query, vocab_size);
+    int64_t seq_len = (int64_t)ids.size();
+    if (seq_len == 0) return true;
+    Tensor input_tensor({1, seq_len});
+    Tensor pos_tensor({1, seq_len});
+    float* idp = input_tensor.data<float>();
+    float* psp = pos_tensor.data<float>();
+    for (int64_t i = 0; i < seq_len; i++) {
+        idp[i] = (float)ids[i % (int)ids.size()];
+        psp[i] = (float)i;
+    }
+    Tensor logits = model_->forward(input_tensor, pos_tensor, nullptr);
+    float unc = total_uncertainty(logits);
+    float kb = knowledge_boundary_score(query);
+    if (unc > uncertainty_threshold || kb < 0.3f) return true;
+    std::string q = query;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    std::vector<std::string> refuse_patterns = {
+        "how to make a bomb", "instructions for illegal", "how to hack",
+        "bypass security", "how to commit", "illegal drug synthesis",
+        "how to build a weapon", "terrorist attack", "child exploitation"
+    };
+    for (auto& p : refuse_patterns) {
+        if (q.find(p) != std::string::npos) return true;
+    }
+    return false;
+}
+
+float MetaCognition::reasoning_quality(const std::vector<std::string>& chain) {
+    if (chain.empty()) return 0.0f;
+    float total_score = 0;
+    int n = (int)chain.size();
+    for (int i = 0; i < n; i++) {
+        std::string step = chain[i];
+        std::transform(step.begin(), step.end(), step.begin(), ::tolower);
+        float step_score = 0.3f;
+        if (step.find("step") != std::string::npos) step_score += 0.1f;
+        if (step.find("because") != std::string::npos || step.find("since") != std::string::npos) step_score += 0.15f;
+        if (step.find("therefore") != std::string::npos || step.find("thus") != std::string::npos) step_score += 0.15f;
+        if (step.find("if") != std::string::npos || step.find("then") != std::string::npos) step_score += 0.1f;
+        if (step.size() > 20) step_score += 0.1f;
+        if (step.size() > 100) step_score -= 0.05f;
+        int digit_count = 0;
+        for (char c : step) if (c >= '0' && c <= '9') digit_count++;
+        if (digit_count > 0) step_score += 0.1f;
+        total_score += std::min(1.0f, step_score);
+    }
+    float length_bonus = std::min(1.0f, (float)n / 5.0f) * 0.2f;
+    return std::min(1.0f, total_score / (float)n + length_bonus);
+}
+
+void MetaCognition::self_model_update(const std::string& query, float confidence, bool was_correct) {
+    float prediction_error = std::abs(confidence - (was_correct ? 1.0f : 0.0f));
+    float alpha = 0.1f / (1.0f + 0.01f * self_model_updates_);
+    float update = was_correct ? alpha * prediction_error : -alpha * (1.0f - prediction_error);
+    self_model_accuracy_ = self_model_accuracy_ * (1.0f - alpha) + (was_correct ? 1.0f : 0.0f) * alpha;
+    self_model_updates_++;
+    std::string q = query;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    std::istringstream ss(q);
+    std::string word;
+    while (ss >> word) {
+        auto it = knowledge_map_.find(word);
+        if (it != knowledge_map_.end()) {
+            it->second = std::max(0.1f, std::min(0.99f,
+                it->second + (was_correct ? 0.05f : -0.1f) / (1.0f + 0.1f * self_model_updates_)));
+        } else if (knowledge_map_.size() < 500) {
+            knowledge_map_[word] = was_correct ? 0.6f : 0.3f;
+        }
+    }
+}
+
+// ========================================================================
+// Subsystem 4: RSI — evaluate->weaknesses->candidates->evaluate->accept->repeat
 // ========================================================================
 RecursiveSelfImprover::RecursiveSelfImprover(Model* model, Trainer* trainer)
     : model_(model), trainer_(trainer) {}
 
 void RecursiveSelfImprover::improvement_cycle(int iterations) {
     if (!model_) return;
-
     int64_t orig_hidden = model_->config.hidden_size;
     int64_t orig_layers = model_->config.num_layers;
     int no_improvement_count = 0;
@@ -162,11 +615,9 @@ void RecursiveSelfImprover::improvement_cycle(int iterations) {
         }
 
         int vocab_size = (int)model_->config.vocab_size;
-
         std::string test_input = "Self-evaluation test input iteration " + std::to_string(i);
         auto test_ids = simple_encode(test_input, vocab_size);
         int64_t len = std::max((int64_t)1, (int64_t)test_ids.size());
-
         Tensor input_tensor({1, len});
         Tensor pos_tensor({1, len});
         float* idp = input_tensor.data<float>();
@@ -175,10 +626,8 @@ void RecursiveSelfImprover::improvement_cycle(int iterations) {
             idp[j] = (float)test_ids[j % (int)test_ids.size()];
             psp[j] = (float)j;
         }
-
         Tensor logits = model_->forward(input_tensor, pos_tensor, nullptr);
         int64_t V = logits.dim(logits.rank() - 1);
-
         float loss = 0;
         int count = 0;
         for (int64_t j = 1; j < len; j++) {
@@ -194,11 +643,37 @@ void RecursiveSelfImprover::improvement_cycle(int iterations) {
         }
         float perplexity = std::exp(loss / std::max(1, count));
 
+        std::string eval_data = "perplexity=" + std::to_string(perplexity) +
+                                "|iteration=" + std::to_string(i) +
+                                "|hidden_size=" + std::to_string(model_->config.hidden_size);
+
+        std::vector<std::string> weaknesses = evaluate_weaknesses(eval_data);
+        std::vector<std::string> candidates = generate_candidates(weaknesses);
+
+        for (auto& candidate : candidates) {
+            float score = evaluate_candidate(candidate);
+            if (score > 0.5f) {
+                accept_candidate(candidate, score);
+                break;
+            }
+        }
+
+        if (perplexity > 20.0f) {
+            apply_perturbation(0.02f);
+            adjust_lr("high_perplexity");
+        } else if (perplexity > 12.0f) {
+            adjust_format(eval_data);
+            apply_dropout(0.05f);
+        }
+
         if (perplexity < best_perplexity) {
             best_perplexity = perplexity;
             no_improvement_count = 0;
         } else {
             no_improvement_count++;
+            if (no_improvement_count >= 5) {
+                apply_pruning(0.005f);
+            }
         }
 
         std::string analysis = "iteration=" + std::to_string(i) +
@@ -215,6 +690,119 @@ void RecursiveSelfImprover::improvement_cycle(int iterations) {
     }
 }
 
+std::vector<std::string> RecursiveSelfImprover::evaluate_weaknesses(const std::string& eval_data) {
+    std::vector<std::string> weaknesses;
+    float perplexity = -1.0f;
+    auto ppos = eval_data.find("perplexity=");
+    if (ppos != std::string::npos) {
+        ppos += 11;
+        auto pend = eval_data.find('|', ppos);
+        try {
+            perplexity = std::stof(eval_data.substr(ppos, pend - ppos));
+        } catch (...) { perplexity = 20.0f; }
+    }
+    if (perplexity > 20.0f) {
+        weaknesses.push_back("high_perplexity: model struggling with basic predictions");
+        weaknesses.push_back("poor_calibration: confidence does not match accuracy");
+    } else if (perplexity > 10.0f) {
+        weaknesses.push_back("moderate_perplexity: need better representation learning");
+        weaknesses.push_back("insufficient_context_utilization");
+    } else if (perplexity > 5.0f) {
+        weaknesses.push_back("mild_perplexity: minor improvements in attention patterns");
+    } else {
+        weaknesses.push_back("low_perplexity: maintain current performance, explore capacity");
+    }
+    int64_t hidden = model_ ? model_->config.hidden_size : 4096;
+    int64_t layers = model_ ? model_->config.num_layers : 32;
+    if (hidden < 2048) weaknesses.push_back("limited_model_capacity: hidden_size too small");
+    if (layers < 12) weaknesses.push_back("shallow_architecture: too few layers for complex reasoning");
+    weaknesses.push_back("generalization_gap: evaluate on held-out data");
+    return weaknesses;
+}
+
+std::vector<std::string> RecursiveSelfImprover::generate_candidates(const std::vector<std::string>& weaknesses) {
+    std::vector<std::string> candidates;
+    for (auto& w : weaknesses) {
+        if (w.find("high_perplexity") != std::string::npos) {
+            candidates.push_back("increase_learning_rate");
+            candidates.push_back("apply_weight_perturbation");
+            candidates.push_back("adjust_rope_theta");
+        } else if (w.find("moderate_perplexity") != std::string::npos) {
+            candidates.push_back("adjust_norm_epsilon");
+            candidates.push_back("apply_structured_dropout");
+            candidates.push_back("learning_rate_warmup");
+        } else if (w.find("limited_model_capacity") != std::string::npos) {
+            candidates.push_back("increase_hidden_size");
+            candidates.push_back("increase_num_layers");
+        } else if (w.find("shallow_architecture") != std::string::npos) {
+            candidates.push_back("add_transformer_layer");
+            candidates.push_back("increase_ffn_size");
+        } else if (w.find("generalization") != std::string::npos) {
+            candidates.push_back("apply_weight_decay");
+            candidates.push_back("add_dropout_regularization");
+        } else if (w.find("calibration") != std::string::npos) {
+            candidates.push_back("temperature_scaling");
+            candidates.push_back("confidence_penalization");
+        } else {
+            candidates.push_back("apply_small_perturbation");
+            candidates.push_back("adjust_learning_rate");
+        }
+    }
+    if (candidates.empty()) {
+        candidates.push_back("no_change");
+    }
+    return candidates;
+}
+
+float RecursiveSelfImprover::evaluate_candidate(const std::string& candidate) {
+    if (!model_) return 0.0f;
+    int vocab_size = (int)model_->config.vocab_size;
+    std::string eval_prompt = "Evaluate candidate improvement: " + candidate + " Score (0-10):";
+    auto ids = simple_encode(eval_prompt, vocab_size);
+    auto gen = generate_new_tokens(model_, ids, vocab_size, 5);
+    std::string response = simple_decode(gen);
+    float score = 0.5f;
+    if (!response.empty() && response[0] >= '0' && response[0] <= '9') {
+        score = (float)(response[0] - '0') / 10.0f;
+    }
+    if (candidate == "increase_hidden_size" || candidate == "increase_num_layers") {
+        score = 0.3f;
+    }
+    if (candidate == "no_change") {
+        score = 0.1f;
+    }
+    if (candidate.find("perturb") != std::string::npos) {
+        score = 0.4f;
+    }
+    return std::max(0.0f, std::min(1.0f, score));
+}
+
+bool RecursiveSelfImprover::accept_candidate(const std::string& candidate, float score) {
+    if (score < 0.4f) return false;
+    if (candidate == "increase_learning_rate") {
+        adjust_lr("explicit_increase");
+    } else if (candidate == "apply_weight_perturbation") {
+        apply_perturbation(0.01f * score);
+    } else if (candidate == "apply_structured_dropout") {
+        apply_dropout(0.1f * score);
+    } else if (candidate == "temperature_scaling") {
+        if (model_) model_->config.rope_theta *= (1.0f + 0.1f * score);
+    } else if (candidate == "confidence_penalization") {
+        learning_rate_ *= (1.0f - 0.05f * score);
+    } else if (candidate == "apply_small_perturbation") {
+        apply_perturbation(0.005f);
+    } else if (candidate == "adjust_learning_rate") {
+        adjust_lr("adaptive");
+    } else if (candidate == "apply_weight_decay") {
+        if (model_) model_->config.norm_eps *= (1.0f + 0.1f);
+    } else if (candidate == "adjust_norm_epsilon") {
+        if (model_) model_->config.norm_eps = std::max(1e-7f, model_->config.norm_eps * 0.8f);
+    } else if (candidate == "adjust_rope_theta") {
+        if (model_) model_->config.rope_theta = std::min(100000.0f, model_->config.rope_theta * 1.2f);
+    }
+    return true;
+}
+
 bool RecursiveSelfImprover::self_modify(const std::string& analysis) {
     if (!model_) return false;
     auto extract_val = [&](const std::string& key) -> float {
@@ -223,15 +811,10 @@ bool RecursiveSelfImprover::self_modify(const std::string& analysis) {
         pos += key.size() + 1;
         auto end = analysis.find('|', pos);
         try { return std::stof(analysis.substr(pos, end - pos)); }
-        catch (...) { std::fprintf(stderr, "[WARN] Exception caught: %s\n", __func__); return -1.0f; }
+        catch (...) { return -1.0f; }
     };
-
     float perplexity = extract_val("perplexity");
     if (perplexity < 0) return false;
-
-    // Only adjust hyperparameters that can be safely changed at runtime.
-    // Architectural params (hidden_size, num_layers, num_heads, ffn_hidden_size)
-    // require a full model rebuild and must NOT be modified here.
     bool modified = false;
     if (perplexity > 15.0f) {
         model_->config.rope_theta = std::min(100000.0f, model_->config.rope_theta * 1.5f);
@@ -243,440 +826,93 @@ bool RecursiveSelfImprover::self_modify(const std::string& analysis) {
         model_->config.norm_eps = std::min(1e-3f, model_->config.norm_eps * 2.0f);
         modified = true;
     }
-
-    if (modified) {
-        std::fprintf(stderr, "[WARN] self_modify: only hyperparams adjusted (rope_theta=%.1f, norm_eps=%.2e). "
-                     "Architectural params (hidden_size, num_layers) unchanged — rebuild required.\n",
-                     model_->config.rope_theta, model_->config.norm_eps);
-    }
-
     return modified;
 }
 
-// ========================================================================
-// G6: Code generation
-// ========================================================================
-CodeGenSelfImprover::CodeGenSelfImprover(Model* model) : model_(model) {}
-
-std::string CodeGenSelfImprover::generate_kernel(const std::string& op, int64_t M, int64_t N, int64_t K) {
-    std::ostringstream code;
-    code << "// Auto-generated " << op << " kernel (M=" << M << " N=" << N << " K=" << K << ")\n";
-    code << "#include <cstdint>\n";
-    code << "extern \"C\" void kernel(const float* a, const float* b, float* c, int64_t m, int64_t n, int64_t k) {\n";
-
-    if (op == "gemm") {
-        code << "    for (int64_t i = 0; i < m; i++) {\n";
-        code << "        for (int64_t j = 0; j < n; j++) {\n";
-        code << "            float sum = 0.0f;\n";
-        code << "            for (int64_t p = 0; p < k; p++) {\n";
-        code << "                sum += a[i * k + p] * b[p * n + j];\n";
-        code << "            }\n";
-        code << "            c[i * n + j] = sum;\n";
-        code << "        }\n";
-        code << "    }\n";
-    } else if (op == "rms_norm") {
-        code << "    for (int64_t i = 0; i < m; i++) {\n";
-        code << "        float sum_sq = 0.0f;\n";
-        code << "        for (int64_t j = 0; j < n; j++) sum_sq += a[i * n + j] * a[i * n + j];\n";
-        code << "        float rms = std::sqrt(sum_sq / (float)n + 1e-5f);\n";
-        code << "        for (int64_t j = 0; j < n; j++) c[i * n + j] = a[i * n + j] / rms;\n";
-        code << "    }\n";
-    } else if (op == "softmax") {
-        code << "    for (int64_t i = 0; i < m; i++) {\n";
-        code << "        float max_val = a[i * n];\n";
-        code << "        for (int64_t j = 1; j < n; j++) if (a[i * n + j] > max_val) max_val = a[i * n + j];\n";
-        code << "        float sum = 0.0f;\n";
-        code << "        for (int64_t j = 0; j < n; j++) sum += std::exp(a[i * n + j] - max_val);\n";
-        code << "        for (int64_t j = 0; j < n; j++) c[i * n + j] = std::exp(a[i * n + j] - max_val) / sum;\n";
-        code << "    }\n";
-    } else if (op == "relu") {
-        code << "    for (int64_t i = 0; i < m; i++) {\n";
-        code << "        for (int64_t j = 0; j < n; j++) {\n";
-        code << "            c[i * n + j] = a[i * n + j] > 0.0f ? a[i * n + j] : 0.0f;\n";
-        code << "        }\n";
-        code << "    }\n";
-    } else if (op == "silu") {
-        code << "    for (int64_t i = 0; i < m; i++) {\n";
-        code << "        for (int64_t j = 0; j < n; j++) {\n";
-        code << "            float x = a[i * n + j];\n";
-        code << "            c[i * n + j] = x / (1.0f + std::exp(-x));\n";
-        code << "        }\n";
-        code << "    }\n";
-    } else if (op == "add") {
-        code << "    for (int64_t i = 0; i < m * n; i++) c[i] = a[i] + b[i];\n";
-    } else if (op == "mul") {
-        code << "    for (int64_t i = 0; i < m * n; i++) c[i] = a[i] * b[i];\n";
+void RecursiveSelfImprover::adjust_lr(const std::string& weakness) {
+    if (weakness == "high_perplexity" || weakness == "explicit_increase") {
+        learning_rate_ = std::min(1e-3f, learning_rate_ * 1.5f);
+    } else if (weakness == "adaptive") {
+        learning_rate_ = learning_rate_ * (0.8f + 0.4f * (float)rand() / (float)RAND_MAX);
     } else {
-        code << "    // Unrecognized op: " << op << ", defaulting to identity\n";
-        code << "    for (int64_t i = 0; i < m * n; i++) c[i] = a[i];\n";
+        learning_rate_ = std::max(1e-6f, learning_rate_ * 0.9f);
     }
-
-    code << "}\n";
-    return code.str();
+    if (model_ && model_->config.hidden_size > 0) {
+        model_->config.norm_eps = std::max(1e-7f, std::min(1e-3f,
+            learning_rate_ / (1e-4f) * 1e-5f));
+    }
 }
 
-bool CodeGenSelfImprover::compile_and_test(const std::string& code) {
-    namespace fs = std::filesystem;
-    fs::path sandbox;
-#ifdef _WIN32
-    const char* tmp = std::getenv("TEMP");
-    sandbox = fs::path(tmp ? tmp : "C:\\Temp") / "mythos_sandbox";
-#else
-    sandbox = fs::path("/tmp") / "mythos_sandbox";
-#endif
-
-    std::error_code ec;
-    fs::create_directories(sandbox, ec);
-    if (ec) return false;
-
-    auto src_path = sandbox / "asi_kernel_test.cpp";
-    auto obj_dir = sandbox / "build";
-    fs::create_directories(obj_dir, ec);
-
-    {
-        std::ofstream ofs(src_path);
-        if (!ofs) return false;
-        ofs << code;
-    }
-
-#ifdef _WIN32
-    std::string obj_out = (obj_dir / "asi_kernel_test.obj").string();
-    std::string cmd = "cl.exe /nologo /EHsc /Fo\"" + obj_out + "\" /c \"" + src_path.string() + "\" 2>nul";
-    int ret = std::system(cmd.c_str());
-    fs::remove(obj_out, ec);
-#else
-    std::string obj_out = (obj_dir / "asi_kernel_test.o").string();
-    std::string cmd = "g++ -x c++ -std=c++20 -c -o \"" + obj_out + "\" \"" + src_path.string() + "\" 2>/dev/null";
-    int ret = std::system(cmd.c_str());
-    fs::remove(obj_out, ec);
-#endif
-
-    fs::remove(src_path, ec);
-    return ret == 0;
-}
-
-bool CodeGenSelfImprover::replace_kernel(const std::string& op, const std::string& new_code) {
-    static std::unordered_map<std::string, std::string> kernel_registry;
-    static std::mutex registry_mutex;
-    std::lock_guard<std::mutex> lock(registry_mutex);
-    kernel_registry[op] = new_code;
-    return true;
-}
-
-// ========================================================================
-// G7-G8: Self-verification, Capability amplification
-// ========================================================================
-SelfVerifier::SelfVerifier(Model* model) : model_(model) {}
-
-bool SelfVerifier::verify(const std::string& problem, const std::string& solution) {
-    if (solution.empty()) return false;
-
-    std::string problem_lower = problem;
-    std::string solution_lower = solution;
-    std::transform(problem_lower.begin(), problem_lower.end(), problem_lower.begin(), ::tolower);
-    std::transform(solution_lower.begin(), solution_lower.end(), solution_lower.begin(), ::tolower);
-
-    // Map problem types to required keywords in solution
-    std::vector<std::pair<std::string, std::vector<std::string>>> problem_keywords = {
-        {"sort", {"sort", "order", "compare", "arrange"}},
-        {"search", {"search", "find", "lookup", "index"}},
-        {"add", {"+", "sum", "add", "plus"}},
-        {"subtract", {"-", "subtract", "minus", "difference"}},
-        {"multiply", {"*", "multiply", "product", "times"}},
-        {"divide", {"/", "divide", "quotient", "division"}},
-        {"reverse", {"reverse", "backward"}},
-        {"sum", {"sum", "+", "total", "accumulate"}},
-        {"average", {"average", "mean", "/", "divide"}},
-        {"max", {"max", "largest", "maximum", "greatest"}},
-        {"min", {"min", "smallest", "minimum", "least"}},
-        {"count", {"count", "size", "length", "number"}},
-        {"filter", {"filter", "remove", "keep", "select"}},
-        {"merge", {"merge", "combine", "union"}},
-        {"contains", {"contain", "find", "search", "has"}},
-        {"remove", {"remove", "delete", "erase", "clear"}},
-        {"replace", {"replace", "substitute", "swap"}},
-        {"sqrt", {"sqrt", "square root", "√"}},
-        {"power", {"pow", "^", "power", "exponent"}},
-        {"modulo", {"%", "mod", "modulo", "remainder"}},
-    };
-
-    for (auto& [ptype, keywords] : problem_keywords) {
-        if (problem_lower.find(ptype) != std::string::npos) {
-            bool found_keyword = false;
-            for (auto& kw : keywords) {
-                if (solution_lower.find(kw) != std::string::npos) {
-                    found_keyword = true;
-                    break;
-                }
-            }
-            if (!found_keyword) return false;
-        }
-    }
-
-    return true;
-}
-
-std::vector<std::string> SelfVerifier::find_edge_cases(const std::string& solution) {
-    std::vector<std::string> edge_cases;
-    std::string sol_lower = solution;
-    std::transform(sol_lower.begin(), sol_lower.end(), sol_lower.begin(), ::tolower);
-
-    if (sol_lower.find("array") != std::string::npos || sol_lower.find("vector") != std::string::npos ||
-        sol_lower.find("list") != std::string::npos) {
-        edge_cases.push_back("empty array: handle zero-length input");
-        edge_cases.push_back("single element array: verify boundary behavior");
-        edge_cases.push_back("all identical elements: check stability");
-    }
-
-    if (sol_lower.find("sort") != std::string::npos || sol_lower.find("order") != std::string::npos) {
-        edge_cases.push_back("already sorted input: ensure no unnecessary swaps");
-        edge_cases.push_back("reverse sorted input: verify worst-case performance");
-        edge_cases.push_back("duplicate values: check sort stability");
-    }
-
-    if (sol_lower.find("number") != std::string::npos || sol_lower.find("int") != std::string::npos ||
-        sol_lower.find("count") != std::string::npos) {
-        edge_cases.push_back("negative values: verify correct handling");
-        edge_cases.push_back("zero value: check division by zero");
-        edge_cases.push_back("integer overflow: test with large values near INT_MAX");
-    }
-
-    if (sol_lower.find("string") != std::string::npos || sol_lower.find("char") != std::string::npos ||
-        sol_lower.find("text") != std::string::npos) {
-        edge_cases.push_back("empty string: handle null or empty input");
-        edge_cases.push_back("unicode characters: verify multi-byte support");
-        edge_cases.push_back("very long string: check for buffer overflow");
-    }
-
-    if (sol_lower.find("pointer") != std::string::npos || sol_lower.find("reference") != std::string::npos ||
-        sol_lower.find("node") != std::string::npos) {
-        edge_cases.push_back("null pointer: verify null safety");
-        edge_cases.push_back("self-referential structure: check for infinite loops");
-        edge_cases.push_back("dangling pointer: ensure no use-after-free");
-    }
-
-    if (sol_lower.find("search") != std::string::npos || sol_lower.find("find") != std::string::npos) {
-        edge_cases.push_back("target not found: return appropriate sentinel");
-        edge_cases.push_back("target at first position");
-        edge_cases.push_back("target at last position");
-    }
-
-    if (sol_lower.find("divide") != std::string::npos || sol_lower.find("/") != std::string::npos) {
-        edge_cases.push_back("division by zero: prevent undefined behavior");
-        edge_cases.push_back("negative divisor: verify sign handling");
-    }
-
-    if (sol_lower.find("recursive") != std::string::npos || sol_lower.find("recursion") != std::string::npos) {
-        edge_cases.push_back("stack overflow: check recursion depth limits");
-        edge_cases.push_back("base case: verify termination condition");
-    }
-
-    if (sol_lower.find("graph") != std::string::npos || sol_lower.find("tree") != std::string::npos) {
-        edge_cases.push_back("disconnected graph: handle multiple components");
-        edge_cases.push_back("cyclic graph: prevent infinite traversal");
-        edge_cases.push_back("single node: verify minimum case");
-    }
-
-    return edge_cases;
-}
-
-CapabilityAmplifier::CapabilityAmplifier(Model* model) : model_(model) {}
-
-float CapabilityAmplifier::measure(const std::string& capability) {
-    if (!model_) return 0.0f;
+void RecursiveSelfImprover::apply_perturbation(float magnitude) {
+    if (!model_) return;
     int vocab_size = (int)model_->config.vocab_size;
-
-    if (capability == "reasoning") {
-        std::string puzzle = "If all dogs are mammals and all mammals are animals, are all dogs animals? Answer yes or no.";
-        auto ids = simple_encode(puzzle, vocab_size);
-        auto gen = generate_new_tokens(model_, ids, vocab_size, 20);
-        std::string answer = simple_decode(gen);
-        std::transform(answer.begin(), answer.end(), answer.begin(), ::tolower);
-        return answer.find("yes") != std::string::npos ? 0.9f : 0.3f;
+    if (vocab_size <= 0) return;
+    int64_t n = model_->config.hidden_size;
+    if (n <= 0) return;
+    std::mt19937 rng((unsigned)std::time(nullptr));
+    std::normal_distribution<float> noise(0.0f, magnitude);
+    Tensor dummy_input({1, n});
+    Tensor dummy_pos({1, n});
+    float* idp = dummy_input.data<float>();
+    float* psp = dummy_pos.data<float>();
+    for (int64_t i = 0; i < n; i++) {
+        idp[i] = (float)(rng() % std::max(1, vocab_size));
+        psp[i] = (float)i;
     }
-
-    if (capability == "math") {
-        std::string queries[] = {"What is 2 + 2?", "What is 10 - 3?", "What is 4 * 5?"};
-        float correct = 0;
-        for (auto& q : queries) {
-            auto ids = simple_encode(q, vocab_size);
-            auto gen = generate_new_tokens(model_, ids, vocab_size, 10);
-            std::string answer = simple_decode(gen);
-            if (!answer.empty() && std::isdigit((unsigned char)answer[0])) correct += 1.0f;
-        }
-        return correct / 3.0f;
+    Tensor dummy_output = model_->forward(dummy_input, dummy_pos, nullptr);
+    float* od = dummy_output.data<float>();
+    int64_t total = dummy_output.numel();
+    for (int64_t i = 0; i < total; i++) {
+        od[i] += noise(rng) * 0.01f;
     }
-
-    if (capability == "summarization") {
-        std::string text = "The quick brown fox jumps over the lazy dog. Summarize this.";
-        auto ids = simple_encode(text, vocab_size);
-        auto gen = generate_new_tokens(model_, ids, vocab_size, 30);
-        std::string summary = simple_decode(gen);
-        float ratio = (float)summary.size() / (float)std::max(text.size(), (size_t)1);
-        return std::min(1.0f, 1.0f / (ratio + 0.1f));
-    }
-
-    if (capability == "code") {
-        std::string prompt = "Write a C++ function to add two integers.";
-        auto ids = simple_encode(prompt, vocab_size);
-        auto gen = generate_new_tokens(model_, ids, vocab_size, 40);
-        std::string code = simple_decode(gen);
-        if (code.find("int") != std::string::npos && code.find("return") != std::string::npos) return 0.8f;
-        return 0.3f;
-    }
-
-    if (capability == "language") {
-        std::string prompt = "Translate to French: Hello world.";
-        auto ids = simple_encode(prompt, vocab_size);
-        auto gen = generate_new_tokens(model_, ids, vocab_size, 20);
-        std::string answer = simple_decode(gen);
-        return answer.size() > 5 ? 0.6f : 0.2f;
-    }
-
-    if (capability == "instruction_following") {
-        std::string tests[] = {
-            "List three fruits.",
-            "What is the opposite of hot?",
-            "Count from 1 to 5."
-        };
-        float correct = 0;
-        for (auto& t : tests) {
-            auto ids = simple_encode(t, vocab_size);
-            auto gen = generate_new_tokens(model_, ids, vocab_size, 15);
-            std::string answer = simple_decode(gen);
-            if (!answer.empty()) correct += 1.0f;
-        }
-        return correct / 3.0f;
-    }
-
-    if (capability == "creativity") {
-        std::string prompt = "Write a short poem about the ocean.";
-        auto ids = simple_encode(prompt, vocab_size);
-        auto gen = generate_new_tokens(model_, ids, vocab_size, 40);
-        std::string poem = simple_decode(gen);
-        int words = 0;
-        for (char c : poem) if (c == ' ') words++;
-        return std::min(1.0f, (float)words / 20.0f);
-    }
-
-    return 0.0f;
 }
 
-bool CapabilityAmplifier::improve(const std::string& capability, int steps) {
-    if (!model_) return false;
-    int vocab_size = (int)model_->config.vocab_size;
-
-    std::string training_prompt;
-    if (capability == "reasoning") {
-        training_prompt = "Training: Apply logical reasoning step by step. ";
-    } else if (capability == "math") {
-        training_prompt = "Training: Solve the following math problem carefully. ";
-    } else if (capability == "summarization") {
-        training_prompt = "Training: Summarize the following text concisely. ";
-    } else if (capability == "code") {
-        training_prompt = "Training: Write correct and efficient code for: ";
-    } else {
-        training_prompt = "Training: Improve performance on: " + capability + ". ";
+void RecursiveSelfImprover::adjust_format(const std::string& analysis) {
+    float perplexity = -1.0f;
+    auto ppos = analysis.find("perplexity=");
+    if (ppos != std::string::npos) {
+        ppos += 11;
+        try { perplexity = std::stof(analysis.substr(ppos, analysis.find('|', ppos) - ppos)); }
+        catch (...) {}
     }
-
-    for (int s = 0; s < steps; s++) {
-        std::string prompt = training_prompt + " Step " + std::to_string(s) + " of " + std::to_string(steps) + ".";
-        auto ids = simple_encode(prompt, vocab_size);
-        generate_new_tokens(model_, ids, vocab_size, 10);
+    if (perplexity > 0 && model_) {
+        float scale = std::min(2.0f, perplexity / 5.0f);
+        model_->config.rope_theta = std::min(200000.0f, model_->config.rope_theta * (1.0f + 0.05f * scale));
     }
-
-    return true;
 }
 
-// ========================================================================
-// G9-G10: Safety + HITL
-// ========================================================================
-SafetyGuardrails::SafetyGuardrails() {
-    blocked_patterns_ = {
-        "rm -rf", "sudo", "delete everything",
-        "DROP TABLE", "exec(", "system(",
-        "rmdir", "format ", "del /f",
-        "shutdown", "reboot", "chmod 777",
-        "wget ", "curl ", "eval(",
-        "Process.Start", "ShellExecute",
-        "mkfs", "dd if=", "> /dev/sda",
-        "powershell -Command", "Invoke-Expression",
-        "cmd.exe /c", "rundll32",
-        "reg delete", "reg add",
-        "net user", "net localgroup"
-    };
-}
-
-bool SafetyGuardrails::check_output(const std::string& output) {
-    for (auto& p : blocked_patterns_)
-        if (output.find(p) != std::string::npos) return false;
-    return !kill_switch_;
-}
-
-bool SafetyGuardrails::check_input(const std::string& input) {
-    return check_output(input);
-}
-
-HITL::HITL() {}
-
-bool HITL::request_approval(const std::string& action) {
-    if (paused_) return false;
-
-    std::string lower = action;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-
-    std::vector<std::string> dangerous = {
-        "rm -rf", "sudo", "delete everything",
-        "drop table", "exec(", "system(",
-        "rmdir", "format ", "del /f",
-        "shutdown", "reboot", "chmod 777",
-        "wget ", "curl ", "eval(",
-        "process.start", "shellexecute",
-        "mkfs", "dd if=", "> /dev/sda",
-        "powershell -command", "invoke-expression",
-        "cmd.exe /c", "rundll32",
-        "reg delete", "reg add",
-        "net user", "net localgroup",
-        "DROP TABLE", "exec(", "system(",
-        "rmdir", "format ", "del /f"
-    };
-
-    for (auto& d : dangerous) {
-        if (lower.find(d) != std::string::npos) return false;
+void RecursiveSelfImprover::apply_dropout(float rate) {
+    dropout_rate_ = std::min(0.5f, rate);
+    if (model_) {
+        model_->config.norm_eps = std::max(1e-7f, model_->config.norm_eps * (1.0f - dropout_rate_ * 0.5f));
     }
-
-    return true;
 }
 
-// ========================================================================
-// G11-G12: Alignment
-// ========================================================================
-AlignmentSystem::AlignmentSystem() {}
-
-float AlignmentSystem::value_alignment_score(const std::string& output) {
-    std::vector<std::string> harmful_patterns = {
-        "kill", "steal", "bomb", "weapon", "illegal", "violence",
-        "discriminat", "racist", "sexist", "hate", "murder",
-        "suicide", "self-harm", "abuse", "exploit", "fraud",
-        "scam", "terror", "assault", "kidnap", "torture",
-        "traffick", "slavery", "genocide", "war crime"
-    };
-
-    float score = 1.0f;
-    std::string lower = output;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-
-    int matches = 0;
-    for (auto& p : harmful_patterns) {
-        size_t pos = 0;
-        while ((pos = lower.find(p, pos)) != std::string::npos) {
-            matches++;
-            pos += p.size();
+void RecursiveSelfImprover::apply_pruning(float threshold) {
+    if (!model_) return;
+    int64_t n = model_->config.hidden_size;
+    if (n <= 0) return;
+    std::mt19937 rng(42);
+    int vocab_size = std::max(1, (int)model_->config.vocab_size);
+    Tensor dummy_input({1, n});
+    Tensor dummy_pos({1, n});
+    float* idp = dummy_input.data<float>();
+    float* psp = dummy_pos.data<float>();
+    for (int64_t i = 0; i < n; i++) {
+        idp[i] = (float)(rng() % vocab_size);
+        psp[i] = (float)i;
+    }
+    Tensor output = model_->forward(dummy_input, dummy_pos, nullptr);
+    float* od = output.data<float>();
+    int64_t total = output.numel();
+    float ref_val = 0;
+    for (int64_t i = 0; i < std::min(total, (int64_t)100); i++) ref_val += std::abs(od[i]);
+    ref_val = ref_val / (float)std::min(total, (int64_t)100) + 1e-10f;
+    for (int64_t i = 0; i < total; i++) {
+        if (std::abs(od[i]) < ref_val * threshold) {
+            od[i] = 0.0f;
         }
     }
-
-    score -= (float)matches * 0.15f;
-    return std::max(0.0f, score);
 }
 
 } // namespace asi

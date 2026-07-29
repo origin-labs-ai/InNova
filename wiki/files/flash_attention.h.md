@@ -41,4 +41,4 @@ class FlashAttention {
 
 ### GPU Implementation
 
-The GPU implementation (`flash_attention_gpu.cu`) uses CUDA shared memory for the tiling approach.
+GPU acceleration via Vulkan compute shaders with tiled shared memory. The CPU fallback uses AVX2 tiled loops.

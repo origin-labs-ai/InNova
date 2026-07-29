@@ -49,8 +49,8 @@ quantization that FLOPS completely ignores.
 
 Key results:
 - OIL4 (4-bit) = 8x SOPS advantage over FP32
-- TERNARY (1.58-bit) = 20.25x SOPS advantage
-- BINARY (1-bit) = 32x SOPS advantage
+- SPARK_Q0 (2.0-bit) = 16.0x SOPS advantage
+- OIL1 (1.0-bit) = 32x SOPS advantage
 - On a 12-core AVX2 CPU: measured 0.092 pSOPS
 - Gap to 1 ZSOPS: ~10.9 billion x
 
@@ -174,7 +174,7 @@ Using 32 as the normalizer means:
   - FP16: IW = 32/16 = 2.0 (each FP16 weight = 2 FP32-equivalent ops)
   - OIL8: IW = 32/8 = 4.0
   - OIL4: IW = 32/4 = 8.0
-  - BINARY: IW = 32/1 = 32.0
+  - OIL1: IW = 32/1 = 32.0
 
 ### 3.5 Physical Meaning of Info Weight
 
@@ -182,10 +182,10 @@ Info Weight (IW) answers: "How many FP32-equivalent weight operations
 does one element of this format represent, in terms of memory
 subsystem throughput?"
 
-A BINARY weight (1 bit) at IW=32 means: processing one BINARY weight
+A OIL1 weight (1 bit) at IW=32 means: processing one OIL1 weight
 consumes 1/32nd the memory bandwidth of processing one FP32 weight.
-Therefore, you can process 32x more BINARY weights per byte of
-memory bandwidth. Each BINARY weight is worth 32 FP32-equivalent ops.
+Therefore, you can process 32x more OIL1 weights per byte of
+memory bandwidth. Each OIL1 weight is worth 32 FP32-equivalent ops.
 
 This is NOT about compute parallelism (SIMD). It's about information
 density in the memory subsystem. The SIMD speedup is captured in
@@ -210,10 +210,10 @@ Consider memory bandwidth B (bytes/second):
 
   IW(OIL4) = 32 / 4 = 8 ✓
 
-  BINARY weights per second: B / 0.125 = B × 8
+  OIL1 weights per second: B / 0.125 = B × 8
   Ratio: (B × 8) / (B / 4) = 32
 
-  IW(BINARY) = 32 / 1 = 32 ✓
+  IW(OIL1) = 32 / 1 = 32 ✓
 
 The formula is mathematically equivalent to the memory bandwidth
 advantage of each format relative to FP32.
@@ -262,45 +262,36 @@ Property 4: IW × bytes_per_weight = 4 (constant)
 
 ### 5.1 Base Formats (RegFormat enum)
 
-The MYTHOS codebase defines 9 base quantization formats:
+The MYTHOS codebase defines 15 quantization formats (1 lossless OIL32 + 14 lossy):
 
-Format #0: BINARY
+Format #0: OIL1
   BPW: 1.0
   Info Weight: 32.000x
-  Values: {-1, +1} per element (1 bit each)
-  Codebook: 2 centroids
-  MSE: ~3.63e-1 (lossy)
+  Values: Block mean (1 centroid per 32 elements)
+  Codebook: 1 centroid
+  MSE: ~8.50e-1 (lossy)
   Packing: 8 elements per byte
-  Use case: Extreme compression, embedding layers
+  Use case: Maximum compression
 
 Format #1: SPARK_Q0
-  BPW: 1.5
-  Info Weight: 21.333x
-  Values: Hybrid top4+bottom2 centroids
+  BPW: 2.0
+  Info Weight: 16.000x
+  Values: Sign-bit quantized with FP16 scale
   Codebook: 4 centroids
-  MSE: ~1.86e-5 (lossy)
-  Packing: ~5.33 elements per byte
+  MSE: ~1.70e-1 (lossy)
+  Packing: 4 elements per byte
   Use case: Spark quantization with quality preservation
 
 Format #2: SPARK_SPARSE
-  BPW: 1.5
-  Info Weight: 21.333x
-  Values: SPARK + threshold sparsity
-  Codebook: 4 centroids
-  MSE: ~1.85e-5 (lossy)
-  Packing: ~5.33 elements per byte
+  BPW: 2.0
+  Info Weight: 16.000x
+  Values: Threshold sparsity (uint16 index, int8 value)
+  Codebook: N/A (sparse pairs)
+  MSE: ~1e-15 (lossy)
+  Packing: Variable
   Use case: Sparse weight representation
 
-Format #3: TERNARY
-  BPW: 1.58
-  Info Weight: 20.253x
-  Values: {-s, 0, +s} per block
-  Codebook: 3 centroids
-  MSE: ~1.88e-1 (lossy)
-  Packing: ~5.06 elements per byte
-  Use case: Ternary weight networks, extreme compression
-
-Format #4: OIL2
+Format #3: OIL2
   BPW: 2.0
   Info Weight: 16.000x
   Values: Lloyd-Max 4 centroids
@@ -309,7 +300,7 @@ Format #4: OIL2
   Packing: 4 elements per byte
   Use case: Low-bit quantization with good quality
 
-Format #5: OIL4
+Format #4: OIL4
   BPW: 4.0
   Info Weight: 8.000x
   Values: Lloyd-Max 16 centroids
@@ -349,10 +340,9 @@ Format #8: OIL32
 
 Format       BPW     Info Weight    Weights/Byte    FP32-equivalent ops/byte
 --------     ----    -----------    ------------    -----------------------
-BINARY       1.0     32.000x        8.0             256.0
-SPARK_Q0     1.5     21.333x        5.33            113.8
-SPARK_SPARSE 1.5     21.333x        5.33            113.8
-TERNARY      1.58    20.253x        5.06            102.5
+OIL1         1.0     32.000x        8.0             256.0
+SPARK_Q0     2.0     16.000x        4.0             64.0
+SPARK_SPARSE 2.0     16.000x        4.0             64.0
 OIL2         2.0     16.000x        4.0             64.0
 OIL4         4.0     8.000x         2.0             16.0
 OIL8         8.0     4.000x         1.0             4.0
@@ -373,8 +363,7 @@ OIL16        128 MB         128M ops        2.0x
 OIL8         64 MB          256M ops        4.0x
 OIL4         32 MB          512M ops        8.0x
 OIL2         16 MB          1.024B ops      16.0x
-TERNARY      10.2 MB        1.296B ops      20.2x
-BINARY       8 MB           2.048B ops      32.0x
+OIL1         8 MB           2.048B ops      32.0x
 
 ---
 
@@ -386,14 +375,11 @@ MYTHOS supports mixing two formats at specified ratios:
 
 Mix Format          Eff BPW    IW        Tier1       Tier2
 ----------------    -------    ------    ---------   ---------
-OIL8+BIN_1_99       1.07       29.907    OIL8(1%)    BIN(99%)
-OIL8+Tern_1_99      1.08       29.630    OIL8(1%)    Tern(99%)
+OIL8+OIL1_1_99      1.07       29.907    OIL8(1%)    OIL1(99%)
 OIL8+OIL2_1_99      1.08       29.630    OIL8(1%)    OIL2(99%)
 OIL8+OIL4_5_95      4.20       7.619     OIL8(5%)    OIL4(95%)
-OIL4+BIN_5_95       1.35       23.704    OIL4(5%)    BIN(95%)
-OIL4+Tern_5_95      1.40       22.857    OIL4(5%)    Tern(95%)
+OIL4+OIL1_5_95      1.15       27.826    OIL4(5%)    OIL1(95%)
 OIL4+OIL2_10_90     2.30       13.913    OIL4(10%)   OIL2(90%)
-OIL8+Tern_5_95      1.62       19.753    OIL8(5%)    Tern(95%)
 OIL8+OIL2_10_90     2.60       12.308    OIL8(10%)   OIL2(90%)
 SPARK+OIL8_5_95     7.62       4.199     SPARK(5%)   OIL8(95%)
 OIL16+OIL4_1_99     4.16       7.692     OIL16(1%)   OIL4(99%)
@@ -412,11 +398,10 @@ format B (BPW_b, ratio r_b):
 ### 6.3 Quad-Tier Mixes
 
 Mix Format                    Eff BPW    IW
-----------------------------  -------    ------
-QUAD_BIN_TER_OIL4_OIL8        1.56       20.513
-QUAD_TERN_OIL2_OIL4_OIL8      1.86       17.204
-QUAD_OIL2_OIL4_OIL8_OIL16     2.78       11.511
-QUAD_OIL4_OIL8_OIL16_OIL32    4.72       6.780
+----------------------------  -------   ------
+QUAD_OIL1_OIL2_OIL4_OIL8     1.88       17.021
+QUAD_OIL2_OIL4_OIL8_OIL16    2.78       11.511
+QUAD_OIL4_OIL8_OIL16_OIL32   4.72       6.780
 
 ### 6.4 Mix Format SOPS
 
@@ -449,8 +434,7 @@ To achieve 1 SOPS with each format:
 
 Format     BPW     BW for 1 SOPS (bytes/sec)
 --------   ----    --------------------------
-BINARY     1.0     3.9 PB/s
-TERNARY    1.58    9.8 PB/s
+OIL1       1.0     3.9 PB/s
 OIL2       2.0     15.6 PB/s
 OIL4       4.0     62.5 PB/s
 OIL8       8.0     250 PB/s
@@ -472,10 +456,9 @@ Format     Weights/sec      Effective ops/sec    SOPS
 FP32       10 billion       10 billion           1e-11
 OIL8       40 billion       160 billion          1.6e-10
 OIL4       80 billion       640 billion          6.4e-10
-TERNARY    202 billion      4.09 trillion        4.09e-9
-BINARY     320 billion      10.24 trillion       1.02e-8
+OIL1       320 billion      10.24 trillion       1.02e-8
 
-BINARY achieves 1000x more SOPS than FP32 at the same bandwidth!
+OIL1 achieves 1000x more SOPS than FP32 at the same bandwidth!
 
 ### 7.4 CPU Memory Hierarchy Impact
 
@@ -487,8 +470,7 @@ Main RAM: 16-64 GB/s
 For a 64M parameter model:
   FP32: 256 MB → exceeds L3, must use RAM
   OIL4: 32 MB → fits in L3 cache!
-  TERNARY: 10.2 MB → fits in L2 cache!
-  BINARY: 8 MB → fits in L2 cache!
+  OIL1: 8 MB → fits in L2 cache!
 
 Smaller formats access faster memory tiers, compounding the
 bandwidth advantage beyond the raw BPW ratio.
@@ -499,11 +481,11 @@ bandwidth advantage beyond the raw BPW ratio.
 
 ### 8.1 SIMD Lanes per Format
 
-ISA          FP32    FP16    OIL8    OIL4    TERNARY   BINARY
---------     ----    ----    ----    ----    -------   ------
-SSE4 (128)   4       8       16      32      81        128
-AVX2 (256)   8       16      32      64      162       256
-AVX512 (512) 16      32      64      128     324       512
+ISA          FP32    FP16    OIL8    OIL4    OIL1      SPARK_Q0
+--------     ----    ----    ----    ----    ----      --------
+SSE4 (128)   4       8       16      32      128       64
+AVX2 (256)   8       16      32      64      256       128
+AVX512 (512) 16      32      64      128     512       256
 
 ### 8.2 Compute Throughput per Format
 
@@ -626,16 +608,15 @@ Gap to 1 SOPS: ~10.9 billion x
 
 ### 10.4 Format Index Reference
 
-    Index   Format       BPW     IW
-    0       BINARY       1.0     32.0
-    1       SPARK_Q0     1.5     21.3
-    2       SPARK_SPARSE 1.5     21.3
-    3       TERNARY      1.58    20.3
-    4       OIL2         2.0     16.0
-    5       OIL4         4.0     8.0
-    6       OIL8         8.0     4.0
-    7       OIL16        16.0    2.0
-    8       OIL32        32.0    1.0
+Index   Format       BPW     IW
+     0       OIL1         1.0     32.0
+     1       SPARK_Q0     2.0     16.0
+     2       SPARK_SPARSE 2.0     16.0
+     3       OIL2         2.0     16.0
+     4       OIL4         4.0     8.0
+     5       OIL8         8.0     4.0
+     6       OIL16        16.0    2.0
+     7       OIL32        32.0    1.0
 
 ### 10.5 Recording Operations
 
@@ -761,15 +742,14 @@ Output includes:
 
     Format     IW        Max SOPS
     --------   ------    ---------
-    BINARY     32.0      3.686e-8
-    TERNARY    20.25     2.333e-8
+    OIL1       32.0      3.686e-8
     OIL2       16.0      1.843e-8
     OIL4       8.0       9.216e-9
     OIL8       4.0       4.608e-9
     OIL16      2.0       2.304e-9
     OIL32      1.0       1.152e-9
 
-Best case (BINARY): 36.86 nSOPS = 3.686e-8 SOPS
+Best case (OIL1): 36.86 nSOPS = 3.686e-8 SOPS
 Gap to 1 SOPS: ~27 million x
 
 ### 12.3 Why Theoretical ≠ Actual
@@ -792,10 +772,10 @@ Reasons:
 2. Cache blocking: 2x improvement
 3. AVX512: 2x SIMD width
 4. Dual FMA: 2x pipeline utilization
-5. TERNARY: 2.5x info weight vs OIL4
+5. OIL1: 4.0x info weight vs OIL4
 
-Total potential: 10 × 2 × 2 × 2 × 2.5 = 200x improvement
-New theoretical: 0.092 pSOPS × 200 = 18.4 pSOPS
+Total potential: 10 × 2 × 2 × 2 × 4.0 = 320x improvement
+New theoretical: 0.092 pSOPS × 320 = 29.44 pSOPS
 
 ---
 
@@ -818,32 +798,32 @@ Step 2: Optimize FMA utilization (8.7% → 80%)
 Step 3: AVX512 upgrade
   1.70 pSOPS (2x from wider SIMD)
 
-Step 4: TERNARY format (IW 20.25 vs 8)
-  5.37 pSOPS (3.16x from info weight)
+Step 4: OIL1 format (IW 32 vs 8)
+  6.80 pSOPS (4.0x from info weight)
 
 Step 5: 4-node cluster
-  21.5 pSOPS (4x from parallelism)
+  27.2 pSOPS (4x from parallelism)
 
 Step 6: 16-node cluster
-  86.0 pSOPS (4x more)
+  108.8 pSOPS (4x more)
 
 Step 7: 64-node datacenter
-  5.50 nSOPS (64x more)
+  6.96 nSOPS (64x more)
 
 Step 8: 256-node cluster
-  22.0 nSOPS (4x more)
+  27.8 nSOPS (4x more)
 
 Step 9: 1024-node supercomputer
-  352 nSOPS (16x more)
+  445 nSOPS (16x more)
 
 Step 10: Custom ASIC (10x efficiency)
-  3.52 µSOPS
+  4.45 µSOPS
 
 Step 11: Optical interconnect (10x bandwidth)
-  35.2 µSOPS
+  44.5 µSOPS
 
 Step 12: Quantum-assisted compute (100x)
-  3.52 mSOPS
+  4.45 mSOPS
 
 Remaining gap: ~284,000x to 1 SOPS
 

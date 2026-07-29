@@ -158,7 +158,7 @@ private:
     int64_t block_size_;
 };
 
-// I2S Engine: wraps SparkEngine (identical ternary per-block quantization)
+// I2S Engine: wraps SparkEngine (identical per-block quantization)
 class I2SEngine {
 public:
     explicit I2SEngine(int64_t block_size = 128);

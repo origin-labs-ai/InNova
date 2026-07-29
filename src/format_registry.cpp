@@ -21,15 +21,15 @@ static std::vector<FormatDescriptor> build_singles() {
     v.push_back({"OIL8",          RegFormat::OIL8,          8.0f,  256,  false, false, 1,  256.0f, 1.05e-4f, "Lloyd-Max 256 centroids"});
     v.push_back({"OIL16",         RegFormat::OIL16,         16.0f, 0,    false, false, 1,  0.0f, 2.00e-7f, "FP16 storage"});
     v.push_back({"OIL32",         RegFormat::OIL32,         32.0f, 0,    true,  false, 1,  0.0f, 0.0f,    "FP32 identity (lossless)"});
-    v.push_back({"OIL1_GRP",      RegFormat::OIL1_GRP,      1.0f,  1,    false, true,  64,  128.0f, 1.50e+0f, "1 centroid per group of 64 + FP32 scale/zp"});
-    v.push_back({"OIL2_GRP",      RegFormat::OIL2_GRP,      2.0f,  4,    false, true,  0,  128.0f, 1.25e-1f, "Lloyd-Max 4 centroids + per-group FP32 scale/zp (2-bit packed)"});
-    v.push_back({"OIL4_GRP",      RegFormat::OIL4_GRP,      4.0f,  16,   false, true,  0,  64.0f, 1.50e-2f, "Lloyd-Max 16 centroids + per-group FP32 scale/zp (4-bit packed)"});
-    v.push_back({"OIL8_GRP",      RegFormat::OIL8_GRP,      8.0f,  256,  false, true,  0,  32.0f, 1.35e-4f, "Lloyd-Max 256 centroids + per-group FP32 scale/zp"});
-    v.push_back({"OIL16_GRP",     RegFormat::OIL16_GRP,     16.0f, 256,  false, true,  8,   8.0f, 3.00e-3f, "256 FP32 centroids + per-group FP32 scale/zp"});
-    v.push_back({"SPARK_SPARSE",  RegFormat::SPARK_SPARSE,  2.0f,  0,    false, false, 1,  0.0f, 1e-15f,    "Threshold sparsity (index,value pairs)"});
+    v.push_back({"OIL1_GRP",      RegFormat::OIL1_GRP,      1.19f,  1,    false, true,  64,  128.0f, 7.50e-1f, "1-bit + per-group FP32 scale/zp"});
+    v.push_back({"OIL2_GRP",      RegFormat::OIL2_GRP,      2.19f,  4,    false, true,  128, 128.0f, 9.00e-2f, "Lloyd-Max 4 centroids + per-group FP32 scale/zp (2-bit packed)"});
+    v.push_back({"OIL4_GRP",      RegFormat::OIL4_GRP,      4.19f,  16,   false, true,  64,  64.0f, 9.00e-3f, "Lloyd-Max 16 centroids + per-group FP32 scale/zp (4-bit packed)"});
+    v.push_back({"OIL8_GRP",      RegFormat::OIL8_GRP,      8.19f,  256,  false, true,  32,  32.0f, 5.00e-5f, "Lloyd-Max 256 centroids + per-group FP32 scale/zp"});
+    v.push_back({"OIL16_GRP",     RegFormat::OIL16_GRP,     16.19f, 256,  false, true,  8,   8.0f, 3.00e-3f, "256 FP32 centroids + per-group FP32 scale/zp"});
+    v.push_back({"SPARK_SPARSE",  RegFormat::SPARK_SPARSE,  2.0f,  0,    false, false, 1,  0.0f, 1e-15f,    "Threshold sparsity (uint16 index, int8 value)"});
     v.push_back({"SPARK_SPARSE_GRP", RegFormat::SPARK_SPARSE_GRP, 2.0f, 0, false, true,  128, 0.0f, 2.20e-4f, "Sparse + per-group int8 scale"});
-    v.push_back({"SPARK_Q0",      RegFormat::SPARK_Q0,      2.0f,  4,    false, false, 32, 4.0f, 1.70e-1f, "Sign-bit quantized with FP16 scale"});
-    v.push_back({"SPARK_Q0_GRP",  RegFormat::SPARK_Q0_GRP,  2.0f,  4,    false, true,  32, 4.0f, 3.20e-1f, "Sign-bit + per-group scale"});
+    v.push_back({"SPARK_Q0",      RegFormat::SPARK_Q0,      1.50f,  4,    false, false, 32, 4.0f, 1.70e-1f, "Sign-bit quantized with FP16 scale"});
+    v.push_back({"SPARK_Q0_GRP",  RegFormat::SPARK_Q0_GRP,  1.69f,  4,    false, true,  32, 4.0f, 3.20e-1f, "Sign-bit + per-group scale"});
     return v;
 }
 
@@ -200,7 +200,7 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::SPARK_SPARSE) {
-        return quantize_spark_sparse(data, n, 1e-4f);
+        return quantize_spark_sparse(data, n);
     }
 
     if (fmt.id == RegFormat::OIL1) {
@@ -361,6 +361,7 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
         qr.codebook_fp32[0] = 0.0f;
         qr.group_scales.resize(static_cast<size_t>(num_groups));
         qr.group_zero_points.resize(static_cast<size_t>(num_groups));
+        qr.indices.resize(static_cast<size_t>(n));
         for (int64_t g = 0; g < num_groups; g++) {
             int64_t gstart = g * 64;
             int64_t gend = (gstart + 64 <= n) ? gstart + 64 : n;
@@ -373,6 +374,10 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
             if (range < 1e-10f) range = 1.0f;
             qr.group_scales[static_cast<size_t>(g)] = range;
             qr.group_zero_points[static_cast<size_t>(g)] = gmin;
+            float mean = (gmin + gmax) * 0.5f;
+            for (int64_t i = gstart; i < gend; i++) {
+                qr.indices[static_cast<size_t>(i)] = (data[i] >= mean) ? 1 : 0;
+            }
         }
         qr.success = true;
         return qr;
@@ -461,7 +466,7 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
 
         qr.group_scales.resize(static_cast<size_t>(num_groups));
         qr.group_zero_points.resize(static_cast<size_t>(num_groups));
-        std::vector<uint16_t> sparse_indices;
+        std::vector<uint32_t> sparse_indices;
         std::vector<float> sparse_values;
         std::vector<int> sparse_groups;
 
@@ -481,7 +486,7 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
 
             for (int64_t i = gstart; i < gend; i++) {
                 if (std::fabs(data[i]) > group_threshold) {
-                    sparse_indices.push_back(static_cast<uint16_t>(i));
+                    sparse_indices.push_back(static_cast<uint32_t>(i));
                     sparse_values.push_back(data[i]);
                     sparse_groups.push_back(static_cast<int>(g));
                 }
@@ -499,7 +504,7 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
 
         qr.codebook_fp32.resize(1);
         qr.codebook_fp32[0] = 0.0f;
-        size_t total_bytes = static_cast<size_t>(4 + nnz * 4);
+        size_t total_bytes = static_cast<size_t>(4 + nnz * 6);
         qr.indices.resize(total_bytes);
         qr.indices[0] = static_cast<uint8_t>(static_cast<uint32_t>(nnz) & 0xFF);
         qr.indices[1] = static_cast<uint8_t>((static_cast<uint32_t>(nnz) >> 8) & 0xFF);
@@ -507,14 +512,16 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
         qr.indices[3] = static_cast<uint8_t>((static_cast<uint32_t>(nnz) >> 24) & 0xFF);
 
         for (int64_t i = 0; i < nnz; i++) {
-            size_t base = static_cast<size_t>(4 + i * 4);
-            uint16_t idx = sparse_indices[static_cast<size_t>(i)];
+            size_t base = static_cast<size_t>(4 + i * 6);
+            uint32_t idx = sparse_indices[static_cast<size_t>(i)];
             int group = sparse_groups[static_cast<size_t>(i)];
             int8_t q_val = static_cast<int8_t>(static_cast<int>(sparse_values[static_cast<size_t>(i)] / qr.group_scales[static_cast<size_t>(group)] * 127.0f));
             qr.indices[base]     = static_cast<uint8_t>(idx & 0xFF);
             qr.indices[base + 1] = static_cast<uint8_t>((idx >> 8) & 0xFF);
-            qr.indices[base + 2] = static_cast<uint8_t>(static_cast<int>(q_val) + 128);
-            qr.indices[base + 3] = static_cast<uint8_t>(group);
+            qr.indices[base + 2] = static_cast<uint8_t>((idx >> 16) & 0xFF);
+            qr.indices[base + 3] = static_cast<uint8_t>((idx >> 24) & 0xFF);
+            qr.indices[base + 4] = static_cast<uint8_t>(static_cast<int>(q_val) + 128);
+            qr.indices[base + 5] = static_cast<uint8_t>(group);
         }
 
         qr.success = true;
@@ -622,7 +629,7 @@ QuantResult FormatRegistry::quantize_oil8(const float* data, int64_t n) {
 
 QuantResult FormatRegistry::quantize_spark_q0(const float* data, int64_t n, int block_size) {
     QuantResult qr;
-    qr.format = {"SPARK_Q0", RegFormat::SPARK_Q0, 2.0f, 4, false, false, block_size, 4.0f, 0.0f, "Sign-bit quantized with FP16 scale"};
+    qr.format = {"SPARK_Q0", RegFormat::SPARK_Q0, 1.50f, 4, false, false, block_size, 4.0f, 0.0f, "Sign-bit quantized with FP16 scale"};
     qr.num_elements = n;
     qr.block_size = block_size;
     qr.global_scale = 0.0f;
@@ -657,21 +664,32 @@ QuantResult FormatRegistry::quantize_spark_q0(const float* data, int64_t n, int 
     return qr;
 }
 
-QuantResult FormatRegistry::quantize_spark_sparse(const float* data, int64_t n, float threshold) {
+QuantResult FormatRegistry::quantize_spark_sparse(const float* data, int64_t n) {
     QuantResult qr;
-    qr.format = {"SPARK_SPARSE", RegFormat::SPARK_SPARSE, 2.0f, 0, false, false, 1, 0.0f, 0.0f, "Threshold sparsity (index,value pairs)"};
+    qr.format = {"SPARK_SPARSE", RegFormat::SPARK_SPARSE, 2.0f, 0, false, false, 1, 0.0f, 0.0f, "Threshold sparsity (uint16 index, int8 value)"};
     qr.num_elements = n;
     qr.block_size = 1;
     qr.global_scale = 0.0f;
 
     if (!data || n <= 0) { qr.success = false; return qr; }
 
-    std::vector<uint16_t> sparse_indices;
+    std::vector<uint32_t> sparse_indices;
     std::vector<float> sparse_values;
 
+    float p90_threshold = 0.0f;
+    {
+        std::vector<float> sorted_abs(static_cast<size_t>(n));
+        for (int64_t i = 0; i < n; i++) sorted_abs[static_cast<size_t>(i)] = std::fabs(data[i]);
+        std::sort(sorted_abs.begin(), sorted_abs.end());
+        size_t p90_idx = static_cast<size_t>(static_cast<double>(n) * 0.90);
+        if (p90_idx >= sorted_abs.size()) p90_idx = sorted_abs.size() - 1;
+        p90_threshold = sorted_abs[p90_idx];
+        if (p90_threshold < 1e-10f) p90_threshold = 1e-4f;
+    }
+
     for (int64_t i = 0; i < n; i++) {
-        if (std::fabs(data[i]) > threshold) {
-            sparse_indices.push_back(static_cast<uint16_t>(i));
+        if (std::fabs(data[i]) > p90_threshold) {
+            sparse_indices.push_back(static_cast<uint32_t>(i));
             sparse_values.push_back(data[i]);
         }
     }
@@ -695,7 +713,7 @@ QuantResult FormatRegistry::quantize_spark_sparse(const float* data, int64_t n, 
     qr.codebook_fp32.resize(1);
     qr.codebook_fp32[0] = global_scale;
 
-    size_t total_bytes = static_cast<size_t>(4 + nnz * 4);
+    size_t total_bytes = static_cast<size_t>(4 + nnz * 6);
     qr.indices.resize(total_bytes);
     qr.indices[0] = static_cast<uint8_t>(static_cast<uint32_t>(nnz) & 0xFF);
     qr.indices[1] = static_cast<uint8_t>((static_cast<uint32_t>(nnz) >> 8) & 0xFF);
@@ -703,13 +721,15 @@ QuantResult FormatRegistry::quantize_spark_sparse(const float* data, int64_t n, 
     qr.indices[3] = static_cast<uint8_t>((static_cast<uint32_t>(nnz) >> 24) & 0xFF);
 
     for (int64_t i = 0; i < nnz; i++) {
-        size_t base = static_cast<size_t>(4 + i * 4);
-        uint16_t idx = sparse_indices[static_cast<size_t>(i)];
+        size_t base = static_cast<size_t>(4 + i * 6);
+        uint32_t idx = sparse_indices[static_cast<size_t>(i)];
         int8_t q_val = static_cast<int8_t>(static_cast<int>(sparse_values[static_cast<size_t>(i)] / global_scale * 127.0f));
         qr.indices[base]     = static_cast<uint8_t>(idx & 0xFF);
         qr.indices[base + 1] = static_cast<uint8_t>((idx >> 8) & 0xFF);
-        qr.indices[base + 2] = static_cast<uint8_t>(static_cast<int>(q_val) + 128);
-        qr.indices[base + 3] = 0;
+        qr.indices[base + 2] = static_cast<uint8_t>((idx >> 16) & 0xFF);
+        qr.indices[base + 3] = static_cast<uint8_t>((idx >> 24) & 0xFF);
+        qr.indices[base + 4] = static_cast<uint8_t>(static_cast<int>(q_val) + 128);
+        qr.indices[base + 5] = 0;
     }
 
     qr.success = true;
@@ -859,7 +879,11 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
             int64_t gend = (gstart + group_sz <= n) ? gstart + group_sz : n;
             float scale = (g < static_cast<int64_t>(qr.group_scales.size())) ? qr.group_scales[static_cast<size_t>(g)] : 1.0f;
             float zp = (g < static_cast<int64_t>(qr.group_zero_points.size())) ? qr.group_zero_points[static_cast<size_t>(g)] : 0.0f;
-            for (int64_t i = gstart; i < gend; i++) output[i] = zp + scale * 0.5f;
+            float midpoint = zp + scale * 0.5f;
+            for (int64_t i = gstart; i < gend; i++) {
+                int bit = (static_cast<size_t>(i) < qr.indices.size()) ? static_cast<int>(qr.indices[static_cast<size_t>(i)]) : 0;
+                output[i] = zp + (bit ? scale : 0.0f);
+            }
         }
         return;
     }
@@ -892,18 +916,20 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
         if (qr.format.id == RegFormat::SPARK_SPARSE && !qr.codebook_fp32.empty())
             gs = qr.codebook_fp32[0];
         for (uint32_t i = 0; i < nnz; i++) {
-            size_t base = static_cast<size_t>(4 + i * 4);
-            if (base + 2 >= qr.indices.size()) break;
-            uint16_t idx = static_cast<uint16_t>(qr.indices[base]) |
-                          (static_cast<uint16_t>(qr.indices[base + 1]) << 8);
-            int8_t q_val = static_cast<int8_t>(static_cast<int>(qr.indices[base + 2]) - 128);
+            size_t base = static_cast<size_t>(4 + i * 6);
+            if (base + 4 >= qr.indices.size()) break;
+            uint32_t idx = static_cast<uint32_t>(qr.indices[base]) |
+                          (static_cast<uint32_t>(qr.indices[base + 1]) << 8) |
+                          (static_cast<uint32_t>(qr.indices[base + 2]) << 16) |
+                          (static_cast<uint32_t>(qr.indices[base + 3]) << 24);
+            int8_t q_val = static_cast<int8_t>(static_cast<int>(qr.indices[base + 4]) - 128);
             float scale = gs;
             if (qr.format.id == RegFormat::SPARK_SPARSE_GRP) {
-                int group = static_cast<int>(qr.indices[base + 3]);
+                int group = static_cast<int>(qr.indices[base + 5]);
                 scale = (static_cast<size_t>(group) < qr.group_scales.size()) ? qr.group_scales[static_cast<size_t>(group)] : 1.0f;
             }
             float val = static_cast<float>(q_val) / 127.0f * scale;
-            if (idx < static_cast<uint16_t>(n)) output[idx] = val;
+            if (idx < static_cast<uint32_t>(n)) output[static_cast<size_t>(idx)] = val;
         }
         return;
     }
@@ -935,7 +961,13 @@ float FormatRegistry::evaluate_format_quality_weighted(const float* data, const 
                                                        int64_t n, const FormatDescriptor& fmt,
                                                        float fisher_weight) {
     if (!data || !gradients || n <= 0) return 0.0f;
-    std::vector<float> weighted(static_cast<size_t>(n));
+
+    QuantResult qr = quantize(data, n, fmt);
+    if (!qr.success) return 0.0f;
+    std::vector<float> dequant(static_cast<size_t>(n));
+    dequantize(qr, dequant.data(), n);
+
+    double sum = 0.0, weight_sum = 0.0;
     float max_grad = 0.0f;
     for (int64_t i = 0; i < n; i++) {
         float g = std::fabs(gradients[i]);
@@ -944,18 +976,11 @@ float FormatRegistry::evaluate_format_quality_weighted(const float* data, const 
     if (max_grad == 0.0f) max_grad = 1.0f;
     for (int64_t i = 0; i < n; i++) {
         float importance = (1.0f - fisher_weight) + fisher_weight * (std::fabs(gradients[i]) / max_grad);
-        weighted[static_cast<size_t>(i)] = data[i] * importance;
+        double diff = static_cast<double>(data[i]) - static_cast<double>(dequant[static_cast<size_t>(i)]);
+        sum += importance * diff * diff;
+        weight_sum += importance;
     }
-    QuantResult qr = quantize(weighted.data(), n, fmt);
-    if (!qr.success) return 0.0f;
-    std::vector<float> dequant(static_cast<size_t>(n));
-    dequantize(qr, dequant.data(), n);
-    double sum = 0.0;
-    for (int64_t i = 0; i < n; i++) {
-        double diff = static_cast<double>(weighted[static_cast<size_t>(i)]) - static_cast<double>(dequant[static_cast<size_t>(i)]);
-        sum += diff * diff;
-    }
-    return static_cast<float>(sum / static_cast<double>(n));
+    return static_cast<float>(sum / weight_sum);
 }
 
 FormatDescriptor FormatRegistry::select_best_format(float target_bpw, const float* data, int64_t n) {

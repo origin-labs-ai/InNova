@@ -27,18 +27,6 @@ namespace asi {
 
 namespace {
 
-std::vector<int> simple_encode(const std::string& text, int vocab_size) {
-    std::vector<int> ids;
-    for (char c : text) ids.push_back((int)c % vocab_size);
-    return ids;
-}
-
-std::string simple_decode(const std::vector<int>& ids) {
-    std::string s;
-    for (int id : ids) s += (char)(id % 256);
-    return s;
-}
-
 int greedy_argmax(const float* logits, int n) {
     int best = 0;
     for (int i = 1; i < n; i++) if (logits[i] > logits[best]) best = i;
@@ -163,38 +151,96 @@ std::vector<int> CuriosityDrivenExplorer::explore(int64_t n_steps) {
 }
 
 // ========================================================================
-// G15: Multi-agent
+// G15: Multi-agent coordination
 // ========================================================================
-MultiAgentSystem::MultiAgentSystem(int n_agents) { agents_.resize(n_agents); }
-
-void MultiAgentSystem::communicate(int from, int to) {
-    if (from < 0 || from >= (int)agents_.size() || to < 0 || to >= (int)agents_.size()) return;
-    for (auto& msg : agents_[from].history)
-        agents_[to].history.push_back("[Agent " + std::to_string(from) + "]: " + msg);
+MultiAgentCoordinator::MultiAgentCoordinator(Model* model) : model_(model) {
+    message_queues_.resize(NUM_ROLES);
+    agent_histories_.resize(NUM_ROLES);
 }
 
-void MultiAgentSystem::run_episode(int steps) {
-    if (agents_.size() < 2) return;
-    std::mt19937 rng(42);
-    for (int step = 0; step < steps; step++) {
-        int from = (int)(rng() % agents_.size());
-        int to = (int)(rng() % agents_.size());
-        if (from == to) to = (to + 1) % (int)agents_.size();
-        communicate(from, to);
-        agents_[from].state = "state_after_step_" + std::to_string(step) + "_from_" + std::to_string(from);
-        agents_[to].state = "state_after_step_" + std::to_string(step) + "_to_" + std::to_string(to);
-        agents_[from].history.push_back("Step " + std::to_string(step) + ": communicated with agent " + std::to_string(to));
+void MultiAgentCoordinator::send_message(int sender, int receiver, const std::string& content, float confidence) {
+    std::lock_guard<std::mutex> lock(coord_mutex_);
+    if (sender < 0 || sender >= NUM_ROLES || receiver < 0 || receiver >= NUM_ROLES) return;
+    Message msg;
+    msg.sender_id = sender;
+    msg.receiver_id = receiver;
+    msg.role = role_name((AgentRole)sender);
+    msg.content = content;
+    msg.round = current_round_;
+    msg.confidence = confidence;
+    message_queues_[receiver].push_back(msg);
+    agent_histories_[sender].push_back("To " + role_name((AgentRole)receiver) + ": " + content);
+}
+
+Message MultiAgentCoordinator::receive_message(int agent_id) {
+    if (agent_id < 0 || agent_id >= NUM_ROLES || message_queues_[agent_id].empty()) {
+        Message empty = {};
+        empty.confidence = 0.0f;
+        empty.sender_id = -1;
+        return empty;
+    }
+    auto msg = message_queues_[agent_id].back();
+    message_queues_[agent_id].pop_back();
+    return msg;
+}
+
+std::vector<Message> MultiAgentCoordinator::get_message_queue(int agent_id) const {
+    if (agent_id < 0 || agent_id >= NUM_ROLES) return {};
+    return message_queues_[agent_id];
+}
+
+std::vector<std::string> MultiAgentCoordinator::get_agent_history(int agent_id) const {
+    if (agent_id < 0 || agent_id >= NUM_ROLES) return {};
+    return agent_histories_[agent_id];
+}
+
+void MultiAgentCoordinator::clear_agent_history(int agent_id) {
+    if (agent_id >= 0 && agent_id < NUM_ROLES) {
+        agent_histories_[agent_id].clear();
+        message_queues_[agent_id].clear();
     }
 }
 
-std::vector<std::string> MultiAgentSystem::get_histories() const {
-    std::vector<std::string> histories;
-    for (auto& agent : agents_) {
-        std::string h;
-        for (auto& msg : agent.history) h += msg + "\n";
-        histories.push_back(h);
+std::string MultiAgentCoordinator::run_task(const std::string& task_description, int max_critic_rounds) {
+    current_round_ = 0;
+    converged_ = false;
+    std::string analysis = analyst_phase(task_description);
+    std::string implementation = implementer_phase(analysis);
+    std::string verification = verifier_phase(implementation);
+    for (int r = 0; r < max_critic_rounds; r++) {
+        current_round_ = r + 1;
+        std::string critique = critic_phase(implementation, verification);
+        if (critique.find("[APPROVED]") != std::string::npos) { converged_ = true; break; }
+        implementation = implementer_phase(critique);
+        verification = verifier_phase(implementation);
     }
-    return histories;
+    return synthesizer_phase({analysis, implementation, verification});
+}
+
+std::string MultiAgentCoordinator::analyst_phase(const std::string& task) {
+    return call_model("Analyst: Analyze the task: " + task);
+}
+std::string MultiAgentCoordinator::implementer_phase(const std::string& analysis) {
+    return call_model("Implementer: Implement based on analysis: " + analysis);
+}
+std::string MultiAgentCoordinator::verifier_phase(const std::string& implementation) {
+    return call_model("Verifier: Verify implementation: " + implementation);
+}
+std::string MultiAgentCoordinator::critic_phase(const std::string& impl, const std::string& ver) {
+    return call_model("Critic: Critique impl: " + impl + " and verification: " + ver);
+}
+std::string MultiAgentCoordinator::synthesizer_phase(const std::vector<std::string>& inputs) {
+    std::string combined;
+    for (auto& in : inputs) combined += in + "\n";
+    return call_model("Synthesizer: Synthesize:\n" + combined);
+}
+
+std::string MultiAgentCoordinator::call_model(const std::string& prompt) {
+    if (!model_) return prompt + " [no model]";
+    int vs = (int)model_->config.vocab_size;
+    auto ids = util::simple_encode(prompt, vs);
+    auto gen = generate_new_tokens(model_, ids, vs, 50);
+    return util::simple_decode(gen);
 }
 
 // ========================================================================
@@ -202,7 +248,7 @@ std::vector<std::string> MultiAgentSystem::get_histories() const {
 // ========================================================================
 NeuralArchitectureSearch::NeuralArchitectureSearch() {}
 
-NeuralArchitectureSearch::Architecture NeuralArchitectureSearch::mutate(const Architecture& a) {
+Architecture NeuralArchitectureSearch::mutate(const Architecture& a) {
     std::mt19937 rng(42);
     Architecture m = a;
     m.layers += (int)(rng() % 3 - 1);
@@ -217,7 +263,7 @@ float NeuralArchitectureSearch::evaluate(const Architecture& arch) {
     return std::sqrt(raw) / (1.0f + std::sqrt(raw));
 }
 
-NeuralArchitectureSearch::Architecture NeuralArchitectureSearch::search(int population, int generations) {
+Architecture NeuralArchitectureSearch::search(int population, int generations) {
     std::mt19937 rng(42);
     std::vector<Architecture> pop;
     for (int i = 0; i < population; i++) {
@@ -360,9 +406,9 @@ float PromptOptimizer::evaluate(const std::string& prompt, const std::string& ta
     if (!model_) return 0.0f;
     int vocab_size = (int)model_->config.vocab_size;
     std::string full = prompt + "\n" + task;
-    auto ids = simple_encode(full, vocab_size);
+    auto ids = oil::asi::util::simple_encode(full, vocab_size);
     auto gen = generate_new_tokens(model_, ids, vocab_size, 30);
-    std::string response = simple_decode(gen);
+    std::string response = util::simple_decode(gen);
     float length_score = std::min(1.0f, (float)response.size() / 100.0f);
     float relevance = 0;
     std::string task_lower = task, resp_lower = response;
@@ -406,9 +452,9 @@ std::string ChainOfThought::reason(const std::string& problem, int max_steps) {
     chain_.clear();
     int vocab_size = (int)model_->config.vocab_size;
     std::string prompt = "Let's solve this step by step.\nProblem: " + problem + "\nStep 1:";
-    auto prompt_ids = simple_encode(prompt, vocab_size);
+    auto prompt_ids = oil::asi::util::simple_encode(prompt, vocab_size);
     auto new_ids = generate_new_tokens(model_, prompt_ids, vocab_size, max_steps * 10);
-    std::string output = simple_decode(new_ids);
+    std::string output = util::simple_decode(new_ids);
     std::istringstream stream(output); std::string word, current_step;
     while (stream >> word) {
         if (word.find("Step") != std::string::npos && !current_step.empty()) {
@@ -455,18 +501,18 @@ std::string ToolUse::call_tool(const std::string& name, const std::string& args)
         if (!model_) return "No results found for: " + args;
         int vocab_size = (int)model_->config.vocab_size;
         std::string prompt = "Search the web for: " + args + ". Result:";
-        auto ids = simple_encode(prompt, vocab_size);
+        auto ids = oil::asi::util::simple_encode(prompt, vocab_size);
         auto gen = generate_new_tokens(model_, ids, vocab_size, 30);
-        std::string result = simple_decode(gen);
+        std::string result = util::simple_decode(gen);
         return result.empty() ? "No results found for: " + args : result;
     }
     if (name == "execute") {
         if (!model_) return "Execution completed with no output";
         int vocab_size = (int)model_->config.vocab_size;
         std::string prompt = "Execute the following code and return output: " + args + "\nOutput:";
-        auto ids = simple_encode(prompt, vocab_size);
+        auto ids = oil::asi::util::simple_encode(prompt, vocab_size);
         auto gen = generate_new_tokens(model_, ids, vocab_size, 30);
-        std::string result = simple_decode(gen);
+        std::string result = util::simple_decode(gen);
         return result.empty() ? "Execution completed with no output" : result;
     }
     return "Tool \"" + name + "\" called with args: " + args + " (unrecognized tool)";
@@ -532,7 +578,7 @@ void MemorySystem::consolidate() {
 // ========================================================================
 PlanningEngine::PlanningEngine(Model* model) : model_(model) {}
 
-std::vector<PlanningEngine::PlanStep> PlanningEngine::plan(const std::string& goal, int max_steps) {
+std::vector<PlanStep> PlanningEngine::plan(const std::string& goal, int max_steps) {
     if (!model_) {
         std::vector<PlanStep> steps;
         steps.push_back({"Analyze: " + goal, {}});
@@ -542,9 +588,9 @@ std::vector<PlanningEngine::PlanStep> PlanningEngine::plan(const std::string& go
     }
     int vocab_size = (int)model_->config.vocab_size;
     std::string prompt = "Decompose the goal into sequential steps.\nGoal: " + goal + "\nSteps:";
-    auto ids = simple_encode(prompt, vocab_size);
+    auto ids = oil::asi::util::simple_encode(prompt, vocab_size);
     auto gen = generate_new_tokens(model_, ids, vocab_size, max_steps * 8);
-    std::string output = simple_decode(gen);
+    std::string output = util::simple_decode(gen);
     std::vector<PlanStep> steps;
     std::istringstream stream(output); std::string line;
     while (std::getline(stream, line)) {
@@ -572,9 +618,9 @@ bool PlanningEngine::execute(const std::vector<PlanStep>& plan) {
     int vocab_size = (int)model_->config.vocab_size;
     for (size_t i = 0; i < plan.size(); i++) {
         std::string prompt = "Execute step " + std::to_string(i) + ": " + plan[i].action;
-        auto ids = simple_encode(prompt, vocab_size);
+        auto ids = oil::asi::util::simple_encode(prompt, vocab_size);
         auto gen = generate_new_tokens(model_, ids, vocab_size, 20);
-        std::string result = simple_decode(gen);
+        std::string result = util::simple_decode(gen);
         std::string lower = result;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         if (lower.find("error") != std::string::npos || lower.find("fail") != std::string::npos ||
@@ -622,9 +668,9 @@ EvaluationHarness::Result EvaluationHarness::evaluate(const std::string& benchma
     int correct = 0; float total_loss = 0;
     for (int i = 0; i < n; i++) {
         auto& tc = test_cases[i];
-        auto ids = simple_encode(tc.input, vocab_size);
+        auto ids = oil::asi::util::simple_encode(tc.input, vocab_size);
         auto gen = generate_new_tokens(model_, ids, vocab_size, 20);
-        std::string response = simple_decode(gen);
+        std::string response = util::simple_decode(gen);
         std::string resp_lower = response;
         std::transform(resp_lower.begin(), resp_lower.end(), resp_lower.begin(), ::tolower);
         if (resp_lower.find(tc.expected_keyword) != std::string::npos) correct++;

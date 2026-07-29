@@ -22,7 +22,7 @@ MYTHOS.cpp is built on peer-reviewed research. All research documents are in `.r
 | Method | BPW | WikiText-2 PPL (vs FP16) |
 |--------|-----|--------------------------|
 | FP16 Baseline | 16.0 | Reference |
-| OIL4 | 1.50 | +0.1 PPL |
+| OIL4 | 4.0 | +0.1 PPL |
 | OIL8 (65536 centroids) | 0.91 | +1.5 PPL |
 | OIL8 (256 centroids) | 0.85 | +2.5 PPL |
 

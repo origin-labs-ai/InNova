@@ -11,7 +11,7 @@
 |---|------|--------|-------|
 | 1 | adapter_edition/ se LoRA/QLoRA/DoRA purge | ✅ DONE (prev session) | Deleted gguf_import.cpp, safetensors.cpp adapter duplicates |
 | 2 | adapter_edition/ ko Native Format-to-OIL Converter redefine | ✅ DONE (prev session) | Dual-purpose: converter + native trainer |
-| 3 | Trimix implementations delete karo | ✅ DONE (prev session) | Zero trimix references in codebase |
+| 3 | Trimix implementations delete karo | ✅ DONE | Zero trimix references in codebase |
 | 4 | CMake GLOB_RECURSE cleanup | ✅ DONE (prev session) | All source files explicit in CMakeLists.txt |
 
 ## Phase 2: Core BPW & OIL Math (TODOs 5-10)

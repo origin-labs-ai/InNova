@@ -24,7 +24,7 @@ RewardModel::RewardModel(int64_t hidden_size, int64_t num_layers, float importan
     float* ptr;
     int64_t n;
 
-    std::mt19937 rng(42);
+    std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
 
     ptr = fc1_weight_.data<float>(); n = fc1_weight_.numel();

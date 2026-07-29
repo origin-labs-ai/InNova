@@ -8,11 +8,11 @@ Convert HuggingFace safetensors models to OIL format:
 # Basic conversion (FP16)
 oil-convert --input model.safetensors --output model.oil
 
-# Quantized conversion (OIL4, ~1.50 BPW)
-oil-convert --input model.safetensors --output model.oil --target-bpw 1.50
+# Quantized conversion (OIL8, ~8.0 BPW)
+oil-convert --input model.safetensors --output model.oil --target-bpw 8.0
 
-# OIL8 quantization (~0.85 BPW)
-oil-convert --input model.safetensors --output model.oil --target-bpw 0.85
+# OIL4 quantization (~4.0 BPW)
+oil-convert --input model.safetensors --output model.oil --target-bpw 4.0
 
 # With custom config
 oil-convert --input model.safetensors --output model.oil --config config.json

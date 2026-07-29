@@ -144,10 +144,13 @@ void RLHFPipeline::ppo_finetune(const std::vector<std::string>& prompts,
         std::vector<int> gen_ids(all_ids.begin() + (int64_t)tokens.size(), all_ids.end());
         if (gen_ids.empty()) gen_ids.push_back(1);
 
-        Tensor reward = get_reward_for_sequence(model_, all_ids);
+        int64_t S = (int64_t)all_ids.size();
+        Tensor seq_tensor(Shape{1, S});
+        float* seq_d = seq_tensor.data<float>();
+        for (int64_t i = 0; i < S; i++) seq_d[i] = (float)all_ids[i];
+        Tensor reward = reward_model_->score(seq_tensor);
         float reward_val = reward.data<float>()[0];
 
-        int64_t S = (int64_t)all_ids.size();
         Tensor states(Shape{1, S});
         Tensor actions(Shape{1, S});
         float* sd = states.data<float>();
@@ -203,7 +206,7 @@ Tensor RLHFPipeline::compute_gae(const Tensor& rewards, const Tensor& values,
     float gae = 0.0f;
     for (int64_t t = T - 1; t >= 0; t--) {
         float delta = r[t] + gamma * ((t + 1 < T) ? v[t + 1] : 0.0f) - v[t];
-        gae = delta + gamma * lam * ((t + 1 < T) ? 0.0f : gae);
+        gae = delta + gamma * lam * ((t + 1 < T) ? gae : 0.0f);
         adv[t] = gae;
     }
     return advantages;

@@ -68,11 +68,14 @@ Tensor Oil1Engine::quant_gemm(const Tensor& a, const Tensor& b_packed,
     int64_t block_size = 32;
     for (int64_t m = 0; m < M; ++m) {
         for (int64_t k = 0; k < K; ++k) {
-            int64_t block_idx = k / block_size;
-            float b_val = bd[block_idx];
             float a_val = ad[m * K + k];
-            for (int64_t n = 0; n < N; ++n)
+            if (a_val == 0.0f) continue;
+            for (int64_t n = 0; n < N; ++n) {
+                int64_t flat_idx = k * N + n;
+                int64_t block_idx = flat_idx / block_size;
+                float b_val = bd[block_idx];
                 cd[m * N + n] += a_val * b_val;
+            }
         }
     }
     return C;

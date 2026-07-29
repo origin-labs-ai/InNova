@@ -357,7 +357,8 @@ private:
 // ===========================================================================
 class DPOTrainer {
 public:
-    DPOTrainer(Model* policy, Model* ref_model, float beta = 0.1f);
+    DPOTrainer(Model* policy, Model* ref_model, float beta = 0.1f,
+               Optimizer* optimizer = nullptr);
 
     float train_step(const Tensor& chosen_logits, const Tensor& rejected_logits,
                      const Tensor& chosen_ids, const Tensor& rejected_ids);
@@ -373,6 +374,7 @@ private:
     Model* policy_;
     Model* ref_model_;
     float beta_;
+    Optimizer* optimizer_;
     float last_loss_ = 0.0f;
 
     float compute_log_probs(const Tensor& logits, const Tensor& ids, Tensor* out_probs = nullptr);
