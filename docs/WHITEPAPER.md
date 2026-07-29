@@ -18,7 +18,7 @@ Under the **Critical Importance Distribution** (CID) assumption — that weight 
 
 The confidence interval contains zero, meaning the theory bounds the gap but does not prove a sign. Empirically, across 40/40 random seeds at four model scales (d = 10, 50, 100, 200), native OIL training **strictly outperforms FP32**, with mean test loss reductions of 15–29% depending on scale.
 
-At the systems level, OIL achieves **21× storage reduction** (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment requiring zero external dependencies. The MYTHOS.cpp engine implements the complete pipeline — from tokenization through training with Straight-Through Estimator (STE) quantization and codebook updates, to inference with hand-written SIMD kernels (I2\_S MAD, TL1/TL2 LUT, OIL8/OIL4 gather-accumulate) — all in approximately 51,000 lines of C++20 code.
+At the systems level, OIL achieves **21× storage reduction** (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment requiring zero external dependencies. The MYTHOS.cpp engine implements the complete pipeline — from tokenization through training with Straight-Through Estimator (STE) quantization and codebook updates, to inference with hand-written SIMD kernels (I2\_S MAD, TL1/TL2 LUT, OIL8/OIL4 gather-accumulate) — all in approximately 97,500 lines of C++20 code.
 
 **Keywords:** Mixed-precision training, quantization barriers, PAC-Bayes bounds, algorithmic stability, codebook learning, implicit regularization, SIMD inference, native C++ deep learning.
 
@@ -1096,7 +1096,7 @@ MYTHOS.cpp is a zero-dependency C++20 AI engine implementing the complete OIL pi
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-The engine builds 16+ static library targets, 6 CLI tools, 9 test executables, and 3 benchmarks, totaling approximately 51,000 lines of C++20 code. All binaries are statically linked with no DLL dependencies.
+The engine builds 16+ static library targets, 6 CLI tools, 9 test executables, and 3 benchmarks, totaling approximately 97,500 lines of C++20 code. All binaries are statically linked with no DLL dependencies.
 
 ### 8.2 OIL Format Binary Specification
 
@@ -1330,7 +1330,7 @@ We have presented OIL, a native mixed-precision training framework that reframes
 
 Under the CID assumption (empirically universal for natural data, theoretically grounded in NTK spectral inheritance), the PAC-Bayes confidence interval [−0.0345, +0.0355] bounds the risk difference between OIL and FP32 at 90% confidence. Empirically, across 40/40 random seeds at four model scales, OIL strictly outperforms FP32 with 15–29% test loss reduction.
 
-At the systems level, OIL achieves 21× storage reduction (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment. The MYTHOS.cpp engine implements the complete pipeline — from tokenization through training with STE quantization and codebook updates, to inference with SIMD-accelerated kernels — in approximately 51,000 lines of zero-dependency C++20 code.
+At the systems level, OIL achieves 21× storage reduction (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment. The MYTHOS.cpp engine implements the complete pipeline — from tokenization through training with STE quantization and codebook updates, to inference with SIMD-accelerated kernels — in approximately 97,500 lines of zero-dependency C++20 code.
 
 The central message: **OIL is not post-training quantization. It is a different optimization algorithm whose gradient dead zone provides strictly stronger implicit regularization, achieving FP32-level accuracy at 1.5 bits per weight with 21× storage compression and empirically better generalization.**
 

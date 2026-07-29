@@ -1658,7 +1658,7 @@ The build system defines 25 library targets across multiple subdirectories:
 | Benchmarks | 3 | 1,200 |
 | Build system | 3 | 500 |
 | Engines (inference, OIL8, trainer) | 57 | 8,000 |
-| **Total** | **~138** | **~51,000** |
+| **Total** | **~337** | **~97,500** |
 
 ---
 
@@ -1747,7 +1747,7 @@ engines/
 - .gitignore (excludes build/, .kilo/, .bitnet/)
 
 #### F. CODE STATS
-- **337+ files, 88,000+ lines** (across all modules including engines/)
+- **337+ files, 97,500+ lines** (across all modules including engines/)
 
 #### G. VERIFIED WORKING
 - ✅ All 82 targets build and 32 tests pass
@@ -2314,7 +2314,7 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 ## 📝 Changelog
 
 ### v0.1.02 (2026-07-26)
-- **337+ files, 88,000+ lines** across 82 build targets
+- **337+ files, 97,500+ lines** across 82 build targets
 - Linux CI/CD pipeline (GitHub Actions) — builds and tests on Ubuntu
 - Vulkan compute backend with dynamic loading for GPU inference
 - Distributed training implementation complete (FSDP, TP, RingAllReduce, ParameterServer)
