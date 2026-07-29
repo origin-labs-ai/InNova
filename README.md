@@ -140,12 +140,44 @@ Large Language Models are transforming the world, but the stack to build them is
 
 ### Format Options
 
-| Format | Index Bits | Codebook | Storage BPW | Compute Precision | Quality |
-|--------|-----------|----------|-------------|-------------------|---------|
-| **OIL8** | 8 (INT8) | 256 × FP32 | 8.0 + codebook | FP32 (gather) | Matches FP32 |
-| **OIL4** | 4 (INT4 packed) | 16 × FP16 | 4.0 + codebook | FP16/FP32 | Matches FP16 |
-| **SPARK_SPARSE** | Sparse index | 1 × FP32 scale | ~2.0 | FP32 | High (sparse-preserving) |
-| **OIL1** | 1 (packed) | Block mean (32 elem) | 1.0 | FP32 | Moderate loss |
+**15 single formats** (11 base + 7 grouped = 15 total*), **8 two-mix**, **2 four-mix**.
+
+#### Low-BPW / Aggressive
+
+| Format | BPW | Codebook | Index Storage | Compute | Quality |
+|--------|-----|----------|-------------|---------|---------|
+| **OIL1** | 1.0 | 1 × FP32 (block mean) | 1-bit packed (32 wt/byte) | FP32 gather+FMA | Moderate loss |
+| **SPARK_Q0** | 1.50 | 4 × FP16 | 2-bit sign-mag + FP16 scale | FP32 gather+add | Good (sign-preserving) |
+| **OIL2** | 2.0 | 4 × FP32 | 2-bit packed (4 wt/byte) | FP32 gather+FMA | Good |
+| **SPARK_SPARSE** | 2.0 | — | uint16 idx + int8 val pairs | FP32 sparse add | High (sparse-preserving) |
+
+#### Medium-BPW
+
+| Format | BPW | Codebook | Index Storage | Compute | Quality |
+|--------|-----|----------|-------------|---------|---------|
+| **OIL4** | 4.0 | 16 × FP32 | 4-bit packed (2 wt/byte) | FP32 gather+FMA | High (matches FP16) |
+| **OIL8** | 8.0 | 256 × FP32 | 8-bit (1 wt/byte) | FP32 gather+FMA | Near FP32 |
+
+#### High-BPW / Full-Precision
+
+| Format | BPW | Storage | Lossless | Compute |
+|--------|-----|---------|----------|---------|
+| **OIL16** | 16.0 | IEEE FP16 | No | FP32 FMA |
+| **OIL32** | 32.0 | IEEE FP32 | **Yes** | FP32 FMA |
+
+#### Grouped Variants (lossy, improved quality via per-group scale/zp)
+
+| Format | BPW | Groups | Group Size | est. MSE |
+|--------|-----|--------|-----------|----------|
+| **OIL1_GRP** | 1.19 | 64 | 128 | 7.50e-1 |
+| **OIL2_GRP** | 2.19 | 128 | 128 | 9.00e-2 |
+| **OIL4_GRP** | 4.19 | 64 | 64 | 9.00e-3 |
+| **OIL8_GRP** | 8.19 | 32 | 32 | 5.00e-5 |
+| **OIL16_GRP** | 16.19 | 8 | 8 | 3.00e-3 |
+| **SPARK_Q0_GRP** | 1.69 | 32 | 4 | 3.20e-1 |
+| **SPARK_SPARSE_GRP** | 2.0 | 128 | — | 2.20e-4 |
+
+*\*Note: OIL1_GRP through OIL16_GRP add 0.19 BPW overhead (per-group FP32 scale/zp). OIL32_GRP is not implemented.*
 
 ### Why Mixed Formats?
 
@@ -161,11 +193,11 @@ OIL's **FormatPlanner** analyzes a model with calibration data and allocates for
 Score each weight block for importance (AWQ-style activation magnitudes)
 Allocate OIL8 to top 1% most salient
 Allocate OIL4 to next 4%
-Allocate OIL1/SPARK to remaining 95%
-If target BPW > 1.50, shift boundary toward higher BPW
+Allocate SPARK_Q0/OIL1 to remaining 95%
+If target BPW > 2.0, shift boundary toward higher BPW
 ```
 
-**Result: 1.50 BPW average with FP32-level quality.**
+**Result: 2.0 BPW average with FP32-level quality** (OIL8 preserves salient weights).
 
 ### Comparison with Existing Formats
 
@@ -178,7 +210,7 @@ If target BPW > 1.50, shift boundary toward higher BPW
 | NF4 (QLoRA) | 4 | ~FP16 | Uniform | ⚠️ Adapter only |
 | GGUF Q4_K_M | 4.5 | ~FP16 | Importance-grouped | ❌ PTQ only |
 | BitNet 1.58 | 1.58 | ~FP16* | Uniform low-BPW | ✅ Only |
-| **OIL (this)** | **1.50** | **FP32** | **Per-block mixed** | **✅ Full** |
+| **OIL (this)** | **~2.0** | **FP32** | **Per-block mixed** | **✅ Full** |
 
 *\*BitNet matches FP16. OIL targets FP32 via OIL8 allocation for salient weights.*
 

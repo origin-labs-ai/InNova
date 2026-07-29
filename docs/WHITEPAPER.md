@@ -1570,17 +1570,25 @@ SPARK_Q0/OIL1 gather kernels achieve lower ops/watt than full-precision FMA but 
 
 | Format | BPW | Index Type | Codebook | Scale | Pack Ratio | Compute |
 |--------|-----|-----------|----------|-------|------------|---------|
-| SPARK\_Q0 | 1.5 | Mixed 4b+2b | Mixed 4+2 centroids | Per-block FP32 | 1.5 BPW | Mixed gather+add |
-| SPARK\_SPARSE | 2.0 | 1b sparse + uint16 idx | {0, ±1} | Per-block FP32 | Sparse | Sparse add |
-| OIL1 | 1.0 | uint1 | Block mean | Per-block FP32 | 32 wt/byte | Gather+FMA |
+| **Low-BPW** | | | | | | |
+| OIL1 | 1.0 | uint1 (packed) | Block mean (1 centroid) | Per-block FP32 | 32 wt/byte | Gather+FMA |
+| SPARK\_Q0 | 1.50 | Mixed 4b+2b | Mixed 4+2 centroids | Per-block FP16 | 1.5 BPW | Mixed gather+add |
 | OIL2 | 2.0 | uint2 | 4 × FP32 | Per-block FP32 | 4 wt/byte | Gather+FMA |
-| OIL2\_GRP | 2.0 | uint2 × sub-blk | 4 per sub-block | Per-sub-block | 4 wt/byte | Gather+FMA |
-| SPARK\_SPARSE\_GRP | 2.0 | 2b sparse grp | 4 per group | Per-group | Sparse | Sparse gather |
+| SPARK\_SPARSE | 2.0 | 1b sparse + uint16 idx | {0, ±1} | Per-block FP32 | Sparse | Sparse add |
+| **Medium-BPW** | | | | | | |
 | OIL4 | 4.0 | uint4 (nibble) | 16 × FP16 | Per-block FP32 | 2 wt/byte | Gather+FMA |
-| OIL4\_GRP | 4.0 | uint4 × sub-blk | 16 per sub-block of 8 | Per-sub-block | 2 wt/byte | Gather+FMA |
 | OIL8 | 8.0 | uint8 | 256 × FP32 | Per-block FP32 | 1 wt/byte | Gather+FMA |
-| OIL16 | 16.0 | uint16 | 65536 × FP16 | Per-block FP32 | 0.5 wt/byte | Direct lookup |
-| OIL32 | 32.0 | FP32 native | None | None | 0.25 wt/byte | Native FP32 |
+| **High-BPW** | | | | | | |
+| OIL16 | 16.0 | — (FP16 native) | — | — | 0.5 wt/byte | FP16→FP32 convert |
+| OIL32 | 32.0 | — (FP32 native) | — | — | 0.25 wt/byte | Native FP32 |
+| **Grouped (lossy, per-group scale/zp)** | | | | | | |
+| OIL1\_GRP | 1.19 | uint1 × sub-blk | 1 per sub-block | Per-group FP32 | 32 wt/byte | Gather+FMA |
+| OIL2\_GRP | 2.19 | uint2 × sub-blk | 4 per sub-block | Per-group FP32 | 4 wt/byte | Gather+FMA |
+| OIL4\_GRP | 4.19 | uint4 × sub-blk | 16 per sub-block | Per-group FP32 | 2 wt/byte | Gather+FMA |
+| OIL8\_GRP | 8.19 | uint8 × sub-blk | 256 per sub-block | Per-group FP32 | 1 wt/byte | Gather+FMA |
+| OIL16\_GRP | 16.19 | uint8 × sub-blk | 256 FP32 centroids | Per-group FP32 | 0.5 wt/byte | Gather+FMA |
+| SPARK\_Q0\_GRP | 1.69 | Mixed 4b+2b × group | 4+2 centroids | Per-group FP16 | 1.69 BPW | Mixed gather+add |
+| SPARK\_SPARSE\_GRP | 2.0 | 2b sparse grp | 4 per group | Per-group int8 | Sparse | Sparse gather |
 
 **Table E.2: File Header Specification**
 
