@@ -1,6 +1,6 @@
 # Native Mixed-Precision Training via Quantization Barriers: A Learning Algorithm with Stronger Implicit Regularization than FP32
 
-**MYTHOS Research Lab**
+**InNova Research Lab**
 
 *Version 1.0 — July 2026*
 
@@ -18,7 +18,7 @@ Under the **Critical Importance Distribution** (CID) assumption — that weight 
 
 The confidence interval contains zero, meaning the theory bounds the gap but does not prove a sign. Empirically, across 40/40 random seeds at four model scales (d = 10, 50, 100, 200), native OIL training **strictly outperforms FP32**, with mean test loss reductions of 15–29% depending on scale.
 
-At the systems level, OIL achieves **21× storage reduction** (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment requiring zero external dependencies. The MYTHOS.cpp engine implements the complete pipeline — from tokenization through training with Straight-Through Estimator (STE) quantization and codebook updates, to inference with hand-written SIMD kernels (I2\_S MAD, TL1/TL2 LUT, OIL8/OIL4 gather-accumulate) — all in approximately 97,500 lines of C++20 code.
+At the systems level, OIL achieves **21× storage reduction** (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment requiring zero external dependencies. The InNova engine implements the complete pipeline — from tokenization through training with Straight-Through Estimator (STE) quantization and codebook updates, to inference with hand-written SIMD kernels (I2\_S MAD, TL1/TL2 LUT, OIL8/OIL4 gather-accumulate) — all in approximately 97,500 lines of C++20 code.
 
 **Keywords:** Mixed-precision training, quantization barriers, PAC-Bayes bounds, algorithmic stability, codebook learning, implicit regularization, SIMD inference, native C++ deep learning.
 
@@ -64,13 +64,13 @@ This distinction is critical: post-training quantization takes an FP32-optimal s
 
 4. **Diagonal dominance theorem.** We prove that for wide neural networks (width m ≥ 10³), the empirical Hessian is diagonally dominant with high probability (Theorem 4a), bounding the cross-term contribution to the approximation error as O(d^{−½}).
 
-5. **Complete C++ implementation.** MYTHOS.cpp is a zero-dependency C++20 engine implementing the full pipeline: OIL8/OIL4/SPARK_Q0/OIL1 formats, FormatPlanner with AWQ-style importance scoring, STE training with codebook updates, and SIMD-accelerated inference kernels.
+5. **Complete C++ implementation.** InNova is a zero-dependency C++20 engine implementing the full pipeline: OIL8/OIL4/SPARK_Q0/OIL1 formats, FormatPlanner with AWQ-style importance scoring, STE training with codebook updates, and SIMD-accelerated inference kernels.
 
 6. **Empirical validation.** We demonstrate that native OIL outperforms FP32 in 40/40 random seeds across four model scales, with the advantage largest at lower d/n ratios (29% reduction at d=50) and remaining significant at high overparameterization (16% at d=200).
 
 ### 1.5 Paper Organization
 
-Section 2 reviews related work. Section 3 establishes notation and preliminary results. Section 4 describes the OIL framework and format specifications. Section 5 presents the core theoretical analysis including the quantization barrier, PAC-Bayes bounds, and algorithmic stability. Section 6 formalizes the CID assumption and proves its connection to data covariance structure. Section 7 presents experimental results. Section 8 describes the MYTHOS.cpp engine architecture. Section 9 compares with industrial quantization methods. Section 10 discusses production deployment. Section 11 addresses safety and alignment. Section 12 presents limitations and future work. Section 13 concludes.
+Section 2 reviews related work. Section 3 establishes notation and preliminary results. Section 4 describes the OIL framework and format specifications. Section 5 presents the core theoretical analysis including the quantization barrier, PAC-Bayes bounds, and algorithmic stability. Section 6 formalizes the CID assumption and proves its connection to data covariance structure. Section 7 presents experimental results. Section 8 describes the InNova engine architecture. Section 9 compares with industrial quantization methods. Section 10 discusses production deployment. Section 11 addresses safety and alignment. Section 12 presents limitations and future work. Section 13 concludes.
 
 ---
 
@@ -1076,15 +1076,15 @@ At 48T parameters (projected maximum), OIL 1.5 BPW requires approximately 9 TB o
 
 ---
 
-## 8. The MYTHOS.cpp Engine
+## 8. The InNova Engine
 
 ### 8.1 Architecture Overview
 
-MYTHOS.cpp is a zero-dependency C++20 AI engine implementing the complete OIL pipeline. The architecture is organized into four layers:
+InNova is a zero-dependency C++20 AI engine implementing the complete OIL pipeline. The architecture is organized into four layers:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        MYTHOS.cpp                               │
+│                        InNova                               │
 ├─────────────────────────────────────────────────────────────────┤
 │  CORE LAYER: Types, Memory, Tensor, Random                      │
 │  MATH LAYER: BLAS (gemm/gemv/dot/axpy), Pointwise, SIMD        │
@@ -1110,7 +1110,7 @@ The .oil binary format (§4.6) stores model weights, format metadata, and config
 
 ### 8.3 Kernel Design
 
-MYTHOS.cpp implements four primary GEMM kernel families:
+InNova implements four primary GEMM kernel families:
 
 **SPARK\_Q0 Gather-Add Kernel.** For SPARK_Q0 weights, packs 4 2-bit sign-magnitude values per byte with a shared per-block FP16 scale. The inner loop performs unpack → {−3/4, −1/4, +1/4, +3/4} × scale → dot product with FP32 activations. x86 path: AVX2 `_mm256` operations with 128-weight blocks. ARM path: NEON `vld1q_s8` + pairwise add.
 
@@ -1145,7 +1145,7 @@ The training pipeline implements:
 
 ### 8.6 Mixture of Experts with 24 Variants
 
-MYTHOS.cpp implements MoMMoE (Modality-Aware Mixture of Experts) with 7 modality groups (VISION, AUDIO, IMAGE\_GEN, VIDEO\_GEN, OCR, TEXT, EMBEDDINGS) and multiple MoE routing variants:
+InNova implements MoMMoE (Modality-Aware Mixture of Experts) with 7 modality groups (VISION, AUDIO, IMAGE\_GEN, VIDEO\_GEN, OCR, TEXT, EMBEDDINGS) and multiple MoE routing variants:
 
 - Top-1 routing (Switch Transformer style)
 - Top-2 routing (Mixtral style)
@@ -1225,7 +1225,7 @@ Prior approaches using uniform 4-level sign-magnitude quantization across the en
 
 ### 10.1 HTTP API Server Design
 
-MYTHOS.cpp is designed for production deployment as a single-binary HTTP server:
+InNova is designed for production deployment as a single-binary HTTP server:
 
 ```
 oil-server --model model.oil --port 8080 --workers 4
@@ -1242,12 +1242,12 @@ The server uses a thread-per-request model with connection pooling, streaming SS
 
 ### 10.2 Single-Binary Deployment
 
-All MYTHOS.cpp binaries are statically linked — no DLL dependencies, no Python runtime, no pip install. Copy the binary and the .oil model file to any compatible system and run:
+All InNova binaries are statically linked — no DLL dependencies, no Python runtime, no pip install. Copy the binary and the .oil model file to any compatible system and run:
 
 ```bash
 # Deploy to any Linux server
-scp oil-infer model.oil user@server:/opt/mythos/
-ssh user@server '/opt/mythos/oil-infer --model /opt/mythos/model.oil --prompt "Hello"'
+scp oil-infer model.oil user@server:/opt/InNova/
+ssh user@server '/opt/InNova/oil-infer --model /opt/InNova/model.oil --prompt "Hello"'
 ```
 
 Binary sizes: oil-infer ~2.1 MB, oil-train ~2.4 MB, oil-finetune ~2.0 MB.
@@ -1288,7 +1288,7 @@ The .oil binary format includes a header with model metadata and can be extended
 
 ### 11.3 Value Preservation in Self-Improvement
 
-MYTHOS.cpp's meta-cognition pipeline (Monitor → Analyze → Plan → Execute → Validate → Integrate) includes value preservation checks at each self-modification step. The validation stage runs regression tests and evaluates on benchmarks before any permanent change is integrated.
+InNova's meta-cognition pipeline (Monitor → Analyze → Plan → Execute → Validate → Integrate) includes value preservation checks at each self-modification step. The validation stage runs regression tests and evaluates on benchmarks before any permanent change is integrated.
 
 ### 11.4 Capability Control
 
@@ -1330,7 +1330,7 @@ We have presented OIL, a native mixed-precision training framework that reframes
 
 Under the CID assumption (empirically universal for natural data, theoretically grounded in NTK spectral inheritance), the PAC-Bayes confidence interval [−0.0345, +0.0355] bounds the risk difference between OIL and FP32 at 90% confidence. Empirically, across 40/40 random seeds at four model scales, OIL strictly outperforms FP32 with 15–29% test loss reduction.
 
-At the systems level, OIL achieves 21× storage reduction (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment. The MYTHOS.cpp engine implements the complete pipeline — from tokenization through training with STE quantization and codebook updates, to inference with SIMD-accelerated kernels — in approximately 97,500 lines of zero-dependency C++20 code.
+At the systems level, OIL achieves 21× storage reduction (188 MB vs 4 GB for a 10⁹-parameter model) with a single-binary C++20 deployment. The InNova engine implements the complete pipeline — from tokenization through training with STE quantization and codebook updates, to inference with SIMD-accelerated kernels — in approximately 97,500 lines of zero-dependency C++20 code.
 
 The central message: **OIL is not post-training quantization. It is a different optimization algorithm whose gradient dead zone provides strictly stronger implicit regularization, achieving FP32-level accuracy at 1.5 bits per weight with 21× storage compression and empirically better generalization.**
 
@@ -1607,5 +1607,5 @@ SPARK_Q0/OIL1 gather kernels achieve lower ops/watt than full-precision FMA but 
 
 ---
 
-*MYTHOS Research Lab — July 2026*
+*InNova Research Lab — July 2026*
 *"Native OIL: Where quantization is not compression — it's a better algorithm."*

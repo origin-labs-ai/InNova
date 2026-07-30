@@ -150,7 +150,7 @@ static ProblemCategory classify_task(const std::string& task) {
 
 static std::string generate_from_template(const std::string& task) {
     ProblemCategory cat = classify_task(task);
-    std::string code = "// MYTHOS template-generated solution\n";
+    std::string code = "// InNova template-generated solution\n";
     code += "// Task: " + task + "\n";
     code += "#include <vector>\n#include <algorithm>\n#include <queue>\n";
     code += "#include <stack>\n#include <string>\n#include <unordered_map>\n";
@@ -748,9 +748,9 @@ namespace fs = std::filesystem;
 static fs::path get_sandbox_path() {
 #ifdef _WIN32
     const char* tmp = std::getenv("TEMP");
-    return fs::path(tmp ? tmp : "C:\\Temp") / "mythos_sandbox";
+    return fs::path(tmp ? tmp : "C:\\Temp") / "InNova_sandbox";
 #else
-    return fs::path("/tmp") / "mythos_sandbox";
+    return fs::path("/tmp") / "InNova_sandbox";
 #endif
 }
 

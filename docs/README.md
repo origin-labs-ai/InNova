@@ -1,4 +1,4 @@
-# MYTHOS.cpp Documentation
+# InNova Documentation
 
 > **M**ixed-format **Y**our-own **T**ensor **H**andcrafted **O**ptimized **S**ystem
 
@@ -8,7 +8,7 @@
 
 ## 📚 Documentation Overview
 
-Welcome to the comprehensive documentation for MYTHOS.cpp. This documentation is structured to help you understand, use, and contribute to the project.
+Welcome to the comprehensive documentation for InNova. This documentation is structured to help you understand, use, and contribute to the project.
 
 ### 🗂️ Documentation Structure
 
@@ -63,7 +63,7 @@ wiki/                          # Per-file documentation (repo-wiki style)
 
 ## 🚀 Quick Start
 
-If you're new to MYTHOS.cpp, start here:
+If you're new to InNova, start here:
 
 1. **[BUILD.md](BUILD.md)** - Get the project compiled on your machine
 2. **[USAGE.md](USAGE.md)** - Learn how to use the tools and APIs
@@ -78,7 +78,7 @@ If you're new to MYTHOS.cpp, start here:
 | [ARCHITECTURE.md](ARCHITECTURE.md) | High-level system design, component relationships | Developers, Architects |
 | [API_REFERENCE.md](API_REFERENCE.md) | Complete API documentation for all public interfaces | Developers, Users |
 | [BUILD.md](BUILD.md) | Step-by-step build instructions for all platforms | Everyone |
-| [USAGE.md](USAGE.md) | How to use MYTHOS.cpp for inference and training | Users |
+| [USAGE.md](USAGE.md) | How to use InNova for inference and training | Users |
 | [RESEARCH.md](RESEARCH.md) | Research papers and algorithms that inspired the design | Researchers |
 
 ---
@@ -120,7 +120,7 @@ See **[MODULES/](MODULES/)** for detailed documentation on each component.
 
 ## 🔬 Research & Innovation
 
-MYTHOS.cpp is built on a foundation of peer-reviewed research:
+InNova is built on a foundation of peer-reviewed research:
 
 - **BitNet b1.58** - Ternary weights that match FP16 quality
 - **AWQ** - Activation-aware weight quantization
@@ -133,7 +133,7 @@ See **[RESEARCH.md](RESEARCH.md)** for a complete list of research papers and ho
 
 ## 🛠️ Development
 
-Want to contribute or extend MYTHOS.cpp?
+Want to contribute or extend InNova?
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guidelines for contributing
 - **[INTERNAL/](INTERNAL/)** - Internal design documents
@@ -170,7 +170,7 @@ Want to contribute or extend MYTHOS.cpp?
 
 ## 📄 License
 
-MYTHOS.cpp is a proprietary project. See the main [README](../README.md) for details.
+InNova is a proprietary project. See the main [README](../README.md) for details.
 
 
-© 2026 MYTHOS.cpp Contributors
+© 2026 InNova Contributors

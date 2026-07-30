@@ -52,7 +52,7 @@ Optimizer State (optional):
 
 ## Format Variants
 
-MYTHOS.cpp defines **25 total formats**: 15 single-precision, 8 two-mix (twimix), and 2 four-mix.
+InNova defines **25 total formats**: 15 single-precision, 8 two-mix (twimix), and 2 four-mix.
 
 | Category | Count | Examples |
 |----------|-------|---------|

@@ -1,4 +1,4 @@
-$testDir = "C:\Users\thaku\Downloads\MYTHOS.cpp\build\Release"
+$testDir = "C:\Users\thaku\Downloads\InNova\build\Release"
 $tests = Get-ChildItem "$testDir\test_*.exe" | Sort-Object Name
 Write-Host "Found $($tests.Count) tests"
 $passed = 0

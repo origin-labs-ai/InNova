@@ -121,7 +121,7 @@ static void test_corrupt_detection() {
 }
 
 static void test_magic_header() {
-    TEST_SUITE("Test 3: MYTHOSIDX magic header");
+    TEST_SUITE("Test 3: InNovaIDX magic header");
 
     std::string path = "test_sha256_magic.oilidx";
 
@@ -137,7 +137,7 @@ static void test_magic_header() {
     file.read(magic, 10);
     file.close();
 
-    TEST_CHECK(std::memcmp(magic, "MYTHOSIDX", 9) == 0, "MYTHOSIDX magic header present");
+    TEST_CHECK(std::memcmp(magic, "InNovaIDX", 9) == 0, "InNovaIDX magic header present");
     printf("  Magic: %.10s\n", magic);
 
     std::filesystem::remove(path);
@@ -238,7 +238,7 @@ int main() {
         log << "|------|--------|\n";
         log << "| OILIdx write and read | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
         log << "| SHA256 corrupt detection (one byte) | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
-        log << "| MYTHOSIDX magic header | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
+        log << "| InNovaIDX magic header | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
         log << "| Truncated idx file detection | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
         log << "| OIL writer SHA256 dedup | " << (failures == 0 ? "PASSED" : "FAILED") << " |\n";
         log << "\n## Summary\n\n";
@@ -248,7 +248,7 @@ int main() {
         log << "- Verdict: " << (failures == 0 ? "PASSED" : "FAILED") << "\n";
         log << "\n## Proof\n\n";
         log << "- SHA256 hash indexing implemented in src/oil_format.cpp:105-112\n";
-        log << "- MYTHOSIDX magic header in OILIdxWriter::write_idx() src/oil_format.cpp:522\n";
+        log << "- InNovaIDX magic header in OILIdxWriter::write_idx() src/oil_format.cpp:522\n";
         log << "- Fail-fast corrupt detection with tensor name in OILIdxReader::read_idx() src/oil_format.cpp:594\n";
         log << "- Content-addressed dedup via SHA256 in OILWriter::write_dedup() src/oil_format.cpp:237\n";
         log << "\nFile: tests/test_sha256_corrupt.cpp\n";

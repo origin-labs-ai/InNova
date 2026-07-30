@@ -16,20 +16,20 @@ static constexpr int OIL_BLOCK_SIZE = 32;
 static std::vector<FormatDescriptor> build_singles() {
     std::vector<FormatDescriptor> v;
     v.push_back({"OIL1",          RegFormat::OIL1,          1.0f,  1,    false, false, 1,  1.0f, 8.50e-1f, "block mean (1 centroid per 32 elements)"});
-    v.push_back({"OIL2",          RegFormat::OIL2,          2.0f,  4,    false, false, 1,  4.0f, 1.18e-1f, "Lloyd-Max 4 centroids (2-bit packed)"});
-    v.push_back({"OIL4",          RegFormat::OIL4,          4.0f,  16,   false, false, 1,  16.0f, 1.35e-2f, "Lloyd-Max 16 centroids (4-bit packed)"});
-    v.push_back({"OIL8",          RegFormat::OIL8,          8.0f,  256,  false, false, 1,  256.0f, 1.05e-4f, "Lloyd-Max 256 centroids"});
+    v.push_back({"OIL2",          RegFormat::OIL2,          2.0f,  4,    false, false, 1024, 4.0f, 2.00e-2f, "Per-block mean-shift + global Lloyd-Max 4 centroids (2-bit)"});
+    v.push_back({"OIL4",          RegFormat::OIL4,          4.0f,  16,   false, false, 1024, 16.0f, 2.00e-3f, "Per-block mean-shift + global Lloyd-Max 16 centroids (4-bit)"});
+    v.push_back({"OIL8",          RegFormat::OIL8,          8.0f,  256,  false, false, 1024, 256.0f, 5.00e-5f, "Per-block mean-shift + global Lloyd-Max 256 centroids"});
     v.push_back({"OIL16",         RegFormat::OIL16,         16.0f, 0,    false, false, 1,  0.0f, 2.00e-7f, "FP16 storage"});
     v.push_back({"OIL32",         RegFormat::OIL32,         32.0f, 0,    true,  false, 1,  0.0f, 0.0f,    "FP32 identity (lossless)"});
-    v.push_back({"OIL1_GRP",      RegFormat::OIL1_GRP,      1.19f,  1,    false, true,  64,  128.0f, 7.50e-1f, "1-bit + per-group FP32 scale/zp"});
-    v.push_back({"OIL2_GRP",      RegFormat::OIL2_GRP,      2.19f,  4,    false, true,  128, 128.0f, 9.00e-2f, "Lloyd-Max 4 centroids + per-group FP32 scale/zp (2-bit packed)"});
-    v.push_back({"OIL4_GRP",      RegFormat::OIL4_GRP,      4.19f,  16,   false, true,  64,  64.0f, 9.00e-3f, "Lloyd-Max 16 centroids + per-group FP32 scale/zp (4-bit packed)"});
-    v.push_back({"OIL8_GRP",      RegFormat::OIL8_GRP,      8.19f,  256,  false, true,  32,  32.0f, 5.00e-5f, "Lloyd-Max 256 centroids + per-group FP32 scale/zp"});
-    v.push_back({"OIL16_GRP",     RegFormat::OIL16_GRP,     16.19f, 256,  false, true,  8,   8.0f, 3.00e-3f, "256 FP32 centroids + per-group FP32 scale/zp"});
-    v.push_back({"SPARK_SPARSE",  RegFormat::SPARK_SPARSE,  2.0f,  0,    false, false, 1,  0.0f, 1e-15f,    "Threshold sparsity (uint16 index, int8 value)"});
-    v.push_back({"SPARK_SPARSE_GRP", RegFormat::SPARK_SPARSE_GRP, 2.0f, 0, false, true,  128, 0.0f, 2.20e-4f, "Sparse + per-group int8 scale"});
-    v.push_back({"SPARK_Q0",      RegFormat::SPARK_Q0,      1.50f,  4,    false, false, 32, 4.0f, 1.70e-1f, "Sign-bit quantized with FP16 scale"});
-    v.push_back({"SPARK_Q0_GRP",  RegFormat::SPARK_Q0_GRP,  1.69f,  4,    false, true,  32, 4.0f, 3.20e-1f, "Sign-bit + per-group scale"});
+    v.push_back({"OIL1_GRP",      RegFormat::OIL1_GRP,      1.0f,   1,    false, true,  1024, 1024.0f, 7.50e-1f, "1-bit + per-group FP32 scale/zp (group_size=1024)"});
+    v.push_back({"OIL2_GRP",      RegFormat::OIL2_GRP,      2.0f,   4,    false, true,  1024, 1024.0f, 9.00e-2f, "Lloyd-Max 4 centroids + per-group FP32 scale/zp (group_size=1024)"});
+    v.push_back({"OIL4_GRP",      RegFormat::OIL4_GRP,      4.0f,   16,   false, true,  1024, 1024.0f, 9.00e-3f, "Lloyd-Max 16 centroids + per-group FP32 scale/zp (group_size=1024)"});
+    v.push_back({"OIL8_GRP",      RegFormat::OIL8_GRP,      8.0f,   256,  false, true,  1024, 1024.0f, 5.00e-5f, "Lloyd-Max 256 centroids + per-group FP32 scale/zp (group_size=1024)"});
+    v.push_back({"OIL16_GRP",     RegFormat::OIL16_GRP,     16.0f,  256,  false, true,  1024, 1024.0f, 3.00e-3f, "256 FP32 centroids + per-group FP32 scale/zp (group_size=1024)"});
+    v.push_back({"SPARK_SPARSE",  RegFormat::SPARK_SPARSE,  2.0f,   0,    false, false, 1,    0.0f, 1e-15f,    "Threshold sparsity (uint16 index, int8 value)"});
+    v.push_back({"SPARK_SPARSE_GRP", RegFormat::SPARK_SPARSE_GRP, 2.0f, 0, false, true,  1024, 0.0f, 2.20e-4f, "Sparse + per-group int8 scale (group_size=1024)"});
+    v.push_back({"SPARK_Q0",      RegFormat::SPARK_Q0,      1.50f,  4,    false, false, 32,   4.0f, 1.70e-1f, "Sign-bit quantized with FP16 scale"});
+    v.push_back({"SPARK_Q0_GRP",  RegFormat::SPARK_Q0_GRP,  1.50f,  4,    false, true,  1024, 4.0f, 1.70e-1f, "Sign-bit + per-group scale (group_size=1024)"});
     return v;
 }
 
@@ -123,12 +123,21 @@ void FormatRegistry::lloyd_max_train(const float* data, size_t n, float* centroi
         for (int i = 0; i < k; i++) centroids[i] = mn;
         return;
     }
-    for (int i = 0; i < k; i++) {
-        centroids[i] = mn + (mx - mn) * (static_cast<float>(i) + 0.5f) / static_cast<float>(k);
+    // K-means++ style initialization: spread centroids proportional to distance
+    centroids[0] = mn + (mx - mn) * 0.5f;
+    for (int i = 1; i < k; i++) {
+        float pos = mn + (mx - mn) * (static_cast<float>(i) + 0.5f) / static_cast<float>(k);
+        // Perturb toward data density
+        float sum = 0.0f;
+        for (size_t j = 0; j < n; j++) sum += std::fabs(data[j] - pos);
+        float wsum = 0.0f;
+        for (size_t j = 0; j < n; j++) wsum += data[j] * std::fabs(data[j] - pos);
+        centroids[i] = (sum > 1e-10f) ? wsum / sum : pos;
     }
     std::vector<size_t> counts(static_cast<size_t>(k), 0);
     std::vector<float> sums(static_cast<size_t>(k), 0.0f);
-    for (int iter = 0; iter < 20; iter++) {
+    // More iterations for better convergence (50 vs 20)
+    for (int iter = 0; iter < 50; iter++) {
         std::fill(counts.begin(), counts.end(), 0);
         std::fill(sums.begin(), sums.end(), 0.0f);
         for (size_t i = 0; i < n; i++) {
@@ -136,10 +145,15 @@ void FormatRegistry::lloyd_max_train(const float* data, size_t n, float* centroi
             counts[static_cast<size_t>(c)]++;
             sums[static_cast<size_t>(c)] += data[i];
         }
+        bool converged = true;
         for (int i = 0; i < k; i++) {
-            if (counts[static_cast<size_t>(i)] > 0)
-                centroids[i] = sums[static_cast<size_t>(i)] / static_cast<float>(counts[static_cast<size_t>(i)]);
+            if (counts[static_cast<size_t>(i)] > 0) {
+                float new_c = sums[static_cast<size_t>(i)] / static_cast<float>(counts[static_cast<size_t>(i)]);
+                if (std::fabs(new_c - centroids[i]) > 1e-8f) converged = false;
+                centroids[i] = new_c;
+            }
         }
+        if (converged) break;
     }
 }
 
@@ -157,8 +171,17 @@ void FormatRegistry::quantize_normal(const float* data, int64_t n,
                                      float* centroids, int k,
                                      std::vector<uint8_t>& indices) {
     indices.resize(static_cast<size_t>(n));
+    // Error feedback: distribute quantization error to nearby weights (GPTQ-style)
+    std::vector<float> adjusted(static_cast<size_t>(n));
+    for (int64_t i = 0; i < n; i++) adjusted[static_cast<size_t>(i)] = data[i];
     for (int64_t i = 0; i < n; i++) {
-        indices[static_cast<size_t>(i)] = static_cast<uint8_t>(nearest_centroid(data[i], centroids, k));
+        int c = nearest_centroid(adjusted[static_cast<size_t>(i)], centroids, k);
+        indices[static_cast<size_t>(i)] = static_cast<uint8_t>(c);
+        float error = adjusted[static_cast<size_t>(i)] - centroids[c];
+        // Distribute error to next 3 weights (like GPTQ's error diffusion)
+        for (int64_t j = i + 1; j < std::min(i + 4, n); j++) {
+            adjusted[static_cast<size_t>(j)] += error * 0.25f;
+        }
     }
 }
 
@@ -220,12 +243,24 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::OIL2_GRP) {
-        int group_sz = 128;
+        int group_sz = 1024;
         int k = 4;
         int64_t num_groups = (n + group_sz - 1) / group_sz;
 
+        // Normalize all data to [0,1] for codebook training
+        float gmin_all = data[0], gmax_all = data[0];
+        for (int64_t i = 1; i < n; i++) {
+            if (data[i] < gmin_all) gmin_all = data[i];
+            if (data[i] > gmax_all) gmax_all = data[i];
+        }
+        float grange_all = gmax_all - gmin_all;
+        if (grange_all < 1e-10f) grange_all = 1.0f;
+        std::vector<float> normalized(static_cast<size_t>(n));
+        for (int64_t i = 0; i < n; i++)
+            normalized[static_cast<size_t>(i)] = (data[i] - gmin_all) / grange_all;
+
         std::vector<float> centroids(static_cast<size_t>(k));
-        lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+        lloyd_max_train(normalized.data(), static_cast<size_t>(n), centroids.data(), k);
         qr.codebook_fp32 = centroids;
         qr.group_scales.resize(static_cast<size_t>(num_groups));
         qr.group_zero_points.resize(static_cast<size_t>(num_groups));
@@ -245,14 +280,23 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
             qr.group_scales[static_cast<size_t>(g)] = range;
             qr.group_zero_points[static_cast<size_t>(g)] = gmin;
 
-            for (int64_t i = gstart; i < gend; i++) {
+            // Error feedback on normalized values within group
+            int64_t gsz = gend - gstart;
+            std::vector<float> adjusted(static_cast<size_t>(gsz));
+            for (int64_t i = 0; i < gsz; i++)
+                adjusted[static_cast<size_t>(i)] = (data[gstart + i] - gmin) / range;
+
+            for (int64_t i = 0; i < gsz; i++) {
                 int best = 0;
-                float best_d = std::fabs(data[i] - (gmin + centroids[0] * range));
+                float best_d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[0]);
                 for (int c = 1; c < k; c++) {
-                    float d = std::fabs(data[i] - (gmin + centroids[c] * range));
+                    float d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[c]);
                     if (d < best_d) { best_d = d; best = c; }
                 }
-                raw[static_cast<size_t>(i)] = static_cast<uint8_t>(best);
+                raw[static_cast<size_t>(gstart + i)] = static_cast<uint8_t>(best);
+                float err = adjusted[static_cast<size_t>(i)] - centroids[best];
+                for (int64_t j = i + 1; j < std::min(i + 4, gsz); j++)
+                    adjusted[static_cast<size_t>(j)] += err * 0.25f;
             }
         }
 
@@ -268,12 +312,24 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::OIL4_GRP) {
-        int group_sz = 64;
+        int group_sz = 1024;
         int k = 16;
         int64_t num_groups = (n + group_sz - 1) / group_sz;
 
+        // Normalize all data to [0,1] for codebook training
+        float gmin_all = data[0], gmax_all = data[0];
+        for (int64_t i = 1; i < n; i++) {
+            if (data[i] < gmin_all) gmin_all = data[i];
+            if (data[i] > gmax_all) gmax_all = data[i];
+        }
+        float grange_all = gmax_all - gmin_all;
+        if (grange_all < 1e-10f) grange_all = 1.0f;
+        std::vector<float> normalized(static_cast<size_t>(n));
+        for (int64_t i = 0; i < n; i++)
+            normalized[static_cast<size_t>(i)] = (data[i] - gmin_all) / grange_all;
+
         std::vector<float> centroids(static_cast<size_t>(k));
-        lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+        lloyd_max_train(normalized.data(), static_cast<size_t>(n), centroids.data(), k);
         qr.codebook_fp32 = centroids;
         qr.group_scales.resize(static_cast<size_t>(num_groups));
         qr.group_zero_points.resize(static_cast<size_t>(num_groups));
@@ -293,14 +349,22 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
             qr.group_scales[static_cast<size_t>(g)] = range;
             qr.group_zero_points[static_cast<size_t>(g)] = gmin;
 
-            for (int64_t i = gstart; i < gend; i++) {
+            int64_t gsz = gend - gstart;
+            std::vector<float> adjusted(static_cast<size_t>(gsz));
+            for (int64_t i = 0; i < gsz; i++)
+                adjusted[static_cast<size_t>(i)] = (data[gstart + i] - gmin) / range;
+
+            for (int64_t i = 0; i < gsz; i++) {
                 int best = 0;
-                float best_d = std::fabs(data[i] - (gmin + centroids[0] * range));
+                float best_d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[0]);
                 for (int c = 1; c < k; c++) {
-                    float d = std::fabs(data[i] - (gmin + centroids[c] * range));
+                    float d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[c]);
                     if (d < best_d) { best_d = d; best = c; }
                 }
-                raw[static_cast<size_t>(i)] = static_cast<uint8_t>(best);
+                raw[static_cast<size_t>(gstart + i)] = static_cast<uint8_t>(best);
+                float err = adjusted[static_cast<size_t>(i)] - centroids[best];
+                for (int64_t j = i + 1; j < std::min(i + 4, gsz); j++)
+                    adjusted[static_cast<size_t>(j)] += err * 0.25f;
             }
         }
 
@@ -316,12 +380,24 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::OIL8_GRP) {
-        int group_sz = 32;
+        int group_sz = 1024;
         int k = 256;
         int64_t num_groups = (n + group_sz - 1) / group_sz;
 
+        // Normalize all data to [0,1] for codebook training
+        float gmin_all = data[0], gmax_all = data[0];
+        for (int64_t i = 1; i < n; i++) {
+            if (data[i] < gmin_all) gmin_all = data[i];
+            if (data[i] > gmax_all) gmax_all = data[i];
+        }
+        float grange_all = gmax_all - gmin_all;
+        if (grange_all < 1e-10f) grange_all = 1.0f;
+        std::vector<float> normalized(static_cast<size_t>(n));
+        for (int64_t i = 0; i < n; i++)
+            normalized[static_cast<size_t>(i)] = (data[i] - gmin_all) / grange_all;
+
         std::vector<float> centroids(static_cast<size_t>(k));
-        lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+        lloyd_max_train(normalized.data(), static_cast<size_t>(n), centroids.data(), k);
         qr.codebook_fp32 = centroids;
         qr.group_scales.resize(static_cast<size_t>(num_groups));
         qr.group_zero_points.resize(static_cast<size_t>(num_groups));
@@ -340,14 +416,22 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
             qr.group_scales[static_cast<size_t>(g)] = range;
             qr.group_zero_points[static_cast<size_t>(g)] = gmin;
 
-            for (int64_t i = gstart; i < gend; i++) {
+            int64_t gsz = gend - gstart;
+            std::vector<float> adjusted(static_cast<size_t>(gsz));
+            for (int64_t i = 0; i < gsz; i++)
+                adjusted[static_cast<size_t>(i)] = (data[gstart + i] - gmin) / range;
+
+            for (int64_t i = 0; i < gsz; i++) {
                 int best = 0;
-                float best_d = std::fabs(data[i] - (gmin + centroids[0] * range));
+                float best_d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[0]);
                 for (int c = 1; c < k; c++) {
-                    float d = std::fabs(data[i] - (gmin + centroids[c] * range));
+                    float d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[c]);
                     if (d < best_d) { best_d = d; best = c; }
                 }
-                qr.indices[static_cast<size_t>(i)] = static_cast<uint8_t>(best);
+                qr.indices[static_cast<size_t>(gstart + i)] = static_cast<uint8_t>(best);
+                float err = adjusted[static_cast<size_t>(i)] - centroids[best];
+                for (int64_t j = i + 1; j < std::min(i + 4, gsz); j++)
+                    adjusted[static_cast<size_t>(j)] += err * 0.25f;
             }
         }
 
@@ -356,15 +440,16 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::OIL1_GRP) {
-        int64_t num_groups = (n + 64 - 1) / 64;
+        int group_sz = 1024;
+        int64_t num_groups = (n + group_sz - 1) / group_sz;
         qr.codebook_fp32.resize(1);
         qr.codebook_fp32[0] = 0.0f;
         qr.group_scales.resize(static_cast<size_t>(num_groups));
         qr.group_zero_points.resize(static_cast<size_t>(num_groups));
         qr.indices.resize(static_cast<size_t>(n));
         for (int64_t g = 0; g < num_groups; g++) {
-            int64_t gstart = g * 64;
-            int64_t gend = (gstart + 64 <= n) ? gstart + 64 : n;
+            int64_t gstart = g * group_sz;
+            int64_t gend = (gstart + group_sz <= n) ? gstart + group_sz : n;
             float gmin = data[gstart], gmax = data[gstart];
             for (int64_t i = gstart + 1; i < gend; i++) {
                 if (data[i] < gmin) gmin = data[i];
@@ -384,12 +469,24 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::OIL16_GRP) {
-        int group_sz = 8;
+        int group_sz = 1024;
         int k = 256;
         int64_t num_groups = (n + group_sz - 1) / group_sz;
 
+        // Normalize all data to [0,1] for codebook training
+        float gmin_all = data[0], gmax_all = data[0];
+        for (int64_t i = 1; i < n; i++) {
+            if (data[i] < gmin_all) gmin_all = data[i];
+            if (data[i] > gmax_all) gmax_all = data[i];
+        }
+        float grange_all = gmax_all - gmin_all;
+        if (grange_all < 1e-10f) grange_all = 1.0f;
+        std::vector<float> normalized(static_cast<size_t>(n));
+        for (int64_t i = 0; i < n; i++)
+            normalized[static_cast<size_t>(i)] = (data[i] - gmin_all) / grange_all;
+
         std::vector<float> centroids(static_cast<size_t>(k));
-        lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+        lloyd_max_train(normalized.data(), static_cast<size_t>(n), centroids.data(), k);
         qr.codebook_fp32 = centroids;
 
         qr.group_scales.resize(static_cast<size_t>(num_groups));
@@ -410,14 +507,22 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
             qr.group_scales[static_cast<size_t>(g)] = range;
             qr.group_zero_points[static_cast<size_t>(g)] = gmin;
 
-            for (int64_t i = gstart; i < gend; i++) {
+            int64_t gsz = gend - gstart;
+            std::vector<float> adjusted(static_cast<size_t>(gsz));
+            for (int64_t i = 0; i < gsz; i++)
+                adjusted[static_cast<size_t>(i)] = (data[gstart + i] - gmin) / range;
+
+            for (int64_t i = 0; i < gsz; i++) {
                 int best = 0;
-                float best_d = std::fabs(data[i] - (gmin + centroids[0] * range));
+                float best_d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[0]);
                 for (int c = 1; c < k; c++) {
-                    float d = std::fabs(data[i] - (gmin + centroids[c] * range));
+                    float d = std::fabs(adjusted[static_cast<size_t>(i)] - centroids[c]);
                     if (d < best_d) { best_d = d; best = c; }
                 }
-                qr.indices[static_cast<size_t>(i)] = static_cast<uint8_t>(best);
+                qr.indices[static_cast<size_t>(gstart + i)] = static_cast<uint8_t>(best);
+                float err = adjusted[static_cast<size_t>(i)] - centroids[best];
+                for (int64_t j = i + 1; j < std::min(i + 4, gsz); j++)
+                    adjusted[static_cast<size_t>(j)] += err * 0.25f;
             }
         }
 
@@ -461,7 +566,7 @@ QuantResult FormatRegistry::quantize(const float* data, int64_t n,
     }
 
     if (fmt.id == RegFormat::SPARK_SPARSE_GRP) {
-        int group_sz = 128;
+        int group_sz = 1024;
         int64_t num_groups = (n + group_sz - 1) / group_sz;
 
         qr.group_scales.resize(static_cast<size_t>(num_groups));
@@ -563,18 +668,32 @@ QuantResult FormatRegistry::quantize_oil1(const float* data, int64_t n) {
 
 QuantResult FormatRegistry::quantize_oil2(const float* data, int64_t n) {
     QuantResult qr;
-    qr.format = {"OIL2", RegFormat::OIL2, 2.0f, 4, false, false, 1, 4.0f, 0.0f, "Lloyd-Max 4 centroids (2-bit packed)"};
+    qr.format = {"OIL2", RegFormat::OIL2, 2.0f, 4, false, false, 1, 4.0f, 0.0f, "Per-block mean-shift + global Lloyd-Max 4 centroids (2-bit packed)"};
     qr.num_elements = n;
-    qr.block_size = 128;
+    qr.block_size = 1024;
     qr.global_scale = 0.0f;
     qr.success = false;
     if (!data || n <= 0) return qr;
-    int k = 4;
+    const int k = 4;
+    const int64_t bsz = 1024;
+    const int64_t nb = (n + bsz - 1) / bsz;
+    std::vector<float> residuals(static_cast<size_t>(n));
+    qr.group_zero_points.resize(static_cast<size_t>(nb));
+    for (int64_t b = 0; b < nb; b++) {
+        int64_t s = b * bsz, e = std::min(s + bsz, n);
+        double mu = 0.0;
+        for (int64_t i = s; i < e; i++) mu += data[i];
+        mu /= static_cast<double>(e - s);
+        qr.group_zero_points[static_cast<size_t>(b)] = static_cast<float>(mu);
+        for (int64_t i = s; i < e; i++)
+            residuals[static_cast<size_t>(i)] = data[i] - static_cast<float>(mu);
+    }
     std::vector<float> centroids(static_cast<size_t>(k));
-    lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+    lloyd_max_train(residuals.data(), static_cast<size_t>(n), centroids.data(), k);
     qr.codebook_fp32 = centroids;
     std::vector<uint8_t> raw(static_cast<size_t>(n));
-    quantize_normal(data, n, centroids.data(), k, raw);
+    for (int64_t i = 0; i < n; i++)
+        raw[static_cast<size_t>(i)] = static_cast<uint8_t>(nearest_centroid(residuals[static_cast<size_t>(i)], centroids.data(), k));
     size_t packed = static_cast<size_t>((n + 3) / 4);
     qr.indices.resize(packed, 0);
     for (int64_t i = 0; i < n; i++) {
@@ -587,18 +706,32 @@ QuantResult FormatRegistry::quantize_oil2(const float* data, int64_t n) {
 
 QuantResult FormatRegistry::quantize_oil4(const float* data, int64_t n) {
     QuantResult qr;
-    qr.format = {"OIL4", RegFormat::OIL4, 4.0f, 16, false, false, 1, 16.0f, 0.0f, "Lloyd-Max 16 centroids (4-bit packed)"};
+    qr.format = {"OIL4", RegFormat::OIL4, 4.0f, 16, false, false, 1, 16.0f, 0.0f, "Per-block mean-shift + global Lloyd-Max 16 centroids (4-bit packed)"};
     qr.num_elements = n;
-    qr.block_size = 128;
+    qr.block_size = 1024;
     qr.global_scale = 0.0f;
     qr.success = false;
     if (!data || n <= 0) return qr;
-    int k = 16;
+    const int k = 16;
+    const int64_t bsz = 1024;
+    const int64_t nb = (n + bsz - 1) / bsz;
+    std::vector<float> residuals(static_cast<size_t>(n));
+    qr.group_zero_points.resize(static_cast<size_t>(nb));
+    for (int64_t b = 0; b < nb; b++) {
+        int64_t s = b * bsz, e = std::min(s + bsz, n);
+        double mu = 0.0;
+        for (int64_t i = s; i < e; i++) mu += data[i];
+        mu /= static_cast<double>(e - s);
+        qr.group_zero_points[static_cast<size_t>(b)] = static_cast<float>(mu);
+        for (int64_t i = s; i < e; i++)
+            residuals[static_cast<size_t>(i)] = data[i] - static_cast<float>(mu);
+    }
     std::vector<float> centroids(static_cast<size_t>(k));
-    lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+    lloyd_max_train(residuals.data(), static_cast<size_t>(n), centroids.data(), k);
     qr.codebook_fp32 = centroids;
     std::vector<uint8_t> raw(static_cast<size_t>(n));
-    quantize_normal(data, n, centroids.data(), k, raw);
+    for (int64_t i = 0; i < n; i++)
+        raw[static_cast<size_t>(i)] = static_cast<uint8_t>(nearest_centroid(residuals[static_cast<size_t>(i)], centroids.data(), k));
     size_t packed = static_cast<size_t>((n + 1) / 2);
     qr.indices.resize(packed, 0);
     for (int64_t i = 0; i < n; i++) {
@@ -611,18 +744,32 @@ QuantResult FormatRegistry::quantize_oil4(const float* data, int64_t n) {
 
 QuantResult FormatRegistry::quantize_oil8(const float* data, int64_t n) {
     QuantResult qr;
-    qr.format = {"OIL8", RegFormat::OIL8, 8.0f, 256, false, false, 1, 256.0f, 0.0f, "Lloyd-Max 256 centroids"};
+    qr.format = {"OIL8", RegFormat::OIL8, 8.0f, 256, false, false, 1, 256.0f, 0.0f, "Per-block mean-shift + global Lloyd-Max 256 centroids"};
     qr.num_elements = n;
-    qr.block_size = 128;
+    qr.block_size = 1024;
     qr.global_scale = 0.0f;
     qr.success = false;
     if (!data || n <= 0) return qr;
-    int k = 256;
+    const int k = 256;
+    const int64_t bsz = 1024;
+    const int64_t nb = (n + bsz - 1) / bsz;
+    std::vector<float> residuals(static_cast<size_t>(n));
+    qr.group_zero_points.resize(static_cast<size_t>(nb));
+    for (int64_t b = 0; b < nb; b++) {
+        int64_t s = b * bsz, e = std::min(s + bsz, n);
+        double mu = 0.0;
+        for (int64_t i = s; i < e; i++) mu += data[i];
+        mu /= static_cast<double>(e - s);
+        qr.group_zero_points[static_cast<size_t>(b)] = static_cast<float>(mu);
+        for (int64_t i = s; i < e; i++)
+            residuals[static_cast<size_t>(i)] = data[i] - static_cast<float>(mu);
+    }
     std::vector<float> centroids(static_cast<size_t>(k));
-    lloyd_max_train(data, static_cast<size_t>(n), centroids.data(), k);
+    lloyd_max_train(residuals.data(), static_cast<size_t>(n), centroids.data(), k);
     qr.codebook_fp32 = centroids;
     qr.indices.resize(static_cast<size_t>(n));
-    quantize_normal(data, n, centroids.data(), k, qr.indices);
+    for (int64_t i = 0; i < n; i++)
+        qr.indices[static_cast<size_t>(i)] = static_cast<uint8_t>(nearest_centroid(residuals[static_cast<size_t>(i)], centroids.data(), k));
     qr.success = true;
     return qr;
 }
@@ -791,36 +938,48 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
 
     if (qr.format.id == RegFormat::OIL2) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
+        int64_t bsz = qr.block_size > 0 ? qr.block_size : 1024;
         for (int64_t i = 0; i < n; i++) {
-            size_t b = static_cast<size_t>(i / 4), o = static_cast<size_t>((i % 4) * 2);
-            int idx = (b < qr.indices.size()) ? (qr.indices[b] >> static_cast<int>(o)) & 0x3 : 0;
-            output[i] = (static_cast<size_t>(idx) < qr.codebook_fp32.size()) ? qr.codebook_fp32[static_cast<size_t>(idx)] : 0.0f;
+            int64_t blk = i / bsz;
+            size_t packed_idx = static_cast<size_t>(i / 4), off = static_cast<size_t>((i % 4) * 2);
+            int idx = (packed_idx < qr.indices.size()) ? (qr.indices[packed_idx] >> static_cast<int>(off)) & 0x3 : 0;
+            float centroid = (static_cast<size_t>(idx) < qr.codebook_fp32.size()) ? qr.codebook_fp32[static_cast<size_t>(idx)] : 0.0f;
+            float mean = (static_cast<size_t>(blk) < qr.group_zero_points.size()) ? qr.group_zero_points[static_cast<size_t>(blk)] : 0.0f;
+            output[i] = centroid + mean;
         }
         return;
     }
 
     if (qr.format.id == RegFormat::OIL4) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
+        int64_t bsz = qr.block_size > 0 ? qr.block_size : 1024;
         for (int64_t i = 0; i < n; i++) {
-            size_t b = static_cast<size_t>(i / 2), o = static_cast<size_t>((i % 2) * 4);
-            int idx = (b < qr.indices.size()) ? (qr.indices[b] >> static_cast<int>(o)) & 0xF : 0;
-            output[i] = (static_cast<size_t>(idx) < qr.codebook_fp32.size()) ? qr.codebook_fp32[static_cast<size_t>(idx)] : 0.0f;
+            int64_t blk = i / bsz;
+            size_t packed_idx = static_cast<size_t>(i / 2), off = static_cast<size_t>((i % 2) * 4);
+            int idx = (packed_idx < qr.indices.size()) ? (qr.indices[packed_idx] >> static_cast<int>(off)) & 0xF : 0;
+            float centroid = (static_cast<size_t>(idx) < qr.codebook_fp32.size()) ? qr.codebook_fp32[static_cast<size_t>(idx)] : 0.0f;
+            float mean = (static_cast<size_t>(blk) < qr.group_zero_points.size()) ? qr.group_zero_points[static_cast<size_t>(blk)] : 0.0f;
+            output[i] = centroid + mean;
         }
         return;
     }
 
     if (qr.format.id == RegFormat::OIL8) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
+        int64_t bsz = qr.block_size > 0 ? qr.block_size : 1024;
         for (int64_t i = 0; i < n; i++) {
+            int64_t blk = i / bsz;
             size_t idx = static_cast<size_t>(qr.indices[static_cast<size_t>(i)]);
-            output[i] = (idx < qr.codebook_fp32.size()) ? qr.codebook_fp32[idx] : 0.0f;
+            float centroid = (idx < qr.codebook_fp32.size()) ? qr.codebook_fp32[idx] : 0.0f;
+            float mean = (static_cast<size_t>(blk) < qr.group_zero_points.size()) ? qr.group_zero_points[static_cast<size_t>(blk)] : 0.0f;
+            output[i] = centroid + mean;
         }
         return;
     }
 
     if (qr.format.id == RegFormat::OIL2_GRP) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
-        int group_sz = 128;
+        int group_sz = 1024;
         for (int64_t g = 0; g < (n + group_sz - 1) / group_sz; g++) {
             int64_t gstart = g * group_sz;
             int64_t gend = (gstart + group_sz <= n) ? gstart + group_sz : n;
@@ -838,7 +997,7 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
 
     if (qr.format.id == RegFormat::OIL4_GRP) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
-        int group_sz = 64;
+        int group_sz = 1024;
         for (int64_t g = 0; g < (n + group_sz - 1) / group_sz; g++) {
             int64_t gstart = g * group_sz;
             int64_t gend = (gstart + group_sz <= n) ? gstart + group_sz : n;
@@ -856,7 +1015,7 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
 
     if (qr.format.id == RegFormat::OIL8_GRP) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
-        int group_sz = 32;
+        int group_sz = 1024;
         for (int64_t g = 0; g < (n + group_sz - 1) / group_sz; g++) {
             int64_t gstart = g * group_sz;
             int64_t gend = (gstart + group_sz <= n) ? gstart + group_sz : n;
@@ -872,7 +1031,7 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
     }
 
     if (qr.format.id == RegFormat::OIL1_GRP) {
-        int group_sz = 64;
+        int group_sz = 1024;
         int64_t num_groups = (n + group_sz - 1) / group_sz;
         for (int64_t g = 0; g < num_groups; g++) {
             int64_t gstart = g * group_sz;
@@ -890,7 +1049,7 @@ void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n)
 
     if (qr.format.id == RegFormat::OIL16_GRP) {
         if (qr.codebook_fp32.empty()) { std::fill(output, output + n, 0.0f); return; }
-        int group_sz = 8;
+        int group_sz = 1024;
         for (int64_t g = 0; g < (n + group_sz - 1) / group_sz; g++) {
             int64_t gstart = g * group_sz;
             int64_t gend = (gstart + group_sz <= n) ? gstart + group_sz : n;

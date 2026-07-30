@@ -1,4 +1,4 @@
-# MYTHOS.cpp Architecture
+# InNova Architecture
 
 > **Understanding the Design Philosophy and System Structure**
 
@@ -6,7 +6,7 @@
 
 ## 🎯 Overview
 
-MYTHOS.cpp is designed as a **complete, self-contained AI engine** with the following core principles:
+InNova is designed as a **complete, self-contained AI engine** with the following core principles:
 
 1. **Zero Dependencies** - Pure C++20, no external libraries required
 2. **Single Format Truth** - The `.oil` format is the single source of truth for models
@@ -20,7 +20,7 @@ MYTHOS.cpp is designed as a **complete, self-contained AI engine** with the foll
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                          MYTHOS.cpp                                    │
+│                          InNova                                    │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐  │
@@ -579,7 +579,7 @@ Command-line tools for various operations.
 
 ## 🚀 Scalability
 
-MYTHOS.cpp is designed to scale from:
+InNova is designed to scale from:
 
 - **Tiny models** (Millions of parameters) - Runs on CPU, great for testing
 - **Medium models** (Billions of parameters) - Runs on consumer GPUs
@@ -638,7 +638,7 @@ ctest --test-dir build --output-on-failure -j$(nproc)
 
 ## 🎓 Learning Resources
 
-To understand MYTHOS.cpp better, study these topics:
+To understand InNova better, study these topics:
 
 1. **C++20 Features**
    - Concepts

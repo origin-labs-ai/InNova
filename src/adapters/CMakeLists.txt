@@ -1,5 +1,5 @@
 # ============================================================================
-# ADAPTER-EDITION — Subdirectory of main MYTHOS.cpp project
+# ADAPTER-EDITION — Subdirectory of main InNova project
 # ----------------------------------------------------------------------------
 # Links against the parent project's already-built libraries (oil_core,
 # oil_format, oil_kernel, oil_model, oil_math).  Does NOT recompile parent
@@ -9,7 +9,7 @@
 # (scratch + continual modes) + delta-adapter host + MTP-head trainer.
 # ============================================================================
 cmake_minimum_required(VERSION 3.20)
-project(MYTHOS_Adapter_Edition LANGUAGES CXX)
+project(InNova_Adapter_Edition LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

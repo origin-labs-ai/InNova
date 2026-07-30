@@ -377,7 +377,7 @@ static void test_ema_training() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Training Features Test Suite\n");
+    printf("InNova — Training Features Test Suite\n");
     printf("==========================================\n");
 
     test_gradient_noise_injection();

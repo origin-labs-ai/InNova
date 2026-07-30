@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MYTHOS.cpp distribution builder
+# InNova distribution builder
 # Usage: bash scripts/make_dist.sh [version]
 set -euo pipefail
 
@@ -44,14 +44,14 @@ cd "$ROOT"
 # --- Source tarball ---
 tar --exclude='.git' --exclude='build*' --exclude='dist' --exclude='.kilo' \
     --exclude='.research' --exclude='.github' \
-    -czf "$OUTDIR/mythos-$VERSION-source.tar.gz" \
+    -czf "$OUTDIR/InNova-$VERSION-source.tar.gz" \
     CMakeLists.txt LICENSE README.md AGENTS.md \
     src/ include/ engines/ tests/ bench/ tools/
 
 cd "$OUTDIR"
-sha256sum "mythos-$VERSION-source.tar.gz" > "mythos-$VERSION-source.tar.gz.sha256"
+sha256sum "InNova-$VERSION-source.tar.gz" > "InNova-$VERSION-source.tar.gz.sha256"
 cd "$ROOT"
 
 echo "=== Distribution built at $OUTDIR/ ==="
 echo "Binaries: $OUTDIR/$PLAT/"
-echo "Source:   $OUTDIR/mythos-$VERSION-source.tar.gz"
+echo "Source:   $OUTDIR/InNova-$VERSION-source.tar.gz"

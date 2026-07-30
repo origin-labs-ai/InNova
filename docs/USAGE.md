@@ -1,6 +1,6 @@
 # Usage Guide
 
-> **How to Use MYTHOS.cpp for Inference and Training**
+> **How to Use InNova for Inference and Training**
 
 ---
 
@@ -78,7 +78,7 @@
 
 ### oil-infer - Run Inference
 
-**Description:** Run inference with a trained MYTHOS.cpp model.
+**Description:** Run inference with a trained InNova model.
 
 **Usage:**
 ```bash
@@ -277,7 +277,7 @@ oil-convert -i model.gguf -o model.oil --input-format gguf
 
 ### oil-info - Display Model Information
 
-**Description:** Display information about a MYTHOS.cpp model.
+**Description:** Display information about a InNova model.
 
 **Usage:**
 ```bash
@@ -401,7 +401,7 @@ oil-bench -m model.oil -p prompts.txt -n 100 --gpu
 
 ## 📖 Using the C++ API
 
-For programmatic access to MYTHOS.cpp functionality, you can use the C++ API directly.
+For programmatic access to InNova functionality, you can use the C++ API directly.
 
 ### Basic Setup
 
@@ -553,7 +553,7 @@ int main() {
 
 ## 🔧 Configuration Files
 
-MYTHOS.cpp uses JSON files for configuration.
+InNova uses JSON files for configuration.
 
 ### Model Configuration
 

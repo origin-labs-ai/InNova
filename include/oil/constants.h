@@ -1,6 +1,6 @@
 #pragma once
 // ============================================================================
-// constants.h — Named Constants for MYTHOS.cpp
+// constants.h — Named Constants for InNova
 // ============================================================================
 // Eliminates magic numbers across the entire codebase.
 // Every numeric literal with semantic meaning lives here.

@@ -1,5 +1,5 @@
 // ============================================================================
-// text.h — Text processing types for MYTHOS
+// text.h — Text processing types for InNova
 // ============================================================================
 #pragma once
 #include "oil/tensor.h"

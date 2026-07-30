@@ -256,7 +256,7 @@ int main() {
 
     printf("================================================================\n");
     printf("  OIL FORMAT INFO — Complete Reference\n");
-    printf("  MYTHOS.cpp SOPS Library\n");
+    printf("  InNova SOPS Library\n");
     printf("================================================================\n\n");
 
     print_base_formats(params);

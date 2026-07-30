@@ -1,5 +1,5 @@
 // ============================================================================
-// image.h — Image processing types for MYTHOS
+// image.h — Image processing types for InNova
 // ============================================================================
 #pragma once
 #include "oil/tensor.h"

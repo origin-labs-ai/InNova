@@ -140,7 +140,7 @@ std::string SimpleJSON::escape(const std::string& s) {
 // ════════════════════════════════════════════════════════════════
 
 HTTPClient::HTTPClient() : session_(nullptr) {
-    session_ = WinHttpOpen(L"MYTHOS/1.0", WINHTTP_ACCESS_TYPE_NO_PROXY,
+    session_ = WinHttpOpen(L"InNova/1.0", WINHTTP_ACCESS_TYPE_NO_PROXY,
                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 }
 

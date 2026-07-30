@@ -283,7 +283,7 @@ struct VulkanBackend::Impl {
 
         VkApplicationInfo appInfo = {};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "MYTHOS OIL";
+        appInfo.pApplicationName = "InNova OIL";
         appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 0);
 
         VkInstanceCreateInfo ci = {};

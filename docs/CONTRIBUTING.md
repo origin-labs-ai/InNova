@@ -1,4 +1,4 @@
-# Contributing to MYTHOS.cpp
+# Contributing to InNova
 
 > **How to Contribute to the Project**
 
@@ -6,15 +6,15 @@
 
 ## 🎉 Welcome!
 
-Thank you for your interest in contributing to MYTHOS.cpp! We welcome contributions from everyone, whether you're a seasoned developer or just starting out with AI and C++.
+Thank you for your interest in contributing to InNova! We welcome contributions from everyone, whether you're a seasoned developer or just starting out with AI and C++.
 
-This document provides guidelines for contributing to MYTHOS.cpp. Following these guidelines helps maintain a consistent, high-quality codebase and makes it easier for everyone to collaborate.
+This document provides guidelines for contributing to InNova. Following these guidelines helps maintain a consistent, high-quality codebase and makes it easier for everyone to collaborate.
 
 ---
 
 ## 📋 Ways to Contribute
 
-There are many ways to contribute to MYTHOS.cpp:
+There are many ways to contribute to InNova:
 
 ### 🐛 Bug Reports
 
@@ -52,14 +52,14 @@ There are many ways to contribute to MYTHOS.cpp:
 - **Implement** new research papers
 - **Propose** new algorithms
 - **Benchmark** against other frameworks
-- **Publish** research using MYTHOS.cpp
+- **Publish** research using InNova
 
 ### 🤝 Community
 
 - **Answer questions** from other users
 - **Review** pull requests
 - **Help** with onboarding
-- **Promote** MYTHOS.cpp
+- **Promote** InNova
 
 ---
 
@@ -67,12 +67,12 @@ There are many ways to contribute to MYTHOS.cpp:
 
 ### 1. Set Up Your Development Environment
 
-Follow the [Build Guide](BUILD.md) to get MYTHOS.cpp compiled on your machine:
+Follow the [Build Guide](BUILD.md) to get InNova compiled on your machine:
 
 ```bash
 # Clone the repository
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Build in debug mode for development
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -339,7 +339,7 @@ if (shape.rank() != 2) {
 ### File Structure
 
 ```
-MYTHOS.cpp/
+InNova/
 ├── CMakeLists.txt              # Main build configuration
 ├── README.md                   # Project documentation
 ├── include/                    # Public headers
@@ -642,13 +642,13 @@ All contributors will be recognized:
 
 ## 📄 License
 
-By contributing to MYTHOS.cpp, you agree that your contributions will be licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
+By contributing to InNova, you agree that your contributions will be licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
 
 ---
 
 ## 🎉 Thank You!
 
-Your contributions help make MYTHOS.cpp better for everyone. Thank you for being part of the community!
+Your contributions help make InNova better for everyone. Thank you for being part of the community!
 
 ---
 

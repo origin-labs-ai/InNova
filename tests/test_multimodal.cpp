@@ -193,7 +193,7 @@ static void test_cross_modal_alignment() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Multi-Modal (H1-H15) Test Suite\n");
+    printf("InNova — Multi-Modal (H1-H15) Test Suite\n");
     printf("============================================\n");
 
     test_cross_modal_attention();

@@ -39,7 +39,7 @@ static void test_sandbox_compile_run() {
         return;
     }
 
-    auto tmp = fs::temp_directory_path() / "mythos_sandbox_test";
+    auto tmp = fs::temp_directory_path() / "InNova_sandbox_test";
     fs::create_directories(tmp);
     std::string src = (tmp / "test_prog.cpp").string();
 #ifdef _WIN32
@@ -102,7 +102,7 @@ static void test_sandbox_compile_failure() {
         return;
     }
 
-    auto tmp = fs::temp_directory_path() / "mythos_sandbox_fail";
+    auto tmp = fs::temp_directory_path() / "InNova_sandbox_fail";
     fs::create_directories(tmp);
     std::string src = (tmp / "bad_prog.cpp").string();
 
@@ -169,7 +169,7 @@ int solve() {
 static void test_apply_rollback() {
     TEST_SUITE("Test 4: Apply improvement and rollback");
 
-    auto tmp = fs::temp_directory_path() / "mythos_flywheel_apply";
+    auto tmp = fs::temp_directory_path() / "InNova_flywheel_apply";
     fs::create_directories(tmp);
     std::string target = (tmp / "test_target.cpp").string();
     std::string backup = target + ".flywheel_backup";
@@ -213,7 +213,7 @@ static void test_apply_rollback() {
 static void test_self_modify_file() {
     TEST_SUITE("Test 5: Self-modify file");
 
-    auto tmp = fs::temp_directory_path() / "mythos_flywheel_selfmod";
+    auto tmp = fs::temp_directory_path() / "InNova_flywheel_selfmod";
     fs::create_directories(tmp);
     std::string fpath = (tmp / "self_modify.cpp").string();
 

@@ -340,7 +340,7 @@ static void test_paged_kv_1m_context() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — D1-D20 + Gap #15 Inference Optimization Test Suite\n");
+    printf("InNova — D1-D20 + Gap #15 Inference Optimization Test Suite\n");
     printf("=====================================================\n");
 
     test_paged_attention();

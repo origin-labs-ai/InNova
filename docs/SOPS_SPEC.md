@@ -1,7 +1,7 @@
 # SOPS: Sextillion Operations Per Second
 ## A New Compute Unit for Quantized Model Training on CPU
 ### Version 1.0 — Specification Document
-### MYTHOS.cpp Project
+### InNova Project
 
 ---
 
@@ -21,7 +21,7 @@
 12. [Theoretical Maximum SOPS](#12-theoretical-maximum-sops)
 13. [Gap Analysis: Current PC to ZSOPS](#13-gap-analysis-current-pc-to-zsops)
 14. [Comparison with Existing Metrics](#14-comparison-with-existing-metrics)
-15. [Integration with MYTHOS Training Pipeline](#15-integration-with-mythos-training-pipeline)
+15. [Integration with InNova Training Pipeline](#15-integration-with-InNova-training-pipeline)
 16. [Path to 1 SOPS](#16-path-to-1-sops)
 17. [What 1 SOPS Enables](#17-what-1-sops-enables)
 18. [Appendix A: Mathematical Proofs](#appendix-a-mathematical-proofs)
@@ -111,7 +111,7 @@ density per byte, and SOPS counts that directly.
 
 ### 2.3 The Quantization Spectrum
 
-MYTHOS uses 15 quantization formats, each with different bit-widths:
+InNova uses 15 quantization formats, each with different bit-widths:
 
   Format             BPW      Bytes/Weight    Weights/Byte
   --------           ----     ------------    ------------
@@ -262,7 +262,7 @@ Property 4: IW × bytes_per_weight = 4 (constant)
 
 ### 5.1 Base Formats (RegFormat enum)
 
-The MYTHOS codebase defines 15 quantization formats (1 lossless OIL32 + 14 lossy):
+The InNova codebase defines 15 quantization formats (1 lossless OIL32 + 14 lossy):
 
 Format #0: OIL1
   BPW: 1.0
@@ -371,7 +371,7 @@ OIL1         8 MB           2.048B ops      32.0x
 
 ### 6.1 Two-Tier Mixes
 
-MYTHOS supports mixing two formats at specified ratios:
+InNova supports mixing two formats at specified ratios:
 
 Mix Format          Eff BPW    IW        Tier1       Tier2
 ----------------    -------    ------    ---------   ---------
@@ -891,7 +891,7 @@ and FP32 (IW=1x).
 
 ---
 
-## 15. Integration with MYTHOS Training Pipeline
+## 15. Integration with InNova Training Pipeline
 
 ### 15.1 Training Loop Integration
 
@@ -1244,8 +1244,8 @@ struct SopsFormat {
 ## Document Information
 
   Title:    SOPS Specification v1.0
-  Project:  MYTHOS.cpp
-  Author:   MYTHOS Team
+  Project:  InNova
+  Author:   InNova Team
   Date:     2026-07-25
   Status:   DRAFT
   Lines:    1024

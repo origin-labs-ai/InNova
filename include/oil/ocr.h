@@ -1,5 +1,5 @@
 // ============================================================================
-// ocr.h — OCR (Optical Character Recognition) types for MYTHOS
+// ocr.h — OCR (Optical Character Recognition) types for InNova
 // ============================================================================
 #pragma once
 #include "oil/tensor.h"

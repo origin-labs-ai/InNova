@@ -539,7 +539,7 @@ OILIdxWriter::~OILIdxWriter() {
 
 void OILIdxWriter::write_idx(uint32_t version, const std::vector<std::string>& tensor_names) {
     if (!file_.is_open()) return;
-    // Header: magic "MYTHOSIDX" | version | num_tensors
+    // Header: magic "InNovaIDX" | version | num_tensors
     static const char MAGIC[10] = {'M','Y','T','H','O','S','I','D','X','\0'};
     file_.write(MAGIC, 10);
     file_.write((const char*)&version, sizeof(version));
@@ -580,7 +580,7 @@ OILIdxReader::OILIdxReader(const std::string& path)
     file_size_ = mapped_file_->size();
     // Minimum size: 10 magic + 4 version + 4 num_tensors
     if (file_size_ < 18) { return; }
-    if (memcmp(data_, "MYTHOSIDX", 9) != 0) { data_ = nullptr; return; }
+    if (memcmp(data_, "InNovaIDX", 9) != 0) { data_ = nullptr; return; }
     size_t off = 10;
     memcpy(&version_, data_ + off, sizeof(version_)); off += sizeof(version_);
     memcpy(&num_tensors_, data_ + off, sizeof(num_tensors_)); off += sizeof(num_tensors_);

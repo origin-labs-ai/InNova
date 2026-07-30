@@ -261,7 +261,7 @@ static void test_cross_modal_attention_detail() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Multi-Modal Encoder Test Suite\n");
+    printf("InNova — Multi-Modal Encoder Test Suite\n");
     printf("============================================\n");
 
     test_vision_encoder();

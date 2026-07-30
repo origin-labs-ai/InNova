@@ -417,7 +417,7 @@ void HTTPServer::send_response(int fd, int status, const std::string& content_ty
         "Content-Type: " + content_type + "\r\n"
         "Content-Length: " + std::to_string(body.size()) + "\r\n"
         "Connection: close\r\n"
-        "Server: MYTHOS.cpp/" + std::to_string(1) + "\r\n"
+        "Server: InNova/" + std::to_string(1) + "\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
         "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
@@ -452,7 +452,7 @@ void HTTPServer::send_sse_headers(int fd) {
         "Content-Type: text/event-stream\r\n"
         "Cache-Control: no-cache\r\n"
         "Connection: keep-alive\r\n"
-        "Server: MYTHOS.cpp\r\n"
+        "Server: InNova\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
         "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
@@ -649,7 +649,7 @@ void HTTPServer::handle_models(int fd, const HTTPRequest& req) {
         model_obj.obj["id"] = JsonValue(model_name_);
         model_obj.obj["object"] = JsonValue(std::string("model"));
         model_obj.obj["created"] = JsonValue((int64_t)std::time(nullptr));
-        model_obj.obj["owned_by"] = JsonValue(std::string("mythos"));
+        model_obj.obj["owned_by"] = JsonValue(std::string("InNova"));
 
         data_arr.arr.push_back(std::move(model_obj));
 

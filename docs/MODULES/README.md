@@ -1,12 +1,12 @@
 # Module Documentation
 
-> **Detailed Documentation for Each MYTHOS.cpp Module**
+> **Detailed Documentation for Each InNova Module**
 
 ---
 
 ## 📚 Available Module Documentation
 
-This directory contains detailed documentation for each major component of MYTHOS.cpp. Each module document covers:
+This directory contains detailed documentation for each major component of InNova. Each module document covers:
 
 - Overview and purpose
 - Key features
@@ -183,7 +183,7 @@ Dive into optimization and specialized features:
 
 ## 📄 Per-File Wiki Documentation
 
-Every source file in the MYTHOS.cpp codebase has a dedicated documentation page in the **[wiki/files/](../../wiki/files/)** directory. These provide:
+Every source file in the InNova codebase has a dedicated documentation page in the **[wiki/files/](../../wiki/files/)** directory. These provide:
 
 - **Line-by-line insights** into each file's purpose and logic
 - **Key types & functions** defined in each file
@@ -220,7 +220,7 @@ Browse the full index at **[wiki/files/_index.md](../../wiki/files/_index.md)**.
 
 ## 🎓 Learning Path
 
-### Path 1: Using MYTHOS.cpp for Inference
+### Path 1: Using InNova for Inference
 
 1. Read **[Tensor](tensor.md)** documentation
 2. Read **[Model](model.md)** documentation

@@ -365,7 +365,7 @@ void test_gpu_detection() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — MoE Variants + Backend Test Suite\n");
+    printf("InNova — MoE Variants + Backend Test Suite\n");
     printf("==============================================\n");
 
     test_tensor_basics();

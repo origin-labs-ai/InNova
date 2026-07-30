@@ -1,8 +1,8 @@
 #pragma once
 
-#define MYTHOS_VERSION_MAJOR 0
-#define MYTHOS_VERSION_MINOR 1
-#define MYTHOS_VERSION_PATCH 2
-#define MYTHOS_VERSION_STRING "0.1.2"
-#define MYTHOS_BUILD_DATE __DATE__
-#define MYTHOS_BUILD_TIME __TIME__
+#define InNova_VERSION_MAJOR 0
+#define InNova_VERSION_MINOR 1
+#define InNova_VERSION_PATCH 2
+#define InNova_VERSION_STRING "0.1.2"
+#define InNova_BUILD_DATE __DATE__
+#define InNova_BUILD_TIME __TIME__

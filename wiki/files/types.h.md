@@ -2,7 +2,7 @@
 
 **Path:** `include/oil/types.h`
 
-Defines the foundational data types and format enums used throughout MYTHOS.cpp. This is the base header that几乎所有其他文件都包含。
+Defines the foundational data types and format enums used throughout InNova. This is the base header that几乎所有其他文件都包含。
 
 ## Format Enum
 

@@ -146,7 +146,7 @@ static void test_disk_offload_and_reload() {
     int64_t block_size = 16;
     size_t phys_mem = 64 * 1024; // 64KB — forces immediate disk offload
 
-    std::string disk_dir = std::filesystem::temp_directory_path().string() + "/mythos_paged_test";
+    std::string disk_dir = std::filesystem::temp_directory_path().string() + "/InNova_paged_test";
     std::filesystem::create_directories(disk_dir);
 
     PagedKVCache4M cache(num_layers, num_heads, head_dim, block_size, phys_mem, disk_dir);

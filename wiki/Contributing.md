@@ -4,8 +4,8 @@
 
 ```bash
 # Fork & clone
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Build for development
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -62,4 +62,4 @@ ctest --test-dir build --output-on-failure
 
 This project is licensed under the terms in the repository license file.
 
-See [docs/CONTRIBUTING.md](file:///c:/Users/thaku/Downloads/MYTHOS.cpp/docs/CONTRIBUTING.md) for the full contributing guide.
+See [docs/CONTRIBUTING.md](file:///c:/Users/thaku/Downloads/InNova/docs/CONTRIBUTING.md) for the full contributing guide.

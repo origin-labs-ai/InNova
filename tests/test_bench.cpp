@@ -174,7 +174,7 @@ static void test_auto_select() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Benchmark Suite\n");
+    printf("InNova — Benchmark Suite\n");
     printf("============================\n");
 
     test_hardware_probe();

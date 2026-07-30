@@ -164,7 +164,7 @@ static void test_mobile_wasm() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Production (I1-I20) Test Suite\n");
+    printf("InNova — Production (I1-I20) Test Suite\n");
     printf("===========================================\n");
 
     test_c_api();

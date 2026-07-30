@@ -2,7 +2,7 @@
 
 ## Overview
 
-MYTHOS.cpp supports training models from scratch using AdamW optimizer with cosine LR schedule.
+InNova supports training models from scratch using AdamW optimizer with cosine LR schedule.
 
 ## Quick Start
 

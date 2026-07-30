@@ -518,9 +518,9 @@ std::string PagedKVCacheBase::block_disk_path(int layer, int64_t block_id) const
     } else {
 #ifdef _WIN32
         const char* tmp = std::getenv("TEMP");
-        ss << (tmp ? tmp : "C:\\Temp") << "\\mythos_" << disk_name() << "\\";
+        ss << (tmp ? tmp : "C:\\Temp") << "\\InNova_" << disk_name() << "\\";
 #else
-        ss << "/tmp/mythos_" << disk_name() << "/";
+        ss << "/tmp/InNova_" << disk_name() << "/";
 #endif
     }
     ss << disk_name() << "_l" << layer << "_b" << block_id << ".bin";

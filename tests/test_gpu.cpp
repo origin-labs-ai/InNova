@@ -306,7 +306,7 @@ static void test_gpu_shutdown() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — GPU Compute Test Suite\n");
+    printf("InNova — GPU Compute Test Suite\n");
     printf("====================================\n");
 
     has_dx = is_directx_available();

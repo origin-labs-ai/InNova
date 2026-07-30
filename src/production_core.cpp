@@ -432,7 +432,7 @@ void ModelHTTPServer::send_response(int client_fd, int status,
         "Content-Type: " + content_type + "\r\n"
         "Content-Length: " + std::to_string(body.size()) + "\r\n"
         "Connection: close\r\n"
-        "Server: MYTHOS.cpp\r\n"
+        "Server: InNova\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
         "Access-Control-Allow-Headers: Content-Type\r\n"
@@ -449,7 +449,7 @@ void ModelHTTPServer::send_stream_response(int client_fd, const std::string& pro
         "Content-Type: text/event-stream\r\n"
         "Cache-Control: no-cache\r\n"
         "Connection: keep-alive\r\n"
-        "Server: MYTHOS.cpp\r\n"
+        "Server: InNova\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "\r\n";
 
@@ -743,7 +743,7 @@ void ModelHTTPServer::handle_request(int client_fd) {
         response_body = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Echo: " + prompt + "\"}}]}";
         content_type = "application/json";
     } else if (path == "/health" || path == "/") {
-        response_body = "{\"status\":\"ok\",\"model\":\"MYTHOS.cpp\"}";
+        response_body = "{\"status\":\"ok\",\"model\":\"InNova\"}";
         content_type = "application/json";
     } else if (path == "/v1/models") {
         if (!model_) {

@@ -2,7 +2,7 @@
 
 ## Design Philosophy
 
-MYTHOS.cpp is built on four core principles:
+InNova is built on four core principles:
 
 1. **Zero Dependencies** — Pure C++20, no Python, PyTorch, Eigen, BLAS, or CUDA libs required
 2. **Single Format Truth** — The `.oil` binary format is the single source of truth

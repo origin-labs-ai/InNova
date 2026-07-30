@@ -269,7 +269,7 @@ static void test_evaluation_harness() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — ASI Pipeline (G1-G25) Test Suite\n");
+    printf("InNova — ASI Pipeline (G1-G25) Test Suite\n");
     printf("=============================================\n");
 
     test_self_monitor();

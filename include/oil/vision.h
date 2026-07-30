@@ -1,5 +1,5 @@
 // ============================================================================
-// vision.h — Vision processing types for MYTHOS
+// vision.h — Vision processing types for InNova
 // ============================================================================
 #pragma once
 #include "oil/tensor.h"

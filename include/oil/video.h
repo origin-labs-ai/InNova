@@ -1,5 +1,5 @@
 // ============================================================================
-// video.h — Video processing types for MYTHOS
+// video.h — Video processing types for InNova
 // ============================================================================
 #pragma once
 #include "oil/tensor.h"

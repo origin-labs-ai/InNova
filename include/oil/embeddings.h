@@ -1,5 +1,5 @@
 // ============================================================================
-// embeddings.h — Embedding model types for MYTHOS
+// embeddings.h — Embedding model types for InNova
 // ============================================================================
 #pragma once
 #include "oil/tensor.h"

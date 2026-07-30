@@ -1,6 +1,6 @@
 # OMNI-ARCHITECT v4.0 — 40-TODO EXECUTION MATRIX
 
-> **MYTHOS.cpp v0.1.02 Production Release Roadmap**
+> **InNova v0.1.02 Production Release Roadmap**
 > Started: 2026-07-26 | Target: v0.1.02 Release
 
 ---

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MYTHOS.cpp VERSION 0.1.2 LANGUAGES CXX)
+project(InNova VERSION 0.1.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -346,6 +346,9 @@ if(OIL_BUILD_TOOLS)
   add_executable(oil_quantize tools/quantize.cpp)
   target_link_libraries(oil_quantize PRIVATE oil_format oil_kernel)
 
+  add_executable(oil_server tools/oil_server.cpp)
+  target_link_libraries(oil_server PRIVATE oil_model oil_tokenizer)
+
   add_executable(oil_evaluate tools/evaluate.cpp)
   target_link_libraries(oil_evaluate PRIVATE oil_model oil_inference oil_tokenizer oil_trainer)
 endif()
@@ -380,7 +383,7 @@ if(OIL_BUILD_TESTS)
                  --output-file ${OIL_COVERAGE_LCOV_DIR}/coverage_filtered.info
         COMMAND ${GENHTML_PATH} ${OIL_COVERAGE_LCOV_DIR}/coverage_filtered.info
                  --output-directory ${OIL_COVERAGE_LCOV_DIR}/html
-                 --title "MYTHOS.cpp Coverage"
+                 --title "InNova Coverage"
                  --legend
         COMMENT "Generating code coverage report in ${OIL_COVERAGE_LCOV_DIR}/html"
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -425,6 +428,9 @@ if(OIL_BUILD_BENCHMARKS)
 
   # Training speed benchmarks
   add_oil_bench(bench_speed tools/bench_speed.cpp oil_trainer oil_model)
+
+  # PoC Benchmark: All OIL/SPARK formats vs industrial (GGUF/AWQ/GPTQ/NF4)
+  add_oil_bench(bench_poc bench/bench_poc_benchmark.cpp oil_format oil_core oil_math)
 endif()
 
 # SOPS tools + integration

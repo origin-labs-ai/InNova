@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# sign_release.sh — MYTHOS.cpp v0.1.02 Release Signing Script
+# sign_release.sh — InNova v0.1.02 Release Signing Script
 #
 # Steps:
 #   1. Generate SHA-256 and MD5 checksums for all build artifacts
@@ -108,7 +108,7 @@ log "Step 3: Generating checksums..."
 
 CHECKSUMS_FILE="${OUTPUT_DIR}/checksums_${VERSION}.txt"
 
-echo "# MYTHOS.cpp v${VERSION} Release Checksums" > "$CHECKSUMS_FILE"
+echo "# InNova v${VERSION} Release Checksums" > "$CHECKSUMS_FILE"
 echo "# Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$CHECKSUMS_FILE"
 echo "# " >> "$CHECKSUMS_FILE"
 echo "# SHA-256 checksums:" >> "$CHECKSUMS_FILE"
@@ -248,7 +248,7 @@ log "  Verification: $VERIFY_OK passed, $VERIFY_FAIL failed"
 
 log "Step 6: Creating release archive..."
 
-ARCHIVE_NAME="MYTHOS.cpp-v${VERSION}-release"
+ARCHIVE_NAME="InNova-v${VERSION}-release"
 ARCHIVE_DIR="${OUTPUT_DIR}"
 
 # Copy checksums to archive dir
@@ -276,7 +276,7 @@ fi
 
 echo ""
 log "============================================"
-log "  MYTHOS.cpp v${VERSION} Release Signing Complete"
+log "  InNova v${VERSION} Release Signing Complete"
 log "============================================"
 log "  Artifacts:    ${#ARTIFACTS[@]} files"
 log "  Checksums:    $CHECKSUMS_FILE"

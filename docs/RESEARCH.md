@@ -1,14 +1,14 @@
 # Research Foundation
 
-> **The Science Behind MYTHOS.cpp**
+> **The Science Behind InNova**
 
 ---
 
 ## 🎯 Overview
 
-MYTHOS.cpp is built on a foundation of **peer-reviewed research** in machine learning, quantization, and systems design. Every major architectural decision is backed by published papers, ensuring that we're using proven, effective techniques.
+InNova is built on a foundation of **peer-reviewed research** in machine learning, quantization, and systems design. Every major architectural decision is backed by published papers, ensuring that we're using proven, effective techniques.
 
-This document catalogs the research papers that inspired and informed the design of MYTHOS.cpp, along with how each paper's findings are implemented in the codebase.
+This document catalogs the research papers that inspired and informed the design of InNova, along with how each paper's findings are implemented in the codebase.
 
 ---
 
@@ -22,7 +22,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Finding:** Ternary weights {-1, 0, +1} trained from scratch can match FP16 perplexity and downstream task performance.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `src/kernel_tl.cpp` - Ternary Lookup kernel
 - `src/kernel_i2s.cpp` - Int2 + Scale kernel
 - `include/oil/ste_quantizer.h` - Straight-Through Estimator for ternary training
@@ -44,7 +44,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by **2.32× on x86** and **1.19× on ARM** for ternary inference.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `src/kernel_tl.cpp` - Ternary Lookup Table kernel
 - `src/kernel_i2s.cpp` - Int2 + Scale kernel (MAD computation)
 
@@ -64,7 +64,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Finding:** Only **~1% of weights are salient** — identified by activation magnitudes. Protecting these with higher precision recovers nearly all quality loss from quantization.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `src/format_planner.cpp` - FormatPlanner uses AWQ-style importance scoring
 - `include/oil/format_planner.h` - Importance-based format allocation
 
@@ -89,7 +89,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Finding:** Vector quantization with codebook learning enables discrete representation learning. The codebook is trained with EMA updates and commitment loss.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `include/oil/codebook.h` - Vector quantization codebooks
 - `src/codebook.cpp` - Codebook implementation
 - OIL8/OIL4 codebooks use VQ training: k-means initialization + EMA centroid update + straight-through gradient
@@ -113,7 +113,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Finding:** Different experts in a MoE model need different bit-widths. Routing can also be quantized.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `src/moe_variants.cpp` - Per-expert format allocation
 - `include/oil/moe_variants.h` - MoE with mixed formats
 
@@ -148,7 +148,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Contribution:** The Transformer architecture, which has become the foundation of modern NLP.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `include/oil/transformer.h` - Transformer architecture
 - `src/transformer.cpp` - Transformer implementation
 
@@ -169,7 +169,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Contribution:** MoE layers enable scaling model capacity without proportionally increasing computation.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `include/oil/moe_variants.h` - MoE variants
 - `src/moe_variants.cpp` - MoE implementation
 - **Dense MoE:** All-to-all communication
@@ -191,7 +191,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Contribution:** Rotary Position Embedding (RoPE) provides better extrapolation and relative position understanding than absolute position embeddings.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - Position embedding support in `Attention` class
 - Optional RoPE implementation (planned for future versions)
 
@@ -207,7 +207,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Contribution:** Adaptive Moment Estimation (Adam) optimizer that combines the advantages of AdaGrad and RMSProp.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `include/oil/optimizer.h` - Optimizer base class
 - `src/optimizer.cpp` - Adam, AdamW, SGD implementations
 
@@ -221,15 +221,15 @@ This document catalogs the research papers that inspired and informed the design
 
 **Key Finding:** Weight decay should be decoupled from the gradient update in Adam for better regularization.
 
-**Implementation in MYTHOS.cpp:**
+**Implementation in InNova:**
 - `AdamW` class in `src/optimizer.cpp`
 - Proper weight decay implementation separate from gradient scaling
 
 ---
 
-## 💡 MYTHOS.cpp Original Research
+## 💡 InNova Original Research
 
-While MYTHOS.cpp is primarily an implementation of existing research, it also introduces novel contributions:
+While InNova is primarily an implementation of existing research, it also introduces novel contributions:
 
 ### 1. OIL Format - Mixed-Precision Binary Container
 
@@ -282,7 +282,7 @@ While MYTHOS.cpp is primarily an implementation of existing research, it also in
 | PyTorch | 1000+ Python packages | 1GB+ | Complex |
 | TensorFlow | Similar to PyTorch | 1GB+ | Complex |
 | ONNX Runtime | ~50MB | ~50MB | Moderate |
-| **MYTHOS.cpp** | **Zero** | **~2MB** | **Simple** |
+| **InNova** | **Zero** | **~2MB** | **Simple** |
 
 ---
 
@@ -304,7 +304,7 @@ While MYTHOS.cpp is primarily an implementation of existing research, it also in
 
 1. **Deep Learning** - Ian Goodfellow, Yoshua Bengio, Aaron Courville
    - Comprehensive introduction to deep learning
-   - Covers all fundamentals needed for MYTHOS.cpp
+   - Covers all fundamentals needed for InNova
 
 2. **Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow** - Aurélien Géron
    - Practical guide to ML concepts
@@ -312,7 +312,7 @@ While MYTHOS.cpp is primarily an implementation of existing research, it also in
 
 3. **Effective Modern C++** - Scott Meyers
    - Essential for writing high-quality C++20 code
-   - Covers best practices used in MYTHOS.cpp
+   - Covers best practices used in InNova
 
 4. **C++ Primer** - Stanley Lippman, Josée Lajoie, Barbara E. Moo
    - Comprehensive C++ reference
@@ -322,7 +322,7 @@ While MYTHOS.cpp is primarily an implementation of existing research, it also in
 
 ## 🔬 Research Directions
 
-MYTHOS.cpp is designed to be a platform for **research as well as production**. Here are some research directions you can explore:
+InNova is designed to be a platform for **research as well as production**. Here are some research directions you can explore:
 
 ### 1. New Quantization Formats
 
@@ -364,7 +364,7 @@ MYTHOS.cpp is designed to be a platform for **research as well as production**. 
 
 ## 📊 Performance Targets
 
-Based on research and our own benchmarks, here are the performance targets for MYTHOS.cpp:
+Based on research and our own benchmarks, here are the performance targets for InNova:
 
 | Component | Target | Current | Status |
 |-----------|--------|---------|--------|
@@ -378,16 +378,16 @@ Based on research and our own benchmarks, here are the performance targets for M
 
 ---
 
-## 🎓 How to Cite MYTHOS.cpp
+## 🎓 How to Cite InNova
 
-If you use MYTHOS.cpp in your research, please cite it as:
+If you use InNova in your research, please cite it as:
 
 ```bibtex
-@misc{mythoscpp,
-  author = {MYTHOS.cpp Contributors},
-  title = {MYTHOS.cpp: A Zero-Dependency C++20 AI Engine with OIL Format},
+@misc{InNovacpp,
+  author = {InNova Contributors},
+  title = {InNova: A Zero-Dependency C++20 AI Engine with OIL Format},
   year = {2026},
-  url = {https://github.com/xprimesamx/MYTHOS.cpp},
+  url = {https://github.com/xprimesamx/InNova},
   note = {Zero-dependency C++20 AI engine with mixed-precision OIL format}
 }
 ```
@@ -396,7 +396,7 @@ If you use MYTHOS.cpp in your research, please cite it as:
 
 ## 🔍 Research Tools
 
-MYTHOS.cpp includes several tools for research:
+InNova includes several tools for research:
 
 1. **Benchmarking:** `oil-bench` - Measure performance of different operations
 2. **Profiling:** Built-in profiling for kernels (planned)
@@ -407,13 +407,13 @@ MYTHOS.cpp includes several tools for research:
 
 ## 🤝 Collaboration
 
-We're interested in collaborating on research projects using MYTHOS.cpp. Potential collaboration areas:
+We're interested in collaborating on research projects using InNova. Potential collaboration areas:
 
 - **New quantization techniques:** Implement and evaluate new quantization methods
 - **Architecture exploration:** Build and test new neural network architectures
 - **Hardware optimization:** Optimize for specific hardware platforms
 - **Application-specific models:** Develop models for specific domains
-- **Benchmarking:** Compare MYTHOS.cpp with other frameworks
+- **Benchmarking:** Compare InNova with other frameworks
 
 Contact us if you're interested in collaboration!
 

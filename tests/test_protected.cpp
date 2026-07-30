@@ -484,7 +484,7 @@ void test_bpe_roundtrip() {
         "hello world",
         "bpe tokenization test",
         "the quick brown fox jumps over the lazy dog",
-        "MYTHOS engine is a machine learning framework",
+        "InNova engine is a machine learning framework",
         "transformers are powerful neural network architectures",
         "quantization reduces model size",
         "attention is all you need",

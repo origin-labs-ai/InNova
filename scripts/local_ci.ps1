@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $StartTime = Get-Date
 
-Write-Host "=== MYTHOS.cpp Local CI ===" -ForegroundColor Cyan
+Write-Host "=== InNova Local CI ===" -ForegroundColor Cyan
 Write-Host "Time: $($StartTime.ToString('yyyy-MM-dd HH:mm'))"
 Write-Host "Repo: $RepoRoot"
 Write-Host "Build: $BuildDir"

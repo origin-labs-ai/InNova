@@ -1,6 +1,6 @@
 # API Reference
 
-> **Complete C++ API Documentation for MYTHOS.cpp**
+> **Complete C++ API Documentation for InNova**
 
 ---
 
@@ -31,7 +31,7 @@
 
 ### Namespace
 
-All MYTHOS.cpp APIs are in the `oil` namespace:
+All InNova APIs are in the `oil` namespace:
 
 ```cpp
 namespace oil {
@@ -120,7 +120,7 @@ enum class Precision : uint8_t {
 
 ## 🎯 Tensor
 
-The fundamental data structure in MYTHOS.cpp.
+The fundamental data structure in InNova.
 
 ### Class: Tensor
 

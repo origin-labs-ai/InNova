@@ -1,6 +1,6 @@
 # Build & Installation Guide
 
-> **Compiling MYTHOS.cpp from Source**
+> **Compiling InNova from Source**
 
 ---
 
@@ -9,8 +9,8 @@
 ### Windows (Clang-cl)
 ```powershell
 # Clone the repository
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Configure (requires CMake >= 3.24, Ninja recommended)
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -25,8 +25,8 @@ ctest --test-dir build --output-on-failure
 ### Linux (GCC/Clang)
 ```bash
 # Clone the repository
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Install dependencies (CMake, Ninja, compiler)
 # Ubuntu/Debian:
@@ -45,8 +45,8 @@ ctest --test-dir build --output-on-failure -j$(nproc)
 ### macOS (Apple Clang)
 ```bash
 # Clone the repository
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Install CMake and Ninja
 brew install cmake ninja
@@ -94,7 +94,7 @@ ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
 
 ## 🛠️ Build Options
 
-MYTHOS.cpp uses CMake options to configure the build. You can enable/disable features using `-D` flags.
+InNova uses CMake options to configure the build. You can enable/disable features using `-D` flags.
 
 ### Standard Options
 
@@ -324,7 +324,7 @@ cmake --build build --parallel
 
 ## ⚡ Parallel Build
 
-MYTHOS.cpp supports parallel builds for faster compilation:
+InNova supports parallel builds for faster compilation:
 
 ```bash
 # Use all available cores
@@ -494,7 +494,7 @@ Once your build completes successfully, you're ready to:
 1. **[Run tests](TESTING.md)** - Verify everything works
 2. **[Use the tools](USAGE.md)** - Start working with models
 3. **[Explore the API](API_REFERENCE.md)** - Build your own applications
-4. **[Contribute](CONTRIBUTING.md)** - Help improve MYTHOS.cpp
+4. **[Contribute](CONTRIBUTING.md)** - Help improve InNova
 
 ---
 

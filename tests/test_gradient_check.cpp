@@ -221,7 +221,7 @@ static void test_sgd_parameter_update() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Gradient Checking & Autograd Test Suite\n");
+    printf("InNova — Gradient Checking & Autograd Test Suite\n");
     printf("====================================================\n");
 
     test_gradient_via_finite_diff();

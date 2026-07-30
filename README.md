@@ -1,6 +1,6 @@
-# ⚡ MYTHOS.cpp — v0.1.02 Release
+# ⚡ InNova — v0.1.02 Release
 
-> **M**ixed-format **Y**our-own **T**ensor **H**andcrafted **O**ptimized **S**ystem
+> **I**ntegrated **N**eural **N**etwork **O**ptimization for **V**ariable-precision **A**I
 
 **Zero-dependency C++20 AI engine.** Train from scratch, fine-tune in native OIL format, quantize, and run inference — all within a single `.oil` binary format. No Python. No PyTorch. No HuggingFace. No Eigen. No BLAS. Just C++20 and hand-written SIMD kernels.
 
@@ -20,8 +20,8 @@ EVERYTHING IS OUR OWN — zero dependency, maximum control.
 
 ```bash
 # Clone
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Configure (requires CMake ≥ 3.24, Ninja optional)
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -167,17 +167,17 @@ Large Language Models are transforming the world, but the stack to build them is
 
 #### Grouped Variants (lossy, improved quality via per-group scale/zp)
 
-| Format | BPW | Groups | Group Size | est. MSE |
-|--------|-----|--------|-----------|----------|
-| **OIL1_GRP** | 1.19 | 64 | 128 | 7.50e-1 |
-| **OIL2_GRP** | 2.19 | 128 | 128 | 9.00e-2 |
-| **OIL4_GRP** | 4.19 | 64 | 64 | 9.00e-3 |
-| **OIL8_GRP** | 8.19 | 32 | 32 | 5.00e-5 |
-| **OIL16_GRP** | 16.19 | 8 | 8 | 3.00e-3 |
-| **SPARK_Q0_GRP** | 1.69 | 32 | 4 | 3.20e-1 |
-| **SPARK_SPARSE_GRP** | 2.0 | 128 | — | 2.20e-4 |
+| Format | BPW | Group Size | est. MSE | Description |
+|--------|-----|-----------|----------|-------------|
+| **OIL1_GRP** | 1.0 | 1024 | 7.50e-1 | 1-bit + per-group FP32 scale/zp |
+| **OIL2_GRP** | 2.0 | 1024 | 9.00e-2 | Lloyd-Max 4 centroids + per-group FP32 scale/zp |
+| **OIL4_GRP** | 4.0 | 1024 | 9.00e-3 | Lloyd-Max 16 centroids + per-group FP32 scale/zp |
+| **OIL8_GRP** | 8.0 | 1024 | 5.00e-5 | Lloyd-Max 256 centroids + per-group FP32 scale/zp |
+| **OIL16_GRP** | 16.0 | 1024 | 3.00e-3 | 256 FP32 centroids + per-group FP32 scale/zp |
+| **SPARK_Q0_GRP** | 1.50 | 1024 | 1.70e-1 | Sign-bit + per-group FP16 scale |
+| **SPARK_SPARSE_GRP** | 2.0 | 1024 | 2.20e-4 | Sparse + per-group int8 scale |
 
-*\*Note: OIL1_GRP through OIL16_GRP add 0.19 BPW overhead (per-group FP32 scale/zp). OIL32_GRP is not implemented.*
+*\*Note: Group size 1024 gives negligible BPW overhead (~0.008 bits per element). OIL32_GRP is not implemented.*
 
 ### Why Mixed Formats?
 
@@ -218,7 +218,7 @@ If target BPW > 2.0, shift boundary toward higher BPW
 
 ## 🔬 Research Foundation
 
-Every design decision in MYTHOS.cpp is grounded in peer-reviewed research.
+Every design decision in InNova is grounded in peer-reviewed research.
 
 ### BitNet b1.58 (arXiv:2402.17764, arXiv:2310.11453)
 
@@ -429,7 +429,7 @@ Every design decision in MYTHOS.cpp is grounded in peer-reviewed research.
 3. Q-FORMER (BLIP-2): Learned queries bridge frozen vision encoder and frozen LLM
 4. MAMBA / STATE SPACE MODELS: Linear in sequence length, good for long video/audio
 
-**Implications for MYTHOS:**
+**Implications for InNova:**
 - MoMMoE (MoE with Multimodal Routing) aligns with Gemini's approach
 - VISION = encoder-only (perception); IMAGE_GEN/VIDEO_GEN = encoder-decoder
 - Cross-modal attention in MoMBlock mirrors Gemini's joint attention
@@ -560,7 +560,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 7. Theory of mind: modeling mental states of others
 8. Memory hierarchy: working, episodic, semantic, procedural
 
-**Meta-Cognition Pipeline (for MYTHOS):**
+**Meta-Cognition Pipeline (for InNova):**
 1. Monitor: track internal states, confidence, uncertainty, errors
 2. Analyze: identify bottlenecks, knowledge gaps, improvement areas
 3. Plan: decide what to learn/change next
@@ -582,14 +582,14 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 - Major concern: ASI arises before alignment solved
 - "Pause Giant AI Experiments" open letter (2023)
 
-**MYTHOS Approach:**
+**InNova Approach:**
 - "ALL RIGHTS RESERVED — PRIVATE AND PROPRIETARY"
 - Build ASI safely, with alignment built in from start
 - Meta-cognition pipeline includes value preservation
 - Weight format (OIL8) has versioning → can validate model provenance
 - Single binary: no exploits possible, controlled environment
 
-#### Key Research Insights Applied to MYTHOS
+#### Key Research Insights Applied to InNova
 
 **INSIGHT 1:** ASI requires three ingredients: Speed × Collective × Quality.
 - We have speed (SIMD/Triton kernels)
@@ -619,7 +619,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        MYTHOS.cpp                               │
+│                        InNova                               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
@@ -1335,8 +1335,8 @@ OIL4: 16 FP16 centroids per codebook
 
 ```bash
 # Clone
-git clone https://github.com/xprimesamx/MYTHOS.cpp
-cd MYTHOS.cpp
+git clone https://github.com/xprimesamx/InNova
+cd InNova
 
 # Configure & Build
 mkdir build && cd build
@@ -1523,7 +1523,7 @@ The build system defines 25 library targets across multiple subdirectories:
 - [ ] Full alignment testing (value preservation across self-modifications)
 - [ ] Safety guardrails: capability control, sandboxing, human-in-loop
 - [ ] Multi-agent collective intelligence
-- [ ] Single binary distribution (mythos.exe + .oil weights)
+- [ ] Single binary distribution (InNova.exe + .oil weights)
 - [ ] Multi-node training across machines
 - [ ] GPU compute shader (DirectX/Triton → any GPU)
 - [ ] Expert parallelism across cluster
@@ -1946,7 +1946,7 @@ test_trainer.cpp       Training loop and optimizer correctness
 ## 📁 Project Structure
 
 ```
-MYTHOS.cpp/
+InNova/
 │
 ├── include/
 │   └── oil/
@@ -2092,7 +2092,7 @@ MYTHOS.cpp/
 
 ## 📚 Documentation
 
-MYTHOS.cpp has two levels of documentation:
+InNova has two levels of documentation:
 
 ### Quick Reference — `docs/`
 
@@ -2210,8 +2210,8 @@ build/tests/test_tensor --gtest_filter="*serialize*"
 ```dockerfile
 FROM ubuntu:22.04
 RUN apt-get update && apt-get install -y cmake ninja-build clang-16 git
-COPY . /MYTHOS.cpp
-WORKDIR /MYTHOS.cpp
+COPY . /InNova
+WORKDIR /InNova
 RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build --parallel
 ```
@@ -2326,9 +2326,9 @@ int main() {
 
 ```c
 // Planned: C bindings for embedding in other languages
-// mythos_model_t* model = mythos_load("model.oil");
-// mythos_generate(model, "prompt", &output);
-// mythos_free(model);
+// InNova_model_t* model = InNova_load("model.oil");
+// InNova_generate(model, "prompt", &output);
+// InNova_free(model);
 ```
 
 ---
@@ -2464,7 +2464,7 @@ All binaries are statically linked — no DLL dependencies. Copy and run anywher
 - Full alignment testing (value preservation across self-modifications)
 - Safety guardrails: capability control, sandboxing, human-in-loop
 - Multi-agent collective intelligence
-- Single binary distribution (mythos.exe + .oil weights)
+- Single binary distribution (InNova.exe + .oil weights)
 - Multi-node training across machines
 - Dataset generation (self-supervised data)
 - Full ASI-scale training

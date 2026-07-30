@@ -1,4 +1,4 @@
-# MYTHOS.cpp Wiki
+# InNova Wiki
 
 - [Home](Home)
 - [Architecture](Architecture)

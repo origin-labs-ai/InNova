@@ -182,7 +182,7 @@ static void test_inference_memory_pool() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Inference Batching Test Suite\n");
+    printf("InNova — Inference Batching Test Suite\n");
     printf("===========================================\n");
 
     test_continuous_batching();

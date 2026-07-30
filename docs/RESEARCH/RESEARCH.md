@@ -1,4 +1,4 @@
-# MYTHOS.cpp Research Archive
+# InNova Research Archive
 
 **Started:** 2026-07-12  
 **MISSION:** Verify 0% knowledge loss + 0% quality loss feasibility for OIL mixed-precision format  

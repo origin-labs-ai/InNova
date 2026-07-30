@@ -80,9 +80,9 @@ jobs:
           cd ${{ github.workspace }}
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           tar --exclude='.git' --exclude='build' --exclude='dist' --exclude='.kilo' --exclude='.research' \
-            -czf dist/mythos-$VERSION-source.tar.gz .
+            -czf dist/InNova-$VERSION-source.tar.gz .
           cd dist
-          sha256sum mythos-$VERSION-source.tar.gz > mythos-$VERSION-source.tar.gz.sha256
+          sha256sum InNova-$VERSION-source.tar.gz > InNova-$VERSION-source.tar.gz.sha256
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -109,7 +109,7 @@ jobs:
           files: |
             dist/**/*
           body: |
-            # MYTHOS.cpp ${{ github.ref_name }}
+            # InNova ${{ github.ref_name }}
 
             ## Build
             - Zero-warning compilation with Clang/GCC/MSVC

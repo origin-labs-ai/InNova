@@ -1,8 +1,8 @@
-# ⚡ MYTHOS.cpp Wiki
+# ⚡ InNova Wiki
 
 > **M**ixed-format **Y**our-own **T**ensor **H**andcrafted **O**ptimized **S**ystem
 
-Welcome to the MYTHOS.cpp wiki! This is a **zero-dependency C++20 AI engine** that lets you train from scratch, fine-tune in native OIL format, quantize, and run inference — all within a single `.oil` binary format.
+Welcome to the InNova wiki! This is a **zero-dependency C++20 AI engine** that lets you train from scratch, fine-tune in native OIL format, quantize, and run inference — all within a single `.oil` binary format.
 
 ## 🚀 Quick Start
 
@@ -43,7 +43,7 @@ build/tools/oil-train --config config.json --data data/tinyshakespeare.txt --out
 ## 🏗️ Project Structure
 
 ```
-MYTHOS.cpp/
+InNova/
 ├── include/oil/          # Public headers
 ├── src/                  # Core implementation
 ├── engines/              # Inference & training engines
@@ -67,10 +67,10 @@ MYTHOS.cpp/
 
 ## 📄 Whitepaper
 
-The full MYTHOS.cpp whitepaper (128 pages) is available at **[publication/whitepaper/](../publication/whitepaper/)**.
+The full InNova whitepaper (128 pages) is available at **[publication/whitepaper/](../publication/whitepaper/)**.
 
 ## 🔗 Links
 
-- [GitHub Repository](https://github.com/xprimesamx/MYTHOS.cpp)
+- [GitHub Repository](https://github.com/xprimesamx/InNova)
 - [Research Papers](.research/)
 - [API Headers](include/oil/)

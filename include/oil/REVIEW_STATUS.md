@@ -1,4 +1,4 @@
-# REVIEW_STATUS.md — MYTHOS.cpp Per-File Status Matrix
+# REVIEW_STATUS.md — InNova Per-File Status Matrix
 
 **Last updated:** 2026-07-26
 

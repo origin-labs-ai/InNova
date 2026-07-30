@@ -513,7 +513,7 @@ static void test_perblock_oil4_beats_q4() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Quantization Engine Test Suite\n");
+    printf("InNova — Quantization Engine Test Suite\n");
     printf("============================================\n");
 
     test_oil8_roundtrip();

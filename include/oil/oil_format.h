@@ -96,7 +96,7 @@ private:
 
 // ===========================================================================
 // OIL Idx — SHA256 integrity-checked index file format
-// Header: magic "MYTHOSIDX" | version | num_tensors
+// Header: magic "InNovaIDX" | version | num_tensors
 // Then for each tensor: name_len | name bytes | sha256(name) [32 bytes]
 // On read, each tensor name is re-hashed and compared fail-fast; the first
 // corrupt name is reported by name.
@@ -116,7 +116,7 @@ public:
     explicit OILIdxWriter(const std::string& path);
     ~OILIdxWriter();
 
-    // Writes the full idx file: header magic "MYTHOSIDX", version,
+    // Writes the full idx file: header magic "InNovaIDX", version,
     // num_tensors, then per-tensor name + computed sha256(name).
     void write_idx(uint32_t version, const std::vector<std::string>& tensor_names);
 

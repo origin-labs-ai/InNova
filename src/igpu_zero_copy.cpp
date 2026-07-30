@@ -271,7 +271,7 @@ struct IGPUZeroCopyAllocator::Impl {
 
         VkApplicationInfo appInfo = {};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "MYTHOS iGPU Zero-Copy";
+        appInfo.pApplicationName = "InNova iGPU Zero-Copy";
         appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 0);
 
         VkInstanceCreateInfo ci = {};

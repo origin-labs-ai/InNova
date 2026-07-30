@@ -352,7 +352,7 @@ static void test_causal_mask() {
 
 int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("MYTHOS.cpp — Core Ops Test Suite\n");
+    printf("InNova — Core Ops Test Suite\n");
     printf("=================================\n");
 
     test_attention();
