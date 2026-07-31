@@ -1,10 +1,10 @@
-# ⚡ InNova Wiki
+# âš¡ InNova Wiki
 
 > **M**ixed-format **Y**our-own **T**ensor **H**andcrafted **O**ptimized **S**ystem
 
-Welcome to the InNova wiki! This is a **zero-dependency C++20 AI engine** that lets you train from scratch, fine-tune in native OIL format, quantize, and run inference — all within a single `.oil` binary format.
+Welcome to the InNova wiki! This is a **zero-dependency C++20 AI engine** that lets you train from scratch, fine-tune in native OIL format, quantize, and run inference â€” all within a single `.oil` binary format.
 
-## 🚀 Quick Start
+## ðŸš€ Quick Start
 
 ```bash
 # Configure & Build
@@ -24,7 +24,7 @@ build/tools/oil-infer --model model.oil --prompt "Hello" --max-tokens 256
 build/tools/oil-train --config config.json --data data/tinyshakespeare.txt --output trained.oil
 ```
 
-## 📖 Wiki Sections
+## ðŸ“– Wiki Sections
 
 | Section | Description |
 |---------|-------------|
@@ -40,37 +40,37 @@ build/tools/oil-train --config config.json --data data/tinyshakespeare.txt --out
 | [Contributing](Contributing) | How to contribute |
 | [File Docs](files/_index) | Per-file documentation index |
 
-## 🏗️ Project Structure
+## ðŸ—ï¸ Project Structure
 
 ```
 InNova/
-├── include/oil/          # Public headers
-├── src/                  # Core implementation
-├── engines/              # Inference & training engines
-│   ├── OIL8/            # OIL8 codec
-│   ├── inference/       # Inference engine
-│   └── trainer/         # Training engine (dense + MoE)
-├── tools/                # CLI tools
-├── tests/                # Test suite
-├── bench/                # Benchmarks
-├── docs/                 # Documentation
-└── wiki/                 # This wiki
+â”œâ”€â”€ include/oil/          # Public headers
+â”œâ”€â”€ src/                  # Core implementation
+â”œâ”€â”€ engines/              # Inference & training engines
+â”‚   â”œâ”€â”€ OIL8/            # OIL8 codec
+â”‚   â”œâ”€â”€ inference/       # Inference engine
+â”‚   â””â”€â”€ trainer/         # Training engine (dense + MoE)
+â”œâ”€â”€ tools/                # CLI tools
+â”œâ”€â”€ tests/                # Test suite
+â”œâ”€â”€ bench/                # Benchmarks
+â”œâ”€â”€ docs/                 # Documentation
+â””â”€â”€ wiki/                 # This wiki
 ```
 
-## ✅ Build Status
+## âœ… Build Status
 
 | Platform | Compiler | Status |
 |----------|----------|--------|
-| Windows 11 | Clang 22.1.7 (clang-cl) | ✅ All 82 targets build (25 libs + 25 executables + 32 tests), 0 errors, 0 warnings |
-| Linux | GCC ≥ 12 / Clang ≥ 16 | ✅ All 82 targets build, tests pass |
-| macOS (target) | Apple Clang | ⏳ Pending |
+| Windows 11 | Clang 22.1.7 (clang-cl) | âœ… All 82 targets build (25 libs + 25 executables + 32 tests), 0 errors, 0 warnings |
+| Linux | GCC â‰¥ 12 / Clang â‰¥ 16 | âœ… All 82 targets build, tests pass |
+| macOS (target) | Apple Clang | â³ Pending |
 
-## 📄 Whitepaper
+## ðŸ“„ Whitepaper
 
 The full InNova whitepaper (128 pages) is available at **[publication/whitepaper/](../publication/whitepaper/)**.
 
-## 🔗 Links
+## ðŸ”— Links
 
-- [GitHub Repository](https://github.com/xprimesamx/InNova)
+- [GitHub Repository](https://github.com/origin-labs-ai/InNova)
 - [Research Papers](.research/)
 - [API Headers](include/oil/)

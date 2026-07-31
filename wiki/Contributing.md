@@ -4,7 +4,7 @@
 
 ```bash
 # Fork & clone
-git clone https://github.com/xprimesamx/InNova
+git clone https://github.com/origin-labs-ai/InNova
 cd InNova
 
 # Build for development

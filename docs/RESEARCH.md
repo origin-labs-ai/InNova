@@ -4,7 +4,7 @@
 
 ---
 
-## 🎯 Overview
+## ðŸŽ¯ Overview
 
 InNova is built on a foundation of **peer-reviewed research** in machine learning, quantization, and systems design. Every major architectural decision is backed by published papers, ensuring that we're using proven, effective techniques.
 
@@ -12,7 +12,7 @@ This document catalogs the research papers that inspired and informed the design
 
 ---
 
-## 📚 Core Research Papers
+## ðŸ“š Core Research Papers
 
 ### 1. BitNet b1.58 - 1-bit Large Language Models
 
@@ -29,12 +29,12 @@ This document catalogs the research papers that inspired and informed the design
 - Ternary format support in OIL format
 
 **How it works:**
-1. Weights are ternary + a per-tensor scale factor α
-2. Forward pass: `W_ternary · x = α · ({-1,0,+1}) · x` — no multiplications, just additions
+1. Weights are ternary + a per-tensor scale factor Î±
+2. Forward pass: `W_ternary Â· x = Î± Â· ({-1,0,+1}) Â· x` â€” no multiplications, just additions
 3. Backward pass uses Straight-Through Estimator (STE): gradients pass through quantization
 4. Activations are quantized to INT8 per-tensor
 
-**Why it matters:** This proves that near-zero knowledge loss is achievable with extremely low bit-widths. The model learns to be robust to ternary weights because it was never FP32 — it was trained to work with ternary from the beginning.
+**Why it matters:** This proves that near-zero knowledge loss is achievable with extremely low bit-widths. The model learns to be robust to ternary weights because it was never FP32 â€” it was trained to work with ternary from the beginning.
 
 ---
 
@@ -42,7 +42,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Paper:** [Bitnet.cpp: Let LUTs do the talking](https://arxiv.org/abs/2502.11880) (arXiv:2502.11880)
 
-**Key Finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by **2.32× on x86** and **1.19× on ARM** for ternary inference.
+**Key Finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by **2.32Ã— on x86** and **1.19Ã— on ARM** for ternary inference.
 
 **Implementation in InNova:**
 - `src/kernel_tl.cpp` - Ternary Lookup Table kernel
@@ -52,7 +52,7 @@ This document catalogs the research papers that inspired and informed the design
 1. **TL (Ternary Lookup Table):** Precompute all possible activation sums for groups of 2-3 ternary weights. During inference, just look up the precomputed value. TL2 achieves **1.67 BPW** with element-wise mirror consolidation.
 2. **I2_S (Int2 + Scale):** Pack 4 ternary values (2 bits each) into 1 byte with a shared scale factor. Uses MAD (multiply-add) computation, strictly matches training quantization for correctness.
 
-**Adoption in OIL:** We adopt both approaches — TL for fast batch inference, I2_S for correctness. Our OIL4/OIL8 kernels extend the LUT concept to larger codebooks.
+**Adoption in OIL:** We adopt both approaches â€” TL for fast batch inference, I2_S for correctness. Our OIL4/OIL8 kernels extend the LUT concept to larger codebooks.
 
 ---
 
@@ -62,7 +62,7 @@ This document catalogs the research papers that inspired and informed the design
 
 **Authors:** Jonathan Lin, Jianfei Chen, et al.
 
-**Key Finding:** Only **~1% of weights are salient** — identified by activation magnitudes. Protecting these with higher precision recovers nearly all quality loss from quantization.
+**Key Finding:** Only **~1% of weights are salient** â€” identified by activation magnitudes. Protecting these with higher precision recovers nearly all quality loss from quantization.
 
 **Implementation in InNova:**
 - `src/format_planner.cpp` - FormatPlanner uses AWQ-style importance scoring
@@ -121,24 +121,24 @@ This document catalogs the research papers that inspired and informed the design
 
 ---
 
-## 📊 Quantization Research Comparison
+## ðŸ“Š Quantization Research Comparison
 
 | Paper | BPW | Quality | Flexibility | Trainable |
 |-------|-----|---------|-------------|-----------|
-| FP32 | 32 | Reference | N/A | ✅ |
-| FP16 | 16 | Near-FP32 | Uniform | ✅ |
-| INT8 (W8A8) | 8 | Near-FP32 | Uniform | ⚠️ QAT |
-| INT4 (GPTQ) | 4 | ~FP16 | Uniform | ❌ PTQ only |
-| NF4 (QLoRA) | 4 | ~FP16 | Uniform | ⚠️ Adapter only |
-| GGUF Q4_K_M | 4.5 | ~FP16 | Importance-grouped | ❌ PTQ only |
-| BitNet 1.58 | 1.58 | ~FP16* | Uniform ternary | ✅ Only |
-| **OIL (this)** | **1.50** | **FP32** | **Per-block mixed** | **✅ Full** |
+| FP32 | 32 | Reference | N/A | âœ… |
+| FP16 | 16 | Near-FP32 | Uniform | âœ… |
+| INT8 (W8A8) | 8 | Near-FP32 | Uniform | âš ï¸ QAT |
+| INT4 (GPTQ) | 4 | ~FP16 | Uniform | âŒ PTQ only |
+| NF4 (QLoRA) | 4 | ~FP16 | Uniform | âš ï¸ Adapter only |
+| GGUF Q4_K_M | 4.5 | ~FP16 | Importance-grouped | âŒ PTQ only |
+| BitNet 1.58 | 1.58 | ~FP16* | Uniform ternary | âœ… Only |
+| **OIL (this)** | **1.50** | **FP32** | **Per-block mixed** | **âœ… Full** |
 
 *BitNet matches FP16. OIL targets FP32 via OIL8 allocation for salient weights.*
 
 ---
 
-## 🧠 Architecture Research
+## ðŸ§  Architecture Research
 
 ### 6. Transformer Architecture
 
@@ -197,7 +197,7 @@ This document catalogs the research papers that inspired and informed the design
 
 ---
 
-## 🔬 Optimization Research
+## ðŸ”¬ Optimization Research
 
 ### 9. Adam Optimizer
 
@@ -227,7 +227,7 @@ This document catalogs the research papers that inspired and informed the design
 
 ---
 
-## 💡 InNova Original Research
+## ðŸ’¡ InNova Original Research
 
 While InNova is primarily an implementation of existing research, it also introduces novel contributions:
 
@@ -286,7 +286,7 @@ While InNova is primarily an implementation of existing research, it also introd
 
 ---
 
-## 📖 Reading List
+## ðŸ“– Reading List
 
 ### Must-Read Papers (In Order)
 
@@ -306,7 +306,7 @@ While InNova is primarily an implementation of existing research, it also introd
    - Comprehensive introduction to deep learning
    - Covers all fundamentals needed for InNova
 
-2. **Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow** - Aurélien Géron
+2. **Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow** - AurÃ©lien GÃ©ron
    - Practical guide to ML concepts
    - Good for understanding the "why" behind algorithms
 
@@ -314,13 +314,13 @@ While InNova is primarily an implementation of existing research, it also introd
    - Essential for writing high-quality C++20 code
    - Covers best practices used in InNova
 
-4. **C++ Primer** - Stanley Lippman, Josée Lajoie, Barbara E. Moo
+4. **C++ Primer** - Stanley Lippman, JosÃ©e Lajoie, Barbara E. Moo
    - Comprehensive C++ reference
    - Good for learning the language features used
 
 ---
 
-## 🔬 Research Directions
+## ðŸ”¬ Research Directions
 
 InNova is designed to be a platform for **research as well as production**. Here are some research directions you can explore:
 
@@ -362,23 +362,23 @@ InNova is designed to be a platform for **research as well as production**. Here
 
 ---
 
-## 📊 Performance Targets
+## ðŸ“Š Performance Targets
 
 Based on research and our own benchmarks, here are the performance targets for InNova:
 
 | Component | Target | Current | Status |
 |-----------|--------|---------|--------|
-| GEMM (FP32) | 5+ GFLOPS/core | ~3 GFLOPS/core | ⚠️ Optimizing |
-| GEMM (INT8) | 20+ GIPS/core | ~10 GIPS/core | ⚠️ Optimizing |
-| Attention | < 2x GEMM time | ~1.5x GEMM time | ✅ Met |
-| Token Generation | 50+ tok/s | ~30 tok/s | ⚠️ Optimizing |
-| Training Speed | 1+ tok/s/param | ~0.5 tok/s/param | ⚠️ Optimizing |
-| Model Size (1.5 BPW) | 1.5x smaller than FP16 | ✅ Met | ✅ Met |
-| Quality (1.5 BPW) | < 1 PPL difference from FP32 | ✅ Met | ✅ Met |
+| GEMM (FP32) | 5+ GFLOPS/core | ~3 GFLOPS/core | âš ï¸ Optimizing |
+| GEMM (INT8) | 20+ GIPS/core | ~10 GIPS/core | âš ï¸ Optimizing |
+| Attention | < 2x GEMM time | ~1.5x GEMM time | âœ… Met |
+| Token Generation | 50+ tok/s | ~30 tok/s | âš ï¸ Optimizing |
+| Training Speed | 1+ tok/s/param | ~0.5 tok/s/param | âš ï¸ Optimizing |
+| Model Size (1.5 BPW) | 1.5x smaller than FP16 | âœ… Met | âœ… Met |
+| Quality (1.5 BPW) | < 1 PPL difference from FP32 | âœ… Met | âœ… Met |
 
 ---
 
-## 🎓 How to Cite InNova
+## ðŸŽ“ How to Cite InNova
 
 If you use InNova in your research, please cite it as:
 
@@ -387,14 +387,14 @@ If you use InNova in your research, please cite it as:
   author = {InNova Contributors},
   title = {InNova: A Zero-Dependency C++20 AI Engine with OIL Format},
   year = {2026},
-  url = {https://github.com/xprimesamx/InNova},
+  url = {https://github.com/origin-labs-ai/InNova},
   note = {Zero-dependency C++20 AI engine with mixed-precision OIL format}
 }
 ```
 
 ---
 
-## 🔍 Research Tools
+## ðŸ” Research Tools
 
 InNova includes several tools for research:
 
@@ -405,7 +405,7 @@ InNova includes several tools for research:
 
 ---
 
-## 🤝 Collaboration
+## ðŸ¤ Collaboration
 
 We're interested in collaborating on research projects using InNova. Potential collaboration areas:
 
@@ -419,10 +419,10 @@ Contact us if you're interested in collaboration!
 
 ---
 
-## 📚 Additional Resources
+## ðŸ“š Additional Resources
 
-- **[Wiki Research Page](../wiki/Research.md)** — Research documentation in wiki format
-- **[Wiki OIL Format Spec](../wiki/OIL-Format.md)** — Detailed OIL binary format documentation
+- **[Wiki Research Page](../wiki/Research.md)** â€” Research documentation in wiki format
+- **[Wiki OIL Format Spec](../wiki/OIL-Format.md)** â€” Detailed OIL binary format documentation
 - [Papers With Code - Quantization](https://paperswithcode.com/task/quantization)
 - [Papers With Code - Efficient Transformers](https://paperswithcode.com/task/efficient-transformers)
 - [HuggingFace Research](https://huggingface.co/research)

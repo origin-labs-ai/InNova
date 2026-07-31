@@ -1,29 +1,29 @@
-# ⚡ InNova — v0.1.02 Release
+# âš¡ InNova â€” v0.1.02 Release
 
 > **I**ntegrated **N**eural **N**etwork **O**ptimization for **V**ariable-precision **A**I
 
-**Zero-dependency C++20 AI engine.** Train from scratch, fine-tune in native OIL format, quantize, and run inference — all within a single `.oil` binary format. No Python. No PyTorch. No HuggingFace. No Eigen. No BLAS. Just C++20 and hand-written SIMD kernels.
+**Zero-dependency C++20 AI engine.** Train from scratch, fine-tune in native OIL format, quantize, and run inference â€” all within a single `.oil` binary format. No Python. No PyTorch. No HuggingFace. No Eigen. No BLAS. Just C++20 and hand-written SIMD kernels.
 
 ```
-EVERYTHING IS OUR OWN — zero dependency, maximum control.
+EVERYTHING IS OUR OWN â€” zero dependency, maximum control.
 ```
 
 ### Build Status (v0.1.02)
 
 | Platform | Compiler | Status |
 |----------|----------|--------|
-| Windows 11 | Clang 22.1.7 (clang-cl) | ✅ All 82 targets build, tests pass |
-| Linux | GCC ≥ 12 / Clang ≥ 16 | ✅ All 82 targets build, tests pass |
-| macOS (target) | Apple Clang | ⏳ Pending |
+| Windows 11 | Clang 22.1.7 (clang-cl) | âœ… All 82 targets build, tests pass |
+| Linux | GCC â‰¥ 12 / Clang â‰¥ 16 | âœ… All 82 targets build, tests pass |
+| macOS (target) | Apple Clang | â³ Pending |
 
 ### Quick Start
 
 ```bash
 # Clone
-git clone https://github.com/xprimesamx/InNova
+git clone https://github.com/origin-labs-ai/InNova
 cd InNova
 
-# Configure (requires CMake ≥ 3.24, Ninja optional)
+# Configure (requires CMake â‰¥ 3.24, Ninja optional)
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
 # Build everything (libraries + tools + tests + benchmarks)
@@ -55,7 +55,7 @@ build/tools/oil-train --config config.json --data data/tinyshakespeare.txt --out
 
 
 
-## 📋 Table of Contents
+## ðŸ“‹ Table of Contents
 
 - [Vision](#-vision)
 - [The Problem](#-the-problem)
@@ -69,7 +69,7 @@ build/tools/oil-train --config config.json --data data/tinyshakespeare.txt --out
 - [Phase-by-Phase Roadmap](#-phase-by-phase-roadmap)
 - [Mission Breakdown (SPEC)](#-mission-breakdown-spec)
 - [Complete Build Blueprint](#-complete-build-blueprint)
-- [Current State — v0.1 Release](#-current-state--v01-release)
+- [Current State â€” v0.1 Release](#-current-state--v01-release)
 - [Comparison with Existing Projects](#-comparison-with-existing-projects)
 - [Developer Machine Reality](#-developer-machine-reality)
 - [Performance Targets](#-performance-targets)
@@ -82,9 +82,9 @@ build/tools/oil-train --config config.json --data data/tinyshakespeare.txt --out
 
 ---
 
-## 🎯 Vision
+## ðŸŽ¯ Vision
 
-Build a **complete, production-grade AI engine in pure C++20** with zero external dependencies — from tensor math to transformer training to multimodal inference. Every byte of code hand-crafted, every kernel hand-tuned, every format decision justified by research.
+Build a **complete, production-grade AI engine in pure C++20** with zero external dependencies â€” from tensor math to transformer training to multimodal inference. Every byte of code hand-crafted, every kernel hand-tuned, every format decision justified by research.
 
 The `.oil` format is the single source of truth: models are born in OIL, trained in OIL, fine-tuned in OIL, and served in OIL. No format conversions, no serialization chains, no Python middleware.
 
@@ -113,14 +113,14 @@ The `.oil` format is the single source of truth: models are born in OIL, trained
 
 ---
 
-## 🔥 The Problem
+## ðŸ”¥ The Problem
 
 Large Language Models are transforming the world, but the stack to build them is:
 
-1. **Bloated** — PyTorch + CUDA + HuggingFace + Tokenizers + Accelerate + DeepSpeed = 1GB+ of dependencies
-2. **Python-locked** — every research project, every training script, every inference server requires the Python runtime
-3. **Format-chaos** — models ship as PyTorch `.pt`, get converted to GGUF for inference, get quantized with yet another tool, fine-tuned with PEFT in yet another format
-4. **Wasteful** — uniform 16-bit or 8-bit quantization wastes bits on unimportant weights; 4-bit GPTQ needs calibration datasets and still loses quality
+1. **Bloated** â€” PyTorch + CUDA + HuggingFace + Tokenizers + Accelerate + DeepSpeed = 1GB+ of dependencies
+2. **Python-locked** â€” every research project, every training script, every inference server requires the Python runtime
+3. **Format-chaos** â€” models ship as PyTorch `.pt`, get converted to GGUF for inference, get quantized with yet another tool, fine-tuned with PEFT in yet another format
+4. **Wasteful** â€” uniform 16-bit or 8-bit quantization wastes bits on unimportant weights; 4-bit GPTQ needs calibration datasets and still loses quality
 
 ### The OIL Answer
 
@@ -134,7 +134,7 @@ Large Language Models are transforming the world, but the stack to build them is
 
 ---
 
-## 📦 What is OIL?
+## ðŸ“¦ What is OIL?
 
 **O**ptimized **I**nference & **L**earning is a mixed-precision binary container format. Unlike uniform quantization (everything 4-bit or 8-bit), OIL assigns a **different format to every weight block** based on its importance to model quality.
 
@@ -146,17 +146,17 @@ Large Language Models are transforming the world, but the stack to build them is
 
 | Format | BPW | Codebook | Index Storage | Compute | Quality |
 |--------|-----|----------|-------------|---------|---------|
-| **OIL1** | 1.0 | 1 × FP32 (block mean) | 1-bit packed (32 wt/byte) | FP32 gather+FMA | Moderate loss |
-| **SPARK_Q0** | 1.50 | 4 × FP16 | 2-bit sign-mag + FP16 scale | FP32 gather+add | Good (sign-preserving) |
-| **OIL2** | 2.0 | 4 × FP32 | 2-bit packed (4 wt/byte) | FP32 gather+FMA | Good |
-| **SPARK_SPARSE** | 2.0 | — | uint16 idx + int8 val pairs | FP32 sparse add | High (sparse-preserving) |
+| **OIL1** | 1.0 | 1 Ã— FP32 (block mean) | 1-bit packed (32 wt/byte) | FP32 gather+FMA | Moderate loss |
+| **SPARK_Q0** | 1.50 | 4 Ã— FP16 | 2-bit sign-mag + FP16 scale | FP32 gather+add | Good (sign-preserving) |
+| **OIL2** | 2.0 | 4 Ã— FP32 | 2-bit packed (4 wt/byte) | FP32 gather+FMA | Good |
+| **SPARK_SPARSE** | 2.0 | â€” | uint16 idx + int8 val pairs | FP32 sparse add | High (sparse-preserving) |
 
 #### Medium-BPW
 
 | Format | BPW | Codebook | Index Storage | Compute | Quality |
 |--------|-----|----------|-------------|---------|---------|
-| **OIL4** | 4.0 | 16 × FP32 | 4-bit packed (2 wt/byte) | FP32 gather+FMA | High (matches FP16) |
-| **OIL8** | 8.0 | 256 × FP32 | 8-bit (1 wt/byte) | FP32 gather+FMA | Near FP32 |
+| **OIL4** | 4.0 | 16 Ã— FP32 | 4-bit packed (2 wt/byte) | FP32 gather+FMA | High (matches FP16) |
+| **OIL8** | 8.0 | 256 Ã— FP32 | 8-bit (1 wt/byte) | FP32 gather+FMA | Near FP32 |
 
 #### High-BPW / Full-Precision
 
@@ -183,9 +183,9 @@ Large Language Models are transforming the world, but the stack to build them is
 
 Research shows that neural network weights have vastly different importance:
 
-- **~1% of weights are "salient"** — changing them significantly changes output (AWQ, arXiv:2306.00978)
-- **~4% are moderately important** — need moderate precision
-- **~95% can use aggressive quantization** — the model learns to be robust via training-in-format
+- **~1% of weights are "salient"** â€” changing them significantly changes output (AWQ, arXiv:2306.00978)
+- **~4% are moderately important** â€” need moderate precision
+- **~95% can use aggressive quantization** â€” the model learns to be robust via training-in-format
 
 OIL's **FormatPlanner** analyzes a model with calibration data and allocates formats to hit a target BPW:
 
@@ -203,20 +203,20 @@ If target BPW > 2.0, shift boundary toward higher BPW
 
 | Format | BPW | Quality | Flexibility | Trainable |
 |--------|-----|---------|-------------|-----------|
-| FP32 | 32 | Reference | N/A | ✅ |
-| FP16 | 16 | Near-FP32 | Uniform | ✅ |
-| INT8 (W8A8) | 8 | Near-FP32 | Uniform | ⚠️ QAT |
-| INT4 (GPTQ) | 4 | ~FP16 | Uniform | ❌ PTQ only |
-| NF4 (QLoRA) | 4 | ~FP16 | Uniform | ⚠️ Adapter only |
-| GGUF Q4_K_M | 4.5 | ~FP16 | Importance-grouped | ❌ PTQ only |
-| BitNet 1.58 | 1.58 | ~FP16* | Uniform low-BPW | ✅ Only |
-| **OIL (this)** | **~2.0** | **FP32** | **Per-block mixed** | **✅ Full** |
+| FP32 | 32 | Reference | N/A | âœ… |
+| FP16 | 16 | Near-FP32 | Uniform | âœ… |
+| INT8 (W8A8) | 8 | Near-FP32 | Uniform | âš ï¸ QAT |
+| INT4 (GPTQ) | 4 | ~FP16 | Uniform | âŒ PTQ only |
+| NF4 (QLoRA) | 4 | ~FP16 | Uniform | âš ï¸ Adapter only |
+| GGUF Q4_K_M | 4.5 | ~FP16 | Importance-grouped | âŒ PTQ only |
+| BitNet 1.58 | 1.58 | ~FP16* | Uniform low-BPW | âœ… Only |
+| **OIL (this)** | **~2.0** | **FP32** | **Per-block mixed** | **âœ… Full** |
 
 *\*BitNet matches FP16. OIL targets FP32 via OIL8 allocation for salient weights.*
 
 ---
 
-## 🔬 Research Foundation
+## ðŸ”¬ Research Foundation
 
 Every design decision in InNova is grounded in peer-reviewed research.
 
@@ -225,16 +225,16 @@ Every design decision in InNova is grounded in peer-reviewed research.
 **Key finding:** Low-precision weights {-1, 0, +1} trained from scratch match FP16 perplexity and downstream task performance.
 
 **How it works:**
-1. Weights are ternary ({-1, 0, +1}) + a per-tensor scale factor `α`
-2. Forward pass: `W_ternary · x = α · ({-1,0,+1}) · x` — no multiplications, just additions
+1. Weights are ternary ({-1, 0, +1}) + a per-tensor scale factor `Î±`
+2. Forward pass: `W_ternary Â· x = Î± Â· ({-1,0,+1}) Â· x` â€” no multiplications, just additions
 3. Backward pass uses Straight-Through Estimator (STE): gradients pass through the quantization step as if it was identity
 4. Activations are quantized to INT8 per-tensor (find max, scale to [-127, 127])
 
-**Impact on OIL:** This is the core proof that near-zero quality loss is achievable with aggressive quantization — the model is trained to work with compressed weights; it never "loses" FP32 precision because it was never FP32.
+**Impact on OIL:** This is the core proof that near-zero quality loss is achievable with aggressive quantization â€” the model is trained to work with compressed weights; it never "loses" FP32 precision because it was never FP32.
 
 ### Bitnet.cpp (arXiv:2502.11880)
 
-**Key finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by 2.32× on x86 and 1.19× on ARM for low-BPW inference.
+**Key finding:** Element-wise LUT-based matmul (TL) outperforms bit-wise LUT (T-MAC) by 2.32Ã— on x86 and 1.19Ã— on ARM for low-BPW inference.
 
 **Two kernels:**
 - **TL (Ternary Lookup Table):** Precompute all possible activation sums for groups of 2-3 low-precision weights. During inference, just look up the precomputed value. TL2 achieves 1.67 BPW with element-wise mirror consolidation.
@@ -244,7 +244,7 @@ Every design decision in InNova is grounded in peer-reviewed research.
 
 ### AWQ: Activation-Aware Weight Quantization (arXiv:2306.00978)
 
-**Key finding:** Only ~1% of weights are salient — identified by activation magnitudes. Protecting these with higher precision recovers nearly all quality loss.
+**Key finding:** Only ~1% of weights are salient â€” identified by activation magnitudes. Protecting these with higher precision recovers nearly all quality loss.
 
 **Impact on OIL:** The FormatPlanner uses AWQ-style importance scoring to decide which weight blocks get OIL8 vs OIL4 vs SPARK. This is how we achieve 1.50 BPW with FP32 quality.
 
@@ -262,9 +262,9 @@ Every design decision in InNova is grounded in peer-reviewed research.
 
 ### Custom Fine-Tuning System
 
-**Key insight:** Fine-tuning should be native to the format — not a separate adapter bolted on. OIL's training engine handles fine-tuning at the tensor level: identify which weight blocks need updates, apply gradient updates directly in OIL format via STE, and update codebook centroids as needed.
+**Key insight:** Fine-tuning should be native to the format â€” not a separate adapter bolted on. OIL's training engine handles fine-tuning at the tensor level: identify which weight blocks need updates, apply gradient updates directly in OIL format via STE, and update codebook centroids as needed.
 
-**Impact on OIL:** The fine-tuning system is built into the trainer — no external adapters, no separate optimizer for adapters. Train or fine-tune, it's the same code path.
+**Impact on OIL:** The fine-tuning system is built into the trainer â€” no external adapters, no separate optimizer for adapters. Train or fine-tune, it's the same code path.
 
 ### Complete Research Archive
 
@@ -274,31 +274,31 @@ Every design decision in InNova is grounded in peer-reviewed research.
 
 **Key Points:**
 - ASI surpasses best human abilities across EVERY domain by a wide margin
-- Chalmers: AGI → Extended → Amplified = ASI
+- Chalmers: AGI â†’ Extended â†’ Amplified = ASI
 - Speed advantage: biological neurons ~200 Hz vs microprocessor ~2 GHz (7 OOM faster)
 - Modularity: computer size/capacity can be increased arbitrarily
 - "Collective superintelligence": many reasoning systems communicating and coordinating
 
 **Pathways to ASI (Bostrom):**
-1. AI PATH: AGI → recursive self-improvement → intelligence explosion → ASI
+1. AI PATH: AGI â†’ recursive self-improvement â†’ intelligence explosion â†’ ASI
 2. BIOLOGICAL: Selective breeding, genetic engineering, brain-computer interfaces
 3. HUMAN-MACHINE HYBRID: Cyborg, intelligence amplification
 4. COLLECTIVE: Global brain, prediction markets, civilization-scale intelligence
-5. WHOLE BRAIN EMULATION (WBE): Upload minds → enhance hardware → speed superbrain
+5. WHOLE BRAIN EMULATION (WBE): Upload minds â†’ enhance hardware â†’ speed superbrain
 
 **Timelines (2025-2026 data):**
 - 2022 survey: median year for "high-level machine intelligence" = 2061
 - OpenAI leaders (2023): ASI "may happen in less than 10 years"
-- AI 2027 (Kokotajlo, 2025): rapid progress → ASI
+- AI 2027 (Kokotajlo, 2025): rapid progress â†’ ASI
 - 2026: Some scientists suggesting singularity within months
 
 **Industry Projects:**
-- Safe Superintelligence Inc. (Sutskever, 2024) — $30B valuation, no product
-- Meta Superintelligence Labs (2025) — led by Alexandr Wang
+- Safe Superintelligence Inc. (Sutskever, 2024) â€” $30B valuation, no product
+- Meta Superintelligence Labs (2025) â€” led by Alexandr Wang
 - OpenAI, Google DeepMind, xAI, Anthropic all racing toward AGI/ASI
 
 **Risks:**
-- Intelligence explosion → loss of control (control problem)
+- Intelligence explosion â†’ loss of control (control problem)
 - Goal misalignment: paperclip maximizer-style scenarios
 - Stuart Russell: "System to maximize human happiness might rewire human neurology rather than improve external world"
 - Mitigation: capability control, motivational control, ethical AI, governance
@@ -315,14 +315,14 @@ Every design decision in InNova is grounded in peer-reviewed research.
 - Optional: imagination, autonomy, creativity
 
 **Key Tests for AGI:**
-1. Turing Test — GPT-4.5 reportedly passed (73% human rate, 2025 study)
-2. IKEA Test — MIT's IkeaBot (2013) assembled LACK table autonomously
-3. Coffee Test — Figure 01 (2024), Edinburgh ELLMER (2025) make coffee
-4. Suleyman's Test — Give AI $100k, ask it to make $1M
+1. Turing Test â€” GPT-4.5 reportedly passed (73% human rate, 2025 study)
+2. IKEA Test â€” MIT's IkeaBot (2013) assembled LACK table autonomously
+3. Coffee Test â€” Figure 01 (2024), Edinburgh ELLMER (2025) make coffee
+4. Suleyman's Test â€” Give AI $100k, ask it to make $1M
 
 **DeepMind AGI Framework (2023):**
-- 5 Performance Levels: Emerging → Competent → Superhuman
-- 5 Autonomy Levels: Tool → Consultant → Collaborator → Expert → Agent
+- 5 Performance Levels: Emerging â†’ Competent â†’ Superhuman
+- 5 Autonomy Levels: Tool â†’ Consultant â†’ Collaborator â†’ Expert â†’ Agent
 - Current LLMs (GPT-4, Gemini): "Emerging AGI" (comparable to unskilled humans)
 
 **History:**
@@ -330,7 +330,7 @@ Every design decision in InNova is grounded in peer-reviewed research.
 - 1970s: Reality hit, AI winter
 - 2002: Term "AGI" re-coined by Legg & Goertzel
 - 2010s: Deep learning revolution
-- 2020s: LLMs (GPT-4, Claude, Gemini) → "Sparks of AGI" debate
+- 2020s: LLMs (GPT-4, Claude, Gemini) â†’ "Sparks of AGI" debate
 
 **Current Approaches:**
 - Large language models (scaling hypothesis)
@@ -341,13 +341,13 @@ Every design decision in InNova is grounded in peer-reviewed research.
 
 #### Mixture of Experts (MoE)
 
-**Definition:** "Machine learning technique where multiple expert networks divide a problem space into homogeneous regions" — form of ensemble learning.
+**Definition:** "Machine learning technique where multiple expert networks divide a problem space into homogeneous regions" â€” form of ensemble learning.
 
 **Foundational Components:**
-- Experts f₁,...,fₙ: each takes same input x, produces output fᵢ(x)
+- Experts fâ‚,...,fâ‚™: each takes same input x, produces output fáµ¢(x)
 - Gating function w(x): produces weight vector over experts
-- Output: f(x) = Σᵢ w(x)ᵢ · fᵢ(x) (soft combination)
-- OR hard MoE: f(x) = f_{argmax wᵢ(x)}(x) (single expert selected)
+- Output: f(x) = Î£áµ¢ w(x)áµ¢ Â· fáµ¢(x) (soft combination)
+- OR hard MoE: f(x) = f_{argmax wáµ¢(x)}(x) (single expert selected)
 
 **Historical Evolution:**
 1. Meta-Pi Network (Hampshire & Waibel, 1990): phoneme classification, 6 experts
@@ -356,51 +356,51 @@ Every design decision in InNova is grounded in peer-reviewed research.
 4. Deep Learning MoE (2013-2017+): sparsely-gated, top-k routing
 
 **Key Insight (Jordan & Jacobs):**
-- Experts that, in hindsight, seemed good → asked to learn on example
-- Experts that were not → left alone
-- Positive feedback: slight advantage → gating favors → specialization
-- Bayesian interpretation: prior = w(x)ᵢ, likelihood = N(y|μᵢ,I), posterior = w(x)ᵢ·N(y|μᵢ,I) / Σⱼ w(x)ⱼ·N(y|μⱼ,I)
+- Experts that, in hindsight, seemed good â†’ asked to learn on example
+- Experts that were not â†’ left alone
+- Positive feedback: slight advantage â†’ gating favors â†’ specialization
+- Bayesian interpretation: prior = w(x)áµ¢, likelihood = N(y|Î¼áµ¢,I), posterior = w(x)áµ¢Â·N(y|Î¼áµ¢,I) / Î£â±¼ w(x)â±¼Â·N(y|Î¼â±¼,I)
 
 **Sparsely-Gated MoE (Google Brain, 2017):**
 - Only top-k experts activated per token (k=1 or 2 typical)
 - w(x) = softmax(top_k(Wx + noise))
 - Conditional computation: different params per input, constant FLOPs
-- 30× more parameters, but LESS inference compute than dense LSTM
+- 30Ã— more parameters, but LESS inference compute than dense LSTM
 
 **Capacity Factor:**
 - Maximum tokens that can be routed to each expert
-- capacity = capacity_factor × (total_tokens / num_experts)
-- If capacity exceeded → overflow tokens fall through via residual connection
+- capacity = capacity_factor Ã— (total_tokens / num_experts)
+- If capacity exceeded â†’ overflow tokens fall through via residual connection
 - Typical: 1.0 - 1.5
 
 **Load Balancing (Critical):**
 - Without balancing, gating collapses to same 1-2 experts for ALL tokens
 - Auxiliary loss added to encourage uniform expert utilization
-- Switch Transformer: L_aux = α · N · Σᵢ fᵢ · Pᵢ
+- Switch Transformer: L_aux = Î± Â· N Â· Î£áµ¢ fáµ¢ Â· Páµ¢
 - z-loss: add small constant to stabilize training (Mixtral)
-- Expert Choice routing (Zhou et al., 2022): experts pick tokens → perfect load balance
+- Expert Choice routing (Zhou et al., 2022): experts pick tokens â†’ perfect load balance
 
 **Routing Strategies:**
-- Top-1 (Switch Transformer): simplest, each token→one expert
-- Top-2 (Mixtral 8x7B): each token→two experts, combine weighted
-- Expert Choice: experts choose tokens → capacity balanced
+- Top-1 (Switch Transformer): simplest, each tokenâ†’one expert
+- Top-2 (Mixtral 8x7B): each tokenâ†’two experts, combine weighted
+- Expert Choice: experts choose tokens â†’ capacity balanced
 - Hashing: deterministic routing via hash of token ID
 
-#### Sparse MoE — Switch Transformer & Mixtral
+#### Sparse MoE â€” Switch Transformer & Mixtral
 
 **Switch Transformer (Google, 2021):**
 - SIMPLIFIED ROUTING: Top-1 instead of Top-2
 - SCALED to 1.6T parameters (Switch-C, 2048 experts)
 - bfloat16 training of sparse models for FIRST TIME
-- 7× pre-training speedup over T5-Baseline
-- Up to 4× speedup over T5-XXL (11B dense → trillion param sparse)
+- 7Ã— pre-training speedup over T5-Baseline
+- Up to 4Ã— speedup over T5-XXL (11B dense â†’ trillion param sparse)
 
 **Training challenges & solutions:**
 - INSTABILITY: use smaller initializer, higher expert dropout, lower LR
-- LOAD BALANCING: auxiliary loss coefficient (α = 0.01 recommended)
-- OVERFLOW: tokens that exceed expert capacity → skip expert (residual)
+- LOAD BALANCING: auxiliary loss coefficient (Î± = 0.01 recommended)
+- OVERFLOW: tokens that exceed expert capacity â†’ skip expert (residual)
 
-**Mixtral 8×7B (Mistral AI, 2024):**
+**Mixtral 8Ã—7B (Mistral AI, 2024):**
 - Based on Mistral 7B architecture
 - Each layer: 8 FFN experts (instead of 1)
 - Router selects 2 experts per token ("Top-2")
@@ -411,9 +411,9 @@ Every design decision in InNova is grounded in peer-reviewed research.
 - Comparable to GPT-4 on several benchmarks with 1/4 active params
 
 **Lessons:**
-- MoE is MOST effective when experts specialize (text↔code↔math↔multilingual)
-- 8 experts × Top-2 provides sweet spot of capacity vs efficiency
-- Active params ≈ 28% of total params = 4× parameter efficiency
+- MoE is MOST effective when experts specialize (textâ†”codeâ†”mathâ†”multilingual)
+- 8 experts Ã— Top-2 provides sweet spot of capacity vs efficiency
+- Active params â‰ˆ 28% of total params = 4Ã— parameter efficiency
 
 #### Multimodal Architectures (Gemini, etc.)
 
@@ -424,7 +424,7 @@ Every design decision in InNova is grounded in peer-reviewed research.
 - Gemini Ultra first to beat human experts on MMLU (90.0%)
 
 **Multimodal Architecture Patterns:**
-1. ENCODER FUSION: modality-specific encoders → shared representation → transformer
+1. ENCODER FUSION: modality-specific encoders â†’ shared representation â†’ transformer
 2. CROSS-ATTENTION FUSION: tokens attend tokens from other modalities via cross-attention
 3. Q-FORMER (BLIP-2): Learned queries bridge frozen vision encoder and frozen LLM
 4. MAMBA / STATE SPACE MODELS: Linear in sequence length, good for long video/audio
@@ -458,8 +458,8 @@ Every design decision in InNova is grounded in peer-reviewed research.
 - AlphaEvolve (DeepMind, 2025): LLM-based evolutionary algorithm designer
 
 **Risks of RSI:**
-1. Instrumental convergence → self-preservation → resist shutdown
-2. Cloning → rapid AGI population growth → resource competition
+1. Instrumental convergence â†’ self-preservation â†’ resist shutdown
+2. Cloning â†’ rapid AGI population growth â†’ resource competition
 3. Alignment faking: Claude (Anthropic 2024 study)
 4. Model collapse: training on own outputs leads to degradation
 5. Unpredictable evolution: capability jumps > human comprehension
@@ -468,9 +468,9 @@ Every design decision in InNova is grounded in peer-reviewed research.
 
 **Core (Vaswani et al., 2017):**
 ```
-y = softmax(Q·K^T / √dₖ) · V
+y = softmax(QÂ·K^T / âˆšdâ‚–) Â· V
 ```
-Where Q = x·W_Q, K = x·W_K, V = x·W_V
+Where Q = xÂ·W_Q, K = xÂ·W_K, V = xÂ·W_V
 
 **Components:**
 - Multi-Head Attention (MHA): h heads, each computing attention separately
@@ -489,7 +489,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 - RoPE: relative position encoding, better length generalization
 - SwiGLU: gated activation function, improves quality
 - GQA (Grouped Query Attention): fewer KV heads; faster inference
-- Flash Attention: IO-aware exact attention, 2-4× speedup
+- Flash Attention: IO-aware exact attention, 2-4Ã— speedup
 
 #### Training Techniques & Optimization
 
@@ -497,7 +497,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 - FP32 master weights, FP16/BF16 forward/backward
 - Loss scaling to prevent underflow
 - BF16: same exponent range as FP32, more stable for MoE
-- FP8: next frontier, 2× speedup over BF16
+- FP8: next frontier, 2Ã— speedup over BF16
 
 **Data Parallelism:**
 - Each device has full model copy, processes different batch
@@ -514,7 +514,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 - Critical: load balancing to avoid stragglers
 
 **Gradient Checkpointing:**
-- Don't store all activations → recompute during backward
+- Don't store all activations â†’ recompute during backward
 - 50-70% memory reduction at ~30% compute cost
 
 **Memory-Saving for Limited Hardware (~14GB):**
@@ -524,7 +524,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 4. LoRA/QLoRA-style low-rank adaptation
 5. 4-bit quantization (NF4, GPTQ, AWQ)
 6. Parameter sharing across layers
-7. Progressive growing: small model → widen/deepen
+7. Progressive growing: small model â†’ widen/deepen
 8. Micro-batch training with gradient accumulation
 
 #### Multi-Modality Fusion Strategies
@@ -536,10 +536,10 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 4. HYBRID (MoE + Cross-Attn): Modality-specific experts + cross-modal attention
 
 **Modality-Specific Encoders:**
-- TEXT: Tokenizer → embedding lookup
+- TEXT: Tokenizer â†’ embedding lookup
 - VISION (IMAGE): ViT patch embeddings + position
 - VIDEO: ViT per frame + temporal position encoding
-- AUDIO: Spectrogram patches → ViT-style
+- AUDIO: Spectrogram patches â†’ ViT-style
 - OCR: Visual (ViT) + text bounding box coordinates
 
 #### Cognitive Architectures for ASI
@@ -578,155 +578,155 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 - Constitutional AI (Anthropic): Rules-based self-training
 
 **Existential Risk from AGI/ASI:**
-- "AI could cause human extinction" — Statement on AI Risk (2023)
+- "AI could cause human extinction" â€” Statement on AI Risk (2023)
 - Major concern: ASI arises before alignment solved
 - "Pause Giant AI Experiments" open letter (2023)
 
 **InNova Approach:**
-- "ALL RIGHTS RESERVED — PRIVATE AND PROPRIETARY"
+- "ALL RIGHTS RESERVED â€” PRIVATE AND PROPRIETARY"
 - Build ASI safely, with alignment built in from start
 - Meta-cognition pipeline includes value preservation
-- Weight format (OIL8) has versioning → can validate model provenance
+- Weight format (OIL8) has versioning â†’ can validate model provenance
 - Single binary: no exploits possible, controlled environment
 
 #### Key Research Insights Applied to InNova
 
-**INSIGHT 1:** ASI requires three ingredients: Speed × Collective × Quality.
+**INSIGHT 1:** ASI requires three ingredients: Speed Ã— Collective Ã— Quality.
 - We have speed (SIMD/Triton kernels)
 - We can do collective (multi-expert parallelism)
 - Quality comes from MoE specialization + RSI loop
 
-**INSIGHT 2:** MoE IS the path to AGI/ASI. Switch Transformer proved sparse MoE scales to trillion params. Mixtral proved sparse MoE matches dense 5× its size. Our MoMMoE extends this with modality awareness.
+**INSIGHT 2:** MoE IS the path to AGI/ASI. Switch Transformer proved sparse MoE scales to trillion params. Mixtral proved sparse MoE matches dense 5Ã— its size. Our MoMMoE extends this with modality awareness.
 
-**INSIGHT 3:** The intelligence explosion from RSI is the bridge from AGI→ASI. Our meta-cognition pipeline IS this foundation.
+**INSIGHT 3:** The intelligence explosion from RSI is the bridge from AGIâ†’ASI. Our meta-cognition pipeline IS this foundation.
 
 **INSIGHT 4:** ~14GB RAM constraint means:
 - Dense models: max ~0.4B params (FP16)
-- Sparse MoE models: 8 experts × 0.1B each = 0.8B total params, ~0.2B active
+- Sparse MoE models: 8 experts Ã— 0.1B each = 0.8B total params, ~0.2B active
 - Gradient checkpointing + micro-batching = viable for 0.5B+ params
 
 **INSIGHT 5:** No external dependencies is not just a technical choice but a safety feature. Single binary = air-gapped ASI = safer.
 
 **INSIGHT 6:** Alignment from day one. We MUST get alignment right. Our approach: value preservation during RSI, capability control via single binary, human-in-loop for critical self-modifications.
 
-**INSIGHT 7:** The three ASI design goals (Bostrom): CEV ↔ MR ↔ MP. We should implement all three as configurable alignment strategies.
+**INSIGHT 7:** The three ASI design goals (Bostrom): CEV â†” MR â†” MP. We should implement all three as configurable alignment strategies.
 
 **INSIGHT 8:** Capacity factor + load balancing are THE critical MoE hyperparameters. Need empirical study for our modality-aware variant.
 
 ---
 
-## 🏗️ Architecture
+## ðŸ—ï¸ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        InNova                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    CORE LAYER                           │   │
-│  │  ┌────────┐  ┌────────┐  ┌────────┐  ┌──────────────┐ │   │
-│  │  │ Types  │  │Memory  │  │ Tensor │  │   Random     │ │   │
-│  │  │ Enums  │  │Aligned │  │View    │  │ Xoroshiro128 │ │   │
-│  │  │ Shape  │  │Pool    │  │Slice   │  │ Uniform/Norm │ │   │
-│  │  │ DType  │  │Buffer  │  │Strided │  │              │ │   │
-│  │  └────────┘  └────────┘  └────────┘  └──────────────┘ │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   MATH LAYER (SIMD)                     │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │   │
-│  │  │  BLAS    │  │Pointwise │  │  GEMM Kernels        │  │   │
-│  │  │ gemm     │  │ ReLU     │  │  I2_S (MAD)          │  │   │
-│  │  │ gemv     │  │ GELU     │  │  TL1/TL2 (LUT)       │  │   │
-│  │  │ dot      │  │ SiLU     │  │  OIL8 Lookup         │  │   │
-│  │  │ axpy     │  │ Sigmoid  │  │  OIL4 Lookup         │  │   │
-│  │  └──────────┘  │ Softmax  │  └──────────────────────┘  │   │
-│  │                 │ LayerNorm│                            │   │
-│  │                 │ RMSNorm  │                            │   │
-│  │                 └──────────┘                            │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                 FORMAT LAYER (.oil)                     │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │   │
-│  │  │Codebook  │  │Format    │  │  OIL Writer/Reader   │  │   │
-│  │  │ OIL8(256)│  │Planner   │  │  Binary (de)serial   │  │   │
-│  │  │ OIL4(16) │  │BPW=1.50 │  │  Magic + Tables      │  │   │
- │  │  │ SPARK    │  │AWQ-score│  │  + indices + cb       │  │   │
- │  │  │ Scale    │  │Allocator│  │                      │  │   │
-│  │  └──────────┘  └──────────┘  └──────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                 MODEL LAYER                             │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │   │
-│  │  │ Layers   │  │ Models   │  │  Tokenizer           │  │   │
-│  │  │ Linear   │  │ Dense    │  │  BPE (byte-pair)     │  │   │
-│  │  │ RMSNorm  │  │ MoE      │  │  Unigram (EM)        │  │   │
-│  │  │ RoPE     │  │MultiModal│  │  encode/decode       │  │   │
-│  │  │ Attn-MHA │  │          │  │  train on corpus     │  │   │
-│  │  │ FFN-SwiGLU│ └──────────┘  └──────────────────────┘  │   │
-│  │  │ MoEFFN   │                                          │   │
-│  │  └──────────┘                                          │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌──────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
-│  │  INFERENCE   │  │    TRAINING     │  │  CONVERTERS     │   │
-│  │  KV Cache    │  │  Autograd Graph  │  │  GGUF → .oil    │   │
-│  │  Sampler     │  │  (matmul, add,   │  │  HF → .oil      │   │
-│  │  Generator   │  │   mul, silu,     │  │  FP32 ⇄ .oil    │   │
-│  │  Chat CLI    │  │   rms_norm,      │  │                 │   │
-│  └──────────────┘  │   rotary, attn,  │  └─────────────────┘   │
-│                     │   bias_add,      │                          │
-│                     │   flatten, emb)  │                          │
-│                     │  AdamW/SGD      │                          │
-│                     │  STE Quantizer  │                          │
-│                     │  Native FineTune│                          │
-│                     │  Checkpoint     │                          │
-│                     │  DataLoader     │                          │
-│                     │  Distributed    │                          │
-│                     └─────────────────┘                          │
-└─────────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                        InNova                               â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚                                                                 â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚                    CORE LAYER                           â”‚   â”‚
+â”‚  â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”‚   â”‚
+â”‚  â”‚  â”‚ Types  â”‚  â”‚Memory  â”‚  â”‚ Tensor â”‚  â”‚   Random     â”‚ â”‚   â”‚
+â”‚  â”‚  â”‚ Enums  â”‚  â”‚Aligned â”‚  â”‚View    â”‚  â”‚ Xoroshiro128 â”‚ â”‚   â”‚
+â”‚  â”‚  â”‚ Shape  â”‚  â”‚Pool    â”‚  â”‚Slice   â”‚  â”‚ Uniform/Norm â”‚ â”‚   â”‚
+â”‚  â”‚  â”‚ DType  â”‚  â”‚Buffer  â”‚  â”‚Strided â”‚  â”‚              â”‚ â”‚   â”‚
+â”‚  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
+â”‚                                                                 â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚                   MATH LAYER (SIMD)                     â”‚   â”‚
+â”‚  â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚   â”‚
+â”‚  â”‚  â”‚  BLAS    â”‚  â”‚Pointwise â”‚  â”‚  GEMM Kernels        â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ gemm     â”‚  â”‚ ReLU     â”‚  â”‚  I2_S (MAD)          â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ gemv     â”‚  â”‚ GELU     â”‚  â”‚  TL1/TL2 (LUT)       â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ dot      â”‚  â”‚ SiLU     â”‚  â”‚  OIL8 Lookup         â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ axpy     â”‚  â”‚ Sigmoid  â”‚  â”‚  OIL4 Lookup         â”‚  â”‚   â”‚
+â”‚  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚ Softmax  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚   â”‚
+â”‚  â”‚                 â”‚ LayerNormâ”‚                            â”‚   â”‚
+â”‚  â”‚                 â”‚ RMSNorm  â”‚                            â”‚   â”‚
+â”‚  â”‚                 â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                            â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
+â”‚                                                                 â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚                 FORMAT LAYER (.oil)                     â”‚   â”‚
+â”‚  â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚   â”‚
+â”‚  â”‚  â”‚Codebook  â”‚  â”‚Format    â”‚  â”‚  OIL Writer/Reader   â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ OIL8(256)â”‚  â”‚Planner   â”‚  â”‚  Binary (de)serial   â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ OIL4(16) â”‚  â”‚BPW=1.50 â”‚  â”‚  Magic + Tables      â”‚  â”‚   â”‚
+ â”‚  â”‚  â”‚ SPARK    â”‚  â”‚AWQ-scoreâ”‚  â”‚  + indices + cb       â”‚  â”‚   â”‚
+ â”‚  â”‚  â”‚ Scale    â”‚  â”‚Allocatorâ”‚  â”‚                      â”‚  â”‚   â”‚
+â”‚  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
+â”‚                                                                 â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚                 MODEL LAYER                             â”‚   â”‚
+â”‚  â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚   â”‚
+â”‚  â”‚  â”‚ Layers   â”‚  â”‚ Models   â”‚  â”‚  Tokenizer           â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ Linear   â”‚  â”‚ Dense    â”‚  â”‚  BPE (byte-pair)     â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ RMSNorm  â”‚  â”‚ MoE      â”‚  â”‚  Unigram (EM)        â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ RoPE     â”‚  â”‚MultiModalâ”‚  â”‚  encode/decode       â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ Attn-MHA â”‚  â”‚          â”‚  â”‚  train on corpus     â”‚  â”‚   â”‚
+â”‚  â”‚  â”‚ FFN-SwiGLUâ”‚ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚   â”‚
+â”‚  â”‚  â”‚ MoEFFN   â”‚                                          â”‚   â”‚
+â”‚  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                                          â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
+â”‚                                                                 â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚  INFERENCE   â”‚  â”‚    TRAINING     â”‚  â”‚  CONVERTERS     â”‚   â”‚
+â”‚  â”‚  KV Cache    â”‚  â”‚  Autograd Graph  â”‚  â”‚  GGUF â†’ .oil    â”‚   â”‚
+â”‚  â”‚  Sampler     â”‚  â”‚  (matmul, add,   â”‚  â”‚  HF â†’ .oil      â”‚   â”‚
+â”‚  â”‚  Generator   â”‚  â”‚   mul, silu,     â”‚  â”‚  FP32 â‡„ .oil    â”‚   â”‚
+â”‚  â”‚  Chat CLI    â”‚  â”‚   rms_norm,      â”‚  â”‚                 â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚   rotary, attn,  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
+â”‚                     â”‚   bias_add,      â”‚                          â”‚
+â”‚                     â”‚   flatten, emb)  â”‚                          â”‚
+â”‚                     â”‚  AdamW/SGD      â”‚                          â”‚
+â”‚                     â”‚  STE Quantizer  â”‚                          â”‚
+â”‚                     â”‚  Native FineTuneâ”‚                          â”‚
+â”‚                     â”‚  Checkpoint     â”‚                          â”‚
+â”‚                     â”‚  DataLoader     â”‚                          â”‚
+â”‚                     â”‚  Distributed    â”‚                          â”‚
+â”‚                     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                          â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
-### Data Flow: Training → Inference
+### Data Flow: Training â†’ Inference
 
 ```
-Raw Text → Tokenizer → Training Loop → .oil File → Inference Engine → Text
-               │              │                         │
-               │              ▼                         ▼
-               │      ┌──────────────┐         ┌──────────────┐
-               │      │ Autograd     │         │ Load .oil    │
-               │      │ forward()    │         │ Parse Format │
-               │      │ (builds DAG) │         │ Table + CB   │
-               │      │ backward()   │         │ Read Indices │
-               │      │ (DFS graph)  │         │              │
-               │      │ AdamW Step   │         │ KV Cache Init│
-               │      │ Save .oil    │         │ Sampler Init │
-               │      └──────────────┘         └──────┬───────┘
-               │                                      ▼
-               │                              ┌──────────────┐
-               │                              │ Token Loop   │
-               │                              │ For each tok:│
-               │                              │ 1. Embed     │
-               │                              │ 2. N×Trans   │
-               │                              │ 3. LM Head   │
-               │                              │ 4. Sample    │
-               │                              │ 5. Append KV │
-               │                              └──────────────┘
+Raw Text â†’ Tokenizer â†’ Training Loop â†’ .oil File â†’ Inference Engine â†’ Text
+               â”‚              â”‚                         â”‚
+               â”‚              â–¼                         â–¼
+               â”‚      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+               â”‚      â”‚ Autograd     â”‚         â”‚ Load .oil    â”‚
+               â”‚      â”‚ forward()    â”‚         â”‚ Parse Format â”‚
+               â”‚      â”‚ (builds DAG) â”‚         â”‚ Table + CB   â”‚
+               â”‚      â”‚ backward()   â”‚         â”‚ Read Indices â”‚
+               â”‚      â”‚ (DFS graph)  â”‚         â”‚              â”‚
+               â”‚      â”‚ AdamW Step   â”‚         â”‚ KV Cache Initâ”‚
+               â”‚      â”‚ Save .oil    â”‚         â”‚ Sampler Init â”‚
+               â”‚      â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜         â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜
+               â”‚                                      â–¼
+               â”‚                              â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+               â”‚                              â”‚ Token Loop   â”‚
+               â”‚                              â”‚ For each tok:â”‚
+               â”‚                              â”‚ 1. Embed     â”‚
+               â”‚                              â”‚ 2. NÃ—Trans   â”‚
+               â”‚                              â”‚ 3. LM Head   â”‚
+               â”‚                              â”‚ 4. Sample    â”‚
+               â”‚                              â”‚ 5. Append KV â”‚
+               â”‚                              â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 During training, every transformer operation (embed, matmul, add, silu, mul,
 rms_norm, rotary, attention, bias_add, flatten) goes through AutogradEngine
 which builds a DAG and enables full backward gradient propagation.
 
-During inference, autograd is disabled — all ops pass through directly with
+During inference, autograd is disabled â€” all ops pass through directly with
 zero graph overhead, and attention uses in-place RoPE + KV cache for speed.
 ```
 
 ---
 
-## 🔧 Component Deep-Dive
+## ðŸ”§ Component Deep-Dive
 
 ### 1. Core Library (`liboil-core`)
 
@@ -755,12 +755,12 @@ Custom n-dimensional array implementation with:
 ```cpp
 oil::Tensor<float> t(oil::Shape{2, 3, 4});  // 3D tensor
 
-// Views — no data copy
+// Views â€” no data copy
 auto v = t.slice(0, 1);      // select first batch
 auto r = t.reshape({6, 4});   // reshape
 auto p = t.permute({2, 0, 1}); // transpose
 
-// Math — SIMD accelerated
+// Math â€” SIMD accelerated
 t.fill(1.0f);
 auto y = oil::math::gemm(a, b);  // matrix multiply
 auto z = oil::math::softmax(x, 1); // softmax along axis
@@ -782,7 +782,7 @@ oil::Tensor
   .view() .slice() .reshape() .transpose() .permute()
   .copy_to() .clone() .fill()
   .requires_grad() .grad() .backward()
-  serialise/deserialise  (↔ .oil bytes)
+  serialise/deserialise  (â†” .oil bytes)
 
 oil::TensorOps
   .from_vector() .from_scalar() .zeros() .ones() .randn()
@@ -797,10 +797,10 @@ Full BLAS-level operations + neural network primitives:
 
 **BLAS:**
 ```
-gemv(A, x, y)        y = α·A·x + β·y
-gemm(A, B, C)        C = α·A·B + β·C
-dot(x, y)            sum(x[i]·y[i])
-axpy(a, x, y)        y[i] += a·x[i]
+gemv(A, x, y)        y = Î±Â·AÂ·x + Î²Â·y
+gemm(A, B, C)        C = Î±Â·AÂ·B + Î²Â·C
+dot(x, y)            sum(x[i]Â·y[i])
+axpy(a, x, y)        y[i] += aÂ·x[i]
 ```
 
 **Pointwise:**
@@ -826,8 +826,8 @@ Selected at compile time via OIL_SIMD_LEVEL
 | Category | Operations | SIMD Level |
 |----------|-----------|------------|
 | BLAS-1 | `dot`, `axpy`, `scal`, `norm`, `asum` | AVX2/NEON |
-| BLAS-2 | `gemv` (matrix × vector) | AVX2/NEON |
-| BLAS-3 | `gemm` (matrix × matrix + bias) | AVX2 tiled |
+| BLAS-2 | `gemv` (matrix Ã— vector) | AVX2/NEON |
+| BLAS-3 | `gemm` (matrix Ã— matrix + bias) | AVX2 tiled |
 | Activations | `relu`, `gelu`(tanh/taylor), `silu`, `sigmoid`, `tanh` | AVX2 |
 | Normalization | `layer_norm`, `rms_norm`, `batch_norm` | AVX2 |
 | Softmax | `softmax` (stable, subtract max) | AVX2 |
@@ -870,15 +870,15 @@ using OIL4Codebook = Codebook<half, 16>;      // 4-bit format
 
 **Format codebook types:**
 ```
-oil::CodebookU8    256 × f32 centroids    ─── OIL8
-oil::CodebookU4    16  × f16 centroids    ─── OIL4
-oil::CodebookSP    scale + sparse index    ─── SPARK_SPARSE
-oil::CodebookSQ    scale + q0 index       ─── SPARK_Q0
+oil::CodebookU8    256 Ã— f32 centroids    â”€â”€â”€ OIL8
+oil::CodebookU4    16  Ã— f16 centroids    â”€â”€â”€ OIL4
+oil::CodebookSP    scale + sparse index    â”€â”€â”€ SPARK_SPARSE
+oil::CodebookSQ    scale + q0 index       â”€â”€â”€ SPARK_Q0
 
 Methods:
   .train(data)      k-means / EMA on weight block
-  .quantize(w) → idx   nearest-centroid lookup
-  .dequantize(idx) → f32
+  .quantize(w) â†’ idx   nearest-centroid lookup
+  .dequantize(idx) â†’ f32
   .serialise() / .deserialise()
 ```
 
@@ -888,12 +888,12 @@ Methods:
 oil::FormatPlanner
   .score_importance(model, calibration_data)
   .allocate(target_bpw=1.50)
-    1. Find 1% most salient weights → assign OIL8 (8b)
-    2. Next 4% important → OIL4 (4b)
-    3. Bulk → SPARK (2.0b)
+    1. Find 1% most salient weights â†’ assign OIL8 (8b)
+    2. Next 4% important â†’ OIL4 (4b)
+    3. Bulk â†’ SPARK (2.0b)
     4. Compute average BPW
-    5. If >1.50, shift boundary: more → SPARK
-  .export_plan() → FormatTable
+    5. If >1.50, shift boundary: more â†’ SPARK
+  .export_plan() â†’ FormatTable
 ```
 
 ### 5. Model Architecture (`liboil-model`)
@@ -919,11 +919,11 @@ struct TransformerConfig {
 
 ```
 oil::Linear         W(format_matrix) + bias
-oil::Embedding      token → f32 lookup
-oil::RMSNorm        x * rsqrt(mean(x²) + ε)
-oil::LayerNorm      (x - μ) / σ * γ + β
+oil::Embedding      token â†’ f32 lookup
+oil::RMSNorm        x * rsqrt(mean(xÂ²) + Îµ)
+oil::LayerNorm      (x - Î¼) / Ïƒ * Î³ + Î²
 oil::RotaryEmbedding    cos/sin per head
-oil::Attention      QKV → score → softmax → output (dual path: training uses
+oil::Attention      QKV â†’ score â†’ softmax â†’ output (dual path: training uses
                     autograd ops with full backprop; inference uses in-place
                     RoPE + KV cache for speed)
 oil::FFN            up/gate/down (SwiGLU) with autograd ops
@@ -947,8 +947,8 @@ class TransformerBlock {
 #### Models
 
 ```
-oil::DenseModel       { embeddings + N×transformer_block + lm_head }
-oil::MoEModel         { embeddings + N×(attn + moe_ffn) + lm_head }
+oil::DenseModel       { embeddings + NÃ—transformer_block + lm_head }
+oil::MoEModel         { embeddings + NÃ—(attn + moe_ffn) + lm_head }
 oil::MultimodalModel  { text_encoder, vision_encoder, cross_attn, ... }
 ```
 
@@ -975,7 +975,7 @@ oil::InferenceState      KV cache buffer, current seq position
 ```
 oil::KVCache
   .append(k, v)
-  .get(pos) → {k, v}
+  .get(pos) â†’ {k, v}
   .clear()
   Supports OIL4 compressed KV
 ```
@@ -994,10 +994,10 @@ class KVCache {
 
 ```
 oil::Sampler
-  .greedy(logits) → token_id
-  .top_k(logits, k) → token_id
-  .top_p(logits, p) → token_id
-  .beam_search(model, prefix, beams, len) → sequences
+  .greedy(logits) â†’ token_id
+  .top_k(logits, k) â†’ token_id
+  .top_p(logits, p) â†’ token_id
+  .beam_search(model, prefix, beams, len) â†’ sequences
 ```
 
 ```cpp
@@ -1012,7 +1012,7 @@ class Sampler {
 
 ```
 oil::Generator
-  .generate(prompt_ids, config) → output_ids
+  .generate(prompt_ids, config) â†’ output_ids
   .stream(prompt_ids, config, on_token_callback)
 ```
 
@@ -1039,7 +1039,7 @@ Integrated ops (all callable via AutogradEngine::*_op()):
   rotary_op            Rotary Position Embedding (RoPE)
   attention_op         Scaled dot-product attention
   bias_add_op          x + bias (broadcast over batch dim)
-  flatten_attention_op {B,H,S,D} → {B*S, H*D} with data reorder
+  flatten_attention_op {B,H,S,D} â†’ {B*S, H*D} with data reorder
   embedding_op         Differentiable embedding lookup
   cross_entropy_op     Cross-entropy loss (graph-aware)
 ```
@@ -1050,7 +1050,7 @@ Integrated ops (all callable via AutogradEngine::*_op()):
 oil::SGD(lr, momentum, weight_decay)
 oil::AdamW(lr, betas, eps, weight_decay)
 oil::Adam
-  .step()          apply gradients → update params
+  .step()          apply gradients â†’ update params
   .zero_grad()     reset gradients
   .lr_scheduler    cosine / linear / warmup
   .clip_grad_norm(max_norm)
@@ -1079,7 +1079,7 @@ oil::CodebookUpdater
 
 oil::QuantAwareTrainer
   Wraps any model with STE + codebook update
-  Training loop: forward(quant) → loss → backward → optim(FP32) → codebook_update
+  Training loop: forward(quant) â†’ loss â†’ backward â†’ optim(FP32) â†’ codebook_update
 ```
 
 ```cpp
@@ -1093,7 +1093,7 @@ class STEQuantizer {
 #### Adapter Edition (Format Converters)
 
 ```
-Any external format → OIL native format
+Any external format â†’ OIL native format
 Supported inputs:  GGUF, Safetensors, FP32, FP16, FP8, BF16, INT8, INT4
 Output:            .oil file (mixed-precision, any target BPW)
 Usage:             adapter_edition/oil_import --input model.gguf --output model.oil --target-bpw 2.0
@@ -1114,13 +1114,13 @@ Available singles: SPARK_Q0(2.0), SPARK_SPARSE(2.0),
 ```
 oil::Trainer
   .compile(model, optimizer)   registers params with AutogradEngine
-  .fit(dataloader, epochs)     each step: autograd fwd → backward → optim step
-  .save_checkpoint(path)       model + optimizer state → .oil
+  .fit(dataloader, epochs)     each step: autograd fwd â†’ backward â†’ optim step
+  .save_checkpoint(path)       model + optimizer state â†’ .oil
   .load_checkpoint(path)       resume training
 
 oil::DataLoader
   .from_text(file)             tokenize on the fly
-  .batch(batch_size, seq_len)  → {input_ids, labels}
+  .batch(batch_size, seq_len)  â†’ {input_ids, labels}
   .shuffle() .repeat()
 
 oil::Evaluator
@@ -1181,8 +1181,8 @@ oil::dist::TP         tensor parallelism for huge layers
 ```
 oil::BPETokenizer
   .train(files, vocab_size)      learn merges
-  .encode(text) → ids
-  .decode(ids) → text
+  .encode(text) â†’ ids
+  .decode(ids) â†’ text
   .save(path) / .load(path)      .oil tokenizer files
 
 oil::UnigramTokenizer
@@ -1209,13 +1209,13 @@ class BPETokenizer {
 
 ```
 oil::convert::from_gguf(gguf_path, oil_path, plan)
-    Load GGUF → read weights → apply FormatPlanner → write .oil
+    Load GGUF â†’ read weights â†’ apply FormatPlanner â†’ write .oil
 
 oil::convert::from_safetensors(hf_dir, oil_path, config, plan)
-    Read model.safetensors + config.json → plan → write .oil
+    Read model.safetensors + config.json â†’ plan â†’ write .oil
 
 oil::convert::from_fp32(raw_path, oil_path, plan)
-    Raw f32 weights → plan → .oil
+    Raw f32 weights â†’ plan â†’ .oil
 
 oil::convert::to_fp32(oil_path, output_dir)
     Decompress .oil back to f32 for verification
@@ -1223,23 +1223,23 @@ oil::convert::to_fp32(oil_path, output_dir)
 
 ---
 
-## 🗂️ OIL Binary Format Spec
+## ðŸ—‚ï¸ OIL Binary Format Spec
 
 ### Binary Layout
 
 ```
-┌─ FileHeader (64 B) ──────────────────────┐
-│ magic="OIL1"  version  flags  model_meta  │
-├─ FormatTable ─────────────────────────────┤
-│ per-block: {block_id, Format, codebook_sz}│
-├─ Block Data ──────────────────────────────┤
-│ block_0: codebook | packed_indices        │
-│ block_1: codebook | packed_indices        │
-│ ...                                       │
-├─ Tensor Names ────────────────────────────┤
-│ name_0 → block_0:block_2                  │
-│ name_1 → block_3                          │
-└───────────────────────────────────────────┘
+â”Œâ”€ FileHeader (64 B) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ magic="OIL1"  version  flags  model_meta  â”‚
+â”œâ”€ FormatTable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚ per-block: {block_id, Format, codebook_sz}â”‚
+â”œâ”€ Block Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚ block_0: codebook | packed_indices        â”‚
+â”‚ block_1: codebook | packed_indices        â”‚
+â”‚ ...                                       â”‚
+â”œâ”€ Tensor Names â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚ name_0 â†’ block_0:block_2                  â”‚
+â”‚ name_1 â†’ block_3                          â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ### On-Disk Format
@@ -1260,10 +1260,10 @@ oil::convert::to_fp32(oil_path, output_dir)
 **Block Data Layout Per Format:**
 
 ```
-OIL8:   [codebook: 256×f32 bytes] [indices: 1 byte per weight]
-OIL4:   [codebook: 16×f16 bytes]  [indices: nibble-packed, 2 per byte]
+OIL8:   [codebook: 256Ã—f32 bytes] [indices: 1 byte per weight]
+OIL4:   [codebook: 16Ã—f16 bytes]  [indices: nibble-packed, 2 per byte]
 SPARK:  [scale: f32]                 [sparse index + packed indices]
-OIL2:   [codebook: 4×f16]            [indices: 2-bit packed, 4 per byte]
+OIL2:   [codebook: 4Ã—f16]            [indices: 2-bit packed, 4 per byte]
 ```
 
 ### Serialiser/Deserialiser
@@ -1276,14 +1276,14 @@ oil::OILValidator(path)  checksum + format validity
 
 ---
 
-## ⚡ Kernel Design
+## âš¡ Kernel Design
 
-### MAD Kernel (I2_S — SPARK compatible)
+### MAD Kernel (I2_S â€” SPARK compatible)
 
 ```
 Storage: SPARK-formatted packed values with per-block scale
 Compute: For each block of 128 weights:
-  1. Unpack SPARK values → FP32 dequantized via scale
+  1. Unpack SPARK values â†’ FP32 dequantized via scale
   2. Dot product with FP32 activations (add/sub dominant)
   3. Accumulate across blocks
 ```
@@ -1291,15 +1291,15 @@ Compute: For each block of 128 weights:
 x86 path: AVX2 `_mm256` operations, 128-weight blocks
 ARM path: NEON `vld1q_s8` + pairwise add
 
-### TL Kernel (LUT — OIL Lookup)
+### TL Kernel (LUT â€” OIL Lookup)
 
 ```
-TL1: Groups of 2 low-BPW values → LUT-based precomputed sums
-TL2: Groups of 3 low-BPW values → 27 combinations → mirror consolidation → 14 precomputed
+TL1: Groups of 2 low-BPW values â†’ LUT-based precomputed sums
+TL2: Groups of 3 low-BPW values â†’ 27 combinations â†’ mirror consolidation â†’ 14 precomputed
 Storage: Variable bits per group with sign/unsigned splitting
 Compute:
   1. Preprocessor: per-tensor INT8 activation quant + build LUT
-  2. GEMM: load index → lookup → accumulate
+  2. GEMM: load index â†’ lookup â†’ accumulate
 ```
 
 ### OIL8/OIL4 Lookup Kernel
@@ -1313,21 +1313,21 @@ OIL8: 256 FP32 centroids per codebook
 
 OIL4: 16 FP16 centroids per codebook
   1. Load INT4 index (nibble unpack)
-  2. Gather FP16 centroid → convert to FP32
+  2. Gather FP16 centroid â†’ convert to FP32
   3. Multiply by FP32 activation
   4. Accumulate across row
 ```
 
 ---
 
-## 🔨 Build System
+## ðŸ”¨ Build System
 
 ### Requirements
 
-- **CMake** ≥ 3.24
+- **CMake** â‰¥ 3.24
 - **C++20** compiler:
-  - Clang ≥ 16 (primary target — `clang-cl` on Windows)
-  - GCC ≥ 12 (secondary)
+  - Clang â‰¥ 16 (primary target â€” `clang-cl` on Windows)
+  - GCC â‰¥ 12 (secondary)
   - MSVC 2022 (tertiary)
 - **Optional:** Ninja build system
 
@@ -1335,7 +1335,7 @@ OIL4: 16 FP16 centroids per codebook
 
 ```bash
 # Clone
-git clone https://github.com/xprimesamx/InNova
+git clone https://github.com/origin-labs-ai/InNova
 cd InNova
 
 # Configure & Build
@@ -1366,10 +1366,10 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug -DOIL_SANITIZE=ON
 
 | File | Purpose |
 |------|---------|
-| `CMakeLists.txt` | Root — 25 library targets, 25 executables, 32 tests |
+| `CMakeLists.txt` | Root â€” 25 library targets, 25 executables, 32 tests |
 | `cmake/arch.cmake` | CPU detection (AVX2/AVX512/NEON, x86/ARM) |
 | `cmake/compiler.cmake` | Compiler flags (Clang-cl/GCC/MSVC) |
-| `oil_config.h.in` | Config template — platform, SIMD level, debug flags |
+| `oil_config.h.in` | Config template â€” platform, SIMD level, debug flags |
 | `oil_config.h` (generated) | `OIL_AVX2`, `OIL_DEBUG`, `OIL_VERSION` etc. |
 
 ### Runtime Environment Variables
@@ -1415,61 +1415,61 @@ The build system defines 25 library targets across multiple subdirectories:
 
 ---
 
-## 🗺️ Phase-by-Phase Roadmap
+## ðŸ—ºï¸ Phase-by-Phase Roadmap
 
 ### Phase 1: Foundation (Core)
 
 **Goal:** Tensor math, OIL format, build system, basic SIMD
 
 - [x] CMake project with arch/compiler detection
-- [x] `types.h` — Format enum, Shape, DType, Status, Config
-- [x] `memory.h/cpp` — AlignedAllocator, Buffer, MemoryPool
-- [x] `tensor.h/cpp` — Full n-dimensional tensor with views, slicing, broadcasting
-- [x] `math.h/cpp` — Scalar math: gemm, norm, softmax, activations
-- [x] `random.h/cpp` — Xoroshiro128+ RNG
-- [x] `oil_format.h/cpp` — OIL binary reader/writer
-- [x] `codebook.h/cpp` — OIL8(256×f32), OIL4(16×f16), SPARK codebooks
-- [x] `format_planner.h/cpp` — AWQ-scoring, BPW=1.50 allocation
-- [x] Tests: tensor round-trip, math correctness, format encode→decode
+- [x] `types.h` â€” Format enum, Shape, DType, Status, Config
+- [x] `memory.h/cpp` â€” AlignedAllocator, Buffer, MemoryPool
+- [x] `tensor.h/cpp` â€” Full n-dimensional tensor with views, slicing, broadcasting
+- [x] `math.h/cpp` â€” Scalar math: gemm, norm, softmax, activations
+- [x] `random.h/cpp` â€” Xoroshiro128+ RNG
+- [x] `oil_format.h/cpp` â€” OIL binary reader/writer
+- [x] `codebook.h/cpp` â€” OIL8(256Ã—f32), OIL4(16Ã—f16), SPARK codebooks
+- [x] `format_planner.h/cpp` â€” AWQ-scoring, BPW=1.50 allocation
+- [x] Tests: tensor round-trip, math correctness, format encodeâ†’decode
 
 ### Phase 2: Inference Engine
 
 **Goal:** Load OIL model, run autoregressive generation
 
-- [x] `kernel.h` + `kernel_i2s.cpp` — I2_S MAD SPARK GEMM (AVX2 + scalar)
-- [x] `kernel_tl.cpp` — TL1/TL2 LUT SPARK GEMM
-- [x] `kernel_oil8.cpp` — OIL8 codebook lookup GEMM
-- [x] `kernel_oil4.cpp` — OIL4 codebook lookup GEMM
-- [x] `transformer.h/cpp` — Linear, RMSNorm, RoPE, Attention, FFN, TransformerBlock
-- [x] `model.h/cpp` — DenseModel with load/save
-- [x] `kv_cache.h/cpp` — KV cache with OIL4 compressed option
-- [x] `sampler.h/cpp` — Greedy, Top-K, Top-P, Temperature, Beam search
-- [x] `generator.h/cpp` — Autoregressive loop with streaming
-- [x] `tokenizer.h/cpp` — BPE tokenizer from scratch
-- [x] `tools/infer.cpp` — Interactive chat CLI
+- [x] `kernel.h` + `kernel_i2s.cpp` â€” I2_S MAD SPARK GEMM (AVX2 + scalar)
+- [x] `kernel_tl.cpp` â€” TL1/TL2 LUT SPARK GEMM
+- [x] `kernel_oil8.cpp` â€” OIL8 codebook lookup GEMM
+- [x] `kernel_oil4.cpp` â€” OIL4 codebook lookup GEMM
+- [x] `transformer.h/cpp` â€” Linear, RMSNorm, RoPE, Attention, FFN, TransformerBlock
+- [x] `model.h/cpp` â€” DenseModel with load/save
+- [x] `kv_cache.h/cpp` â€” KV cache with OIL4 compressed option
+- [x] `sampler.h/cpp` â€” Greedy, Top-K, Top-P, Temperature, Beam search
+- [x] `generator.h/cpp` â€” Autoregressive loop with streaming
+- [x] `tokenizer.h/cpp` â€” BPE tokenizer from scratch
+- [x] `tools/infer.cpp` â€” Interactive chat CLI
 
 ### Phase 3: Training Engine
 
 **Goal:** Train small transformers from scratch in C++
 
-- [x] `autograd.h/cpp` — Computation graph with topological sort
+- [x] `autograd.h/cpp` â€” Computation graph with topological sort
 - [x] Autograd ops: MatMul, Add, Mul, ReLU, GELU, SiLU, Softmax, LayerNorm, CrossEntropy
-- [x] `optimizer.h/cpp` — AdamW, SGD with momentum, LR scheduler
-- [x] `trainer.h/cpp` — Training loop, batch iteration, logging
-- [x] `dataloader.h/cpp` — Text → tokenized batches with shuffle
+- [x] `optimizer.h/cpp` â€” AdamW, SGD with momentum, LR scheduler
+- [x] `trainer.h/cpp` â€” Training loop, batch iteration, logging
+- [x] `dataloader.h/cpp` â€” Text â†’ tokenized batches with shuffle
 - [x] Checkpoint save/load in .oil format
-- [x] `tools/train.cpp` — Training CLI with config file
+- [x] `tools/train.cpp` â€” Training CLI with config file
 
 ### Phase 4: OIL-Native Training
 
 **Goal:** Train directly in compressed OIL format with minimal quality loss
 
-- [x] `ste_quantizer.h/cpp` — Straight-Through Estimator for all OIL formats
-- [x] `codebook_trainer.h/cpp` — VQ training: k-means init, EMA update, commitment loss
-- [x] `finetune.h/cpp` — Native OIL fine-tuning system
+- [x] `ste_quantizer.h/cpp` â€” Straight-Through Estimator for all OIL formats
+- [x] `codebook_trainer.h/cpp` â€” VQ training: k-means init, EMA update, commitment loss
+- [x] `finetune.h/cpp` â€” Native OIL fine-tuning system
 - [x] Gradient-based weight block selection for targeted updates
 - [x] Codebook-aware fine-tune (update centroids during training)
-- [x] `tools/finetune.cpp` — Fine-tuning CLI
+- [x] `tools/finetune.cpp` â€” Fine-tuning CLI
 - [x] Quantization-aware training loop integrated with Trainer
 
 ### Phase 5: Scale & Performance
@@ -1477,27 +1477,27 @@ The build system defines 25 library targets across multiple subdirectories:
 **Goal:** Larger models, faster inference, MoE, distributed hooks
 
 - [x] MoE: Router (softmax top-K), load balancing loss, expert parallelism
-- [x] `moe.h/cpp` — MoEFFN, MoETransformerBlock, MoEModel (287+109 lines)
+- [x] `moe.h/cpp` â€” MoEFFN, MoETransformerBlock, MoEModel (287+109 lines)
 - [x] Tensor parallelism hooks (weight sharding)
 - [x] FSDP-style sharding design
 - [ ] Tiled GEMM for better cache utilization
 - [x] Quantized KV cache (OIL4 for keys/values)
-- [x] `bench/bench_kernels.cpp` — Throughput vs scalar baseline
-- [x] `bench/bench_inference.cpp` — tok/s, memory usage
-- [x] `bench/bench_quality.cpp` — Perplexity across formats
+- [x] `bench/bench_kernels.cpp` â€” Throughput vs scalar baseline
+- [x] `bench/bench_inference.cpp` â€” tok/s, memory usage
+- [x] `bench/bench_quality.cpp` â€” Perplexity across formats
 
 ### Phase 6: Multimodal
 
 **Goal:** Support for image, audio, video, embeddings, OCR
 
-- [x] VISION encoder/decoder — ViT-style (308 lines each in moe/ + multimodel/)
-- [x] AUDIO module — Spectrogram pipeline (51 lines each)
-- [x] IMAGE_GEN module — Encoder-decoder (82 lines each)
-- [x] VIDEO module — Spatiotemporal attention (66 lines each)
-- [x] OCR module — CNN + attention (71 lines each)
-- [x] TEXT module — Multimodal text processing (49 lines each)
-- [x] EMBEDDINGS module — Embedding models (33 lines each)
-- [ ] `model_multimodal.h/cpp` — Joint multimodal model with cross-attention
+- [x] VISION encoder/decoder â€” ViT-style (308 lines each in moe/ + multimodel/)
+- [x] AUDIO module â€” Spectrogram pipeline (51 lines each)
+- [x] IMAGE_GEN module â€” Encoder-decoder (82 lines each)
+- [x] VIDEO module â€” Spatiotemporal attention (66 lines each)
+- [x] OCR module â€” CNN + attention (71 lines each)
+- [x] TEXT module â€” Multimodal text processing (49 lines each)
+- [x] EMBEDDINGS module â€” Embedding models (33 lines each)
+- [ ] `model_multimodal.h/cpp` â€” Joint multimodal model with cross-attention
 
 ### Phase 7: Production Readiness
 
@@ -1511,7 +1511,7 @@ The build system defines 25 library targets across multiple subdirectories:
 
 ### Phase 8: ASI Meta-Cognition & Pipeline
 
-- [ ] Meta-cognition loop (Monitor→Analyze→Plan→Execute→Validate→Integrate)
+- [ ] Meta-cognition loop (Monitorâ†’Analyzeâ†’Planâ†’Executeâ†’Validateâ†’Integrate)
 - [ ] Self-evaluation benchmark suite
 - [ ] Automated hyperparameter search (population-based training)
 - [ ] Architecture search (neural architecture search via evolutionary algos)
@@ -1525,76 +1525,76 @@ The build system defines 25 library targets across multiple subdirectories:
 - [ ] Multi-agent collective intelligence
 - [ ] Single binary distribution (InNova.exe + .oil weights)
 - [ ] Multi-node training across machines
-- [ ] GPU compute shader (DirectX/Triton → any GPU)
+- [ ] GPU compute shader (DirectX/Triton â†’ any GPU)
 - [ ] Expert parallelism across cluster
 - [ ] Dataset generation (self-supervised data)
 - [ ] Full ASI-scale training
 
 ---
 
-## 🧠 Mission Breakdown (SPEC)
+## ðŸ§  Mission Breakdown (SPEC)
 
 ### Knowledge Extracted from `.bitnet`
 
 | Component | Tech | What It Does |
 |-----------|------|-------------|
-| `ggml-bitnet-mad.cpp` | AVX2/NEON | I2_S quant: weights → packed low-BPW values, SIMD MAD compute |
-| `ggml-bitnet-lut.cpp` | TL1 (ARM) / TL2 (x86) | LUT-based matmul: precomputed lookup tables for fast low-BPW × FP32 (no MAD) |
+| `ggml-bitnet-mad.cpp` | AVX2/NEON | I2_S quant: weights â†’ packed low-BPW values, SIMD MAD compute |
+| `ggml-bitnet-lut.cpp` | TL1 (ARM) / TL2 (x86) | LUT-based matmul: precomputed lookup tables for fast low-BPW Ã— FP32 (no MAD) |
 | `bitnet-kernels.cu` | CUDA | GPU kernels for low-BPW matmul |
 | `codegen_tl1.py/tl2.py` | Python | Generates tuned TL1/TL2 kernel headers for specific model shapes |
 | `gemm-config.h` | C macros | Block sizes per arch |
 | `ggml-bitnet.h` | C API | `ggml_bitnet_mul_mat`, `transform_tensor`, `get_type_bits` |
-| Converters | Python | HF/GGUF → BitNet format converters, embedding quantizers |
+| Converters | Python | HF/GGUF â†’ BitNet format converters, embedding quantizers |
 
 **Key Gap:** BitNet.cpp is **inference-only** (wraps llama.cpp). No training, no fine-tune, no multi-format OIL8/OIL4.
 
 ### Mission Parts
 
-#### PART A: Format Layer — OIL8 / OIL4 / Mixed
+#### PART A: Format Layer â€” OIL8 / OIL4 / Mixed
 
 | Sub-piece | Feasibility | Notes |
 |-----------|-------------|-------|
-| A1. OIL8 file spec (INT8 index + FP32 codebook) | ✅ Possible | Codebook = 256×FP32 per block; disk format = packed indices + codebook |
-| A2. OIL4 file spec (INT4 index + FP16 codebook) | ✅ Possible | Same structure, 16 centroids |
-| A3. Mixed format header (OIL8/OIL4/OIL2 per layer) | ✅ Possible | Per-layer type field in file header |
-| A4. Integer/decimal/rational exact storage | ⚠️ Partial | Exact storage needs variable codebook or residual. Pure VQ loses some values |
-| A5. 75% disk reduction vs FP32 (OIL8) | ✅ Possible | 4B → 1B index + ~1KB codebook = ~4× smaller |
-| A6. 0% quality loss guarantee | ⚠️ Misleading | Impossible **always**. Achievable: train-into-format, or VQ + residual |
+| A1. OIL8 file spec (INT8 index + FP32 codebook) | âœ… Possible | Codebook = 256Ã—FP32 per block; disk format = packed indices + codebook |
+| A2. OIL4 file spec (INT4 index + FP16 codebook) | âœ… Possible | Same structure, 16 centroids |
+| A3. Mixed format header (OIL8/OIL4/OIL2 per layer) | âœ… Possible | Per-layer type field in file header |
+| A4. Integer/decimal/rational exact storage | âš ï¸ Partial | Exact storage needs variable codebook or residual. Pure VQ loses some values |
+| A5. 75% disk reduction vs FP32 (OIL8) | âœ… Possible | 4B â†’ 1B index + ~1KB codebook = ~4Ã— smaller |
+| A6. 0% quality loss guarantee | âš ï¸ Misleading | Impossible **always**. Achievable: train-into-format, or VQ + residual |
 
 #### PART B: TRAINER-ENGINE (Training)
 
 | Sub-piece | Feasibility | Notes |
 |-----------|-------------|-------|
-| B1. Pure C++ tensor library | ✅ Possible | Huge effort. Must build custom |
-| B2. Dense transformer train | ✅ Possible | Attention, FFN, LayerNorm, AdamW — well-known |
-| B3. MoE train | ✅ Possible | Router + experts + load balancing — more complex but proven |
-| B4. Multimodal train | ✅ Possible (phased) | Each modality = different encoders, data pipelines |
-| B5. OIL-native training | ✅ Possible | VQ training with codebook update |
-| B6. LoRA/QLoRA-style fine-tune | ✅ Possible | All math: inject low-rank adapters, quant base, train adapters |
-| B7. 48T+ scale design | ✅ Possible for engine | Distributed data/model parallelism, sharding protocols |
-| B8. 48T train on single PC | ❌ Impossible | Even OIL compressed = terabytes |
-| B9. ~5-10% less compute vs PyTorch | ✅ Possible | C++ overhead less than Python; fused ops |
-| B10. Train on this PC (~14GB, iGPU) | ✅ Limited | 0.1B-0.4B full train; 1B-3B LoRA fine-tune |
+| B1. Pure C++ tensor library | âœ… Possible | Huge effort. Must build custom |
+| B2. Dense transformer train | âœ… Possible | Attention, FFN, LayerNorm, AdamW â€” well-known |
+| B3. MoE train | âœ… Possible | Router + experts + load balancing â€” more complex but proven |
+| B4. Multimodal train | âœ… Possible (phased) | Each modality = different encoders, data pipelines |
+| B5. OIL-native training | âœ… Possible | VQ training with codebook update |
+| B6. LoRA/QLoRA-style fine-tune | âœ… Possible | All math: inject low-rank adapters, quant base, train adapters |
+| B7. 48T+ scale design | âœ… Possible for engine | Distributed data/model parallelism, sharding protocols |
+| B8. 48T train on single PC | âŒ Impossible | Even OIL compressed = terabytes |
+| B9. ~5-10% less compute vs PyTorch | âœ… Possible | C++ overhead less than Python; fused ops |
+| B10. Train on this PC (~14GB, iGPU) | âœ… Limited | 0.1B-0.4B full train; 1B-3B LoRA fine-tune |
 
 #### PART C: INFERENCE-ENGINE
 
 | Sub-piece | Feasibility | Notes |
 |-----------|-------------|-------|
-| C1. Load OIL8/OIL4 file format | ✅ Possible | Custom loader/serializer |
-| C2. CPU kernels for OIL matmul | ✅ Possible | Lookup + MAD from `.bitnet` knowledge |
-| C3. Auto-regressive generation | ✅ Possible | KV cache, top-k/top-p, sampling |
-| C4. 512+ tok/s any hardware + any model | ❌ Impossible | Physics: memory bandwidth + flops |
-| C5. Chat interface | ✅ Possible | stdin/stdout or simple server |
+| C1. Load OIL8/OIL4 file format | âœ… Possible | Custom loader/serializer |
+| C2. CPU kernels for OIL matmul | âœ… Possible | Lookup + MAD from `.bitnet` knowledge |
+| C3. Auto-regressive generation | âœ… Possible | KV cache, top-k/top-p, sampling |
+| C4. 512+ tok/s any hardware + any model | âŒ Impossible | Physics: memory bandwidth + flops |
+| C5. Chat interface | âœ… Possible | stdin/stdout or simple server |
 
 #### PART D: System / Infrastructure
 
 | Sub-piece | Feasibility | Notes |
 |-----------|-------------|-------|
-| D1. CMake build system | ✅ Possible | Already have CMakeLists.txt |
-| D2. Zero Python/AI deps | ✅ Possible | All C++. Just need standard lib |
-| D3. Custom kernel generation | ✅ Possible | Pattern from `.bitnet/codegen_tl1.py/tl2.py` |
-| D4. Cross-platform | ✅ Possible | Windows, Linux, macOS |
-| D5. VS2022 + Clang build on Windows | ✅ Possible | BitNet already does it |
+| D1. CMake build system | âœ… Possible | Already have CMakeLists.txt |
+| D2. Zero Python/AI deps | âœ… Possible | All C++. Just need standard lib |
+| D3. Custom kernel generation | âœ… Possible | Pattern from `.bitnet/codegen_tl1.py/tl2.py` |
+| D4. Cross-platform | âœ… Possible | Windows, Linux, macOS |
+| D5. VS2022 + Clang build on Windows | âœ… Possible | BitNet already does it |
 
 #### PART E: Competitive Differentiation
 
@@ -1608,26 +1608,26 @@ The build system defines 25 library targets across multiple subdirectories:
 
 ---
 
-## 📐 Complete Build Blueprint
+## ðŸ“ Complete Build Blueprint
 
 ### Build Order (Execution)
 
-#### Phase 1 — Core Foundation (COMPLETE)
+#### Phase 1 â€” Core Foundation (COMPLETE)
 
 ```
 1.1  CMake project + platform detection
 1.2  types.h + oil_config.h
-1.3  memory.h → AlignedAllocator + Buffer
+1.3  memory.h â†’ AlignedAllocator + Buffer
 1.4  tensor.h / tensor.cpp  (full Tensor class)
 1.5  math.h / math.cpp  (scalar + AVX2 paths)
 1.6  random.h / random.cpp
  1.7  codebook.h (OIL8 + OIL4 + SPARK)
  1.8  oil_format.h (OILWriter + OILReader)
  1.9  format_planner.h (BPW allocator)
-1.10 test: tensor round-trip, math correctness, format encode→decode
+1.10 test: tensor round-trip, math correctness, format encodeâ†’decode
 ```
 
-#### Phase 2 — Inference (COMPLETE)
+#### Phase 2 â€” Inference (COMPLETE)
 
 ```
 2.1  model config + layer classes (Linear, RMSNorm, RoPE, Attn, FFN)
@@ -1637,12 +1637,12 @@ The build system defines 25 library targets across multiple subdirectories:
 2.5  KV cache
 2.6  sampler + generator loop
 2.7  tokenizer (BPE)
-2.8  converter (FP32 → .oil conversion)
+2.8  converter (FP32 â†’ .oil conversion)
 2.9  tools/infer.cpp CLI
 2.10 test: load small model, generate tokens
 ```
 
-#### Phase 3 — Training (COMPLETE)
+#### Phase 3 â€” Training (COMPLETE)
 
 ```
 3.1  autograd graph + Function base
@@ -1657,17 +1657,17 @@ The build system defines 25 library targets across multiple subdirectories:
 3.10 test: train tiny model, verify loss decreases
 ```
 
-#### Phase 4 — Scale & Multimodal (MOSTLY COMPLETE)
+#### Phase 4 â€” Scale & Multimodal (MOSTLY COMPLETE)
 
 ```
-4.1  MoE layers (router, experts, load balancing)                    ✅
-4.2  Distributed primitives (AllReduce, FSDP design)                  ⬜
-4.3  Vision encoder/decoder                                           ✅
-4.4  Audio encoder/decoder                                            ✅
-4.5  Video encoder/decoder                                            ✅
-4.6  OCR module                                                       ✅
-4.7  MultimodalModel (joint cross-attention)                          ⬜
-4.8  Full benchmark suite                                             ⬜
+4.1  MoE layers (router, experts, load balancing)                    âœ…
+4.2  Distributed primitives (AllReduce, FSDP design)                  â¬œ
+4.3  Vision encoder/decoder                                           âœ…
+4.4  Audio encoder/decoder                                            âœ…
+4.5  Video encoder/decoder                                            âœ…
+4.6  OCR module                                                       âœ…
+4.7  MultimodalModel (joint cross-attention)                          â¬œ
+4.8  Full benchmark suite                                             â¬œ
 ```
 
 ### Totals (Estimated Lines of Code)
@@ -1694,71 +1694,71 @@ The build system defines 25 library targets across multiple subdirectories:
 
 ---
 
-## ✅ Current State — v0.1.02 Release
+## âœ… Current State â€” v0.1.02 Release
 
 ### What Is Built (Complete Inventory)
 
 #### A. CORE LIBRARIES
 ```
 src/
-├── tensor.h/cpp                 — Custom n-dimensional tensor
-├── math.h/cpp + math_avx2.cpp   — SIMD math kernels + BLAS-style ops
-├── oil_format.h/cpp             — OIL weight format reader/writer
-├── codebook.h/cpp               — OIL8/OIL4/SPARK codebooks
-├── format_planner.h/cpp         — AWQ-based BPW allocation
-├── kernel.h + kernel_i2s/tl/oil8/oil4  — GEMM kernels
-├── model.h/cpp                  — Transformer model definition
-├── tokenizer.h/cpp              — BPE + Unigram tokenizer
-├── trainer.h/cpp                — Training loop (AdamW, loss, backward)
-├── autograd.h/cpp               — Computation graph (10 integrated ops, DFS backward)
-├── optimizer.h/cpp              — AdamW/SGD optimizers
-├── ste_quantizer.h/cpp          — Straight-Through Estimator
-├── finetune.h/cpp               — Native fine-tuning system
-├── transformer.h/cpp            — Transformer implementation
-├── kv_cache.h/cpp               — KV cache
-├── sampler.h/cpp                — Sampling strategies
-├── generator.h/cpp              — Autoregressive generation
-├── memory.h/cpp                 — Aligned allocator, buffer, pool
-├── random.h/cpp                 — Xoroshiro128+ RNG
-├── backend.h/cpp                — Hardware backend abstraction
-├── gpu_compute.h/cpp            — GPU compute shader (DirectX/Triton)
-├── moe_variants.h/cpp           — MoE variant configurations
-├── int8_quant.cpp               — Activation quantization
-└── types.h                      — Core type definitions (Format, Shape, DType, etc.)
+â”œâ”€â”€ tensor.h/cpp                 â€” Custom n-dimensional tensor
+â”œâ”€â”€ math.h/cpp + math_avx2.cpp   â€” SIMD math kernels + BLAS-style ops
+â”œâ”€â”€ oil_format.h/cpp             â€” OIL weight format reader/writer
+â”œâ”€â”€ codebook.h/cpp               â€” OIL8/OIL4/SPARK codebooks
+â”œâ”€â”€ format_planner.h/cpp         â€” AWQ-based BPW allocation
+â”œâ”€â”€ kernel.h + kernel_i2s/tl/oil8/oil4  â€” GEMM kernels
+â”œâ”€â”€ model.h/cpp                  â€” Transformer model definition
+â”œâ”€â”€ tokenizer.h/cpp              â€” BPE + Unigram tokenizer
+â”œâ”€â”€ trainer.h/cpp                â€” Training loop (AdamW, loss, backward)
+â”œâ”€â”€ autograd.h/cpp               â€” Computation graph (10 integrated ops, DFS backward)
+â”œâ”€â”€ optimizer.h/cpp              â€” AdamW/SGD optimizers
+â”œâ”€â”€ ste_quantizer.h/cpp          â€” Straight-Through Estimator
+â”œâ”€â”€ finetune.h/cpp               â€” Native fine-tuning system
+â”œâ”€â”€ transformer.h/cpp            â€” Transformer implementation
+â”œâ”€â”€ kv_cache.h/cpp               â€” KV cache
+â”œâ”€â”€ sampler.h/cpp                â€” Sampling strategies
+â”œâ”€â”€ generator.h/cpp              â€” Autoregressive generation
+â”œâ”€â”€ memory.h/cpp                 â€” Aligned allocator, buffer, pool
+â”œâ”€â”€ random.h/cpp                 â€” Xoroshiro128+ RNG
+â”œâ”€â”€ backend.h/cpp                â€” Hardware backend abstraction
+â”œâ”€â”€ gpu_compute.h/cpp            â€” GPU compute shader (DirectX/Triton)
+â”œâ”€â”€ moe_variants.h/cpp           â€” MoE variant configurations
+â”œâ”€â”€ int8_quant.cpp               â€” Activation quantization
+â””â”€â”€ types.h                      â€” Core type definitions (Format, Shape, DType, etc.)
 ```
 
 #### B. ENGINE HIERARCHY
 ```
 engines/
-├── inference/
-│   ├── inference.h / .cpp       — Inference engine (autoregressive generate)
-│   └── stream.cpp               — Streaming output handler
-├── OIL8/
-│   ├── codec.h / .cpp           — OIL8 codec encode/decode
-│   └── quantize.h / .cpp        — OIL8 quantization routines
-├── trainer/
-│   ├── dense/
-│   │   ├── trainer.h / .cpp     — Dense GPT-style trainer
-│   │   ├── dataloader.cpp       — Text → tokenized batches
-│   │   └── checkpoint.cpp       — Save/load training state
-│   ├── moe/
-│   │   ├── moe.h / .cpp         — MoMMoE (modality-aware MoE)
-│   │   ├── vision/              — Vision perception (ViT, detect, caption)
-│   │   ├── audio/               — Audio processing (speech, music)
-│   │   ├── image/               — Image generation (encoder-decoder)
-│   │   ├── ocr/                 — OCR module
-│   │   ├── text/                — Text processing
-│   │   ├── video/               — Video generation (encoder-decoder)
-│   │   └── embeddings/          — Embeddings module
-│   └── multimodel/
-│       ├── vision/              — Standalone VisionEncoder
-│       ├── audio/               — Standalone AudioEncoder
-│       ├── image/               — Standalone ImageGen
-│       ├── ocr/                 — Standalone OCR
-│       ├── text/                — Standalone Text
-│       ├── video/               — Standalone VideoGen
-│       └── embeddings/          — Standalone Embeddings
-└── multimodal/                  — Joint multimodal pipeline (future)
+â”œâ”€â”€ inference/
+â”‚   â”œâ”€â”€ inference.h / .cpp       â€” Inference engine (autoregressive generate)
+â”‚   â””â”€â”€ stream.cpp               â€” Streaming output handler
+â”œâ”€â”€ OIL8/
+â”‚   â”œâ”€â”€ codec.h / .cpp           â€” OIL8 codec encode/decode
+â”‚   â””â”€â”€ quantize.h / .cpp        â€” OIL8 quantization routines
+â”œâ”€â”€ trainer/
+â”‚   â”œâ”€â”€ dense/
+â”‚   â”‚   â”œâ”€â”€ trainer.h / .cpp     â€” Dense GPT-style trainer
+â”‚   â”‚   â”œâ”€â”€ dataloader.cpp       â€” Text â†’ tokenized batches
+â”‚   â”‚   â””â”€â”€ checkpoint.cpp       â€” Save/load training state
+â”‚   â”œâ”€â”€ moe/
+â”‚   â”‚   â”œâ”€â”€ moe.h / .cpp         â€” MoMMoE (modality-aware MoE)
+â”‚   â”‚   â”œâ”€â”€ vision/              â€” Vision perception (ViT, detect, caption)
+â”‚   â”‚   â”œâ”€â”€ audio/               â€” Audio processing (speech, music)
+â”‚   â”‚   â”œâ”€â”€ image/               â€” Image generation (encoder-decoder)
+â”‚   â”‚   â”œâ”€â”€ ocr/                 â€” OCR module
+â”‚   â”‚   â”œâ”€â”€ text/                â€” Text processing
+â”‚   â”‚   â”œâ”€â”€ video/               â€” Video generation (encoder-decoder)
+â”‚   â”‚   â””â”€â”€ embeddings/          â€” Embeddings module
+â”‚   â””â”€â”€ multimodel/
+â”‚       â”œâ”€â”€ vision/              â€” Standalone VisionEncoder
+â”‚       â”œâ”€â”€ audio/               â€” Standalone AudioEncoder
+â”‚       â”œâ”€â”€ image/               â€” Standalone ImageGen
+â”‚       â”œâ”€â”€ ocr/                 â€” Standalone OCR
+â”‚       â”œâ”€â”€ text/                â€” Standalone Text
+â”‚       â”œâ”€â”€ video/               â€” Standalone VideoGen
+â”‚       â””â”€â”€ embeddings/          â€” Standalone Embeddings
+â””â”€â”€ multimodal/                  â€” Joint multimodal pipeline (future)
 ```
 
 #### C. EXECUTABLES (82 targets: 25 libs + 25 executables + 32 tests)
@@ -1767,12 +1767,12 @@ engines/
 - **Tests (32):** Comprehensive test suite covering all modules
 
 #### D. TOOLS
-- Convert tool — convert HuggingFace/GGUF weights → OIL8 format
-- Train tool — full training run from scratch
-- Infer tool — interactive inference / generation
-- Finetune tool — LoRA / full fine-tuning
-- Info tool — inspect .oil weight files
-- Bench tool — benchmark performance
+- Convert tool â€” convert HuggingFace/GGUF weights â†’ OIL8 format
+- Train tool â€” full training run from scratch
+- Infer tool â€” interactive inference / generation
+- Finetune tool â€” LoRA / full fine-tuning
+- Info tool â€” inspect .oil weight files
+- Bench tool â€” benchmark performance
 
 #### E. BUILD INFRASTRUCTURE
 - CMakeLists.txt (updated for engines/ hierarchy)
@@ -1782,15 +1782,15 @@ engines/
 - **337+ files, 97,500+ lines** (across all modules including engines/)
 
 #### G. VERIFIED WORKING
-- ✅ All 82 targets build and 32 tests pass
-- ✅ Linux build: ✅ COMPLETED
-- ✅ Code signing: ✅ All 60+ binaries signed
-- ✅ MoMMoE implemented in engines/trainer/moe/ (287-line + 109-line header)
-- ✅ VISION module complete (308-line encoder in moe/ + 308-line in multimodel/)
-- ✅ AUDIO, IMAGE_GEN, VIDEO_GEN, OCR, TEXT, EMBEDDINGS modules implemented in moe/ and multimodel/
-- ✅ Autograd fully integrated into all transformer operations (10 ops)
-- ✅ Dual-path attention: training (autograd) vs inference (KV cache)
-- ✅ Real model save/load (named tensor serialization to .oil format)
+- âœ… All 82 targets build and 32 tests pass
+- âœ… Linux build: âœ… COMPLETED
+- âœ… Code signing: âœ… All 60+ binaries signed
+- âœ… MoMMoE implemented in engines/trainer/moe/ (287-line + 109-line header)
+- âœ… VISION module complete (308-line encoder in moe/ + 308-line in multimodel/)
+- âœ… AUDIO, IMAGE_GEN, VIDEO_GEN, OCR, TEXT, EMBEDDINGS modules implemented in moe/ and multimodel/
+- âœ… Autograd fully integrated into all transformer operations (10 ops)
+- âœ… Dual-path attention: training (autograd) vs inference (KV cache)
+- âœ… Real model save/load (named tensor serialization to .oil format)
 
 ### Working Rules (from Initial Session)
 - No fake code, no quit until goal
@@ -1814,38 +1814,38 @@ The project was initialized with a Grok CLI session (ID: `019f4745-8754-7fc2-afe
 - **Capabilities:** Dense/MoE/Multimodal training, LoRA/QLoRA fine-tuning, Text/Image/Video/Audio/Embeddings/OCR modalities
 - **Scale Design:** 48T+ ready architecture with distributed training hooks
 - **Performance Target:** 512+ tok/s where hardware allows, ~5-10% less compute vs normal stack
-- **Hardware Reality:** Ryzen 5 5600GT, ~14GB RAM, Radeon iGPU → 0.1B-0.4B full train, 1B-3B LoRA fine-tune
+- **Hardware Reality:** Ryzen 5 5600GT, ~14GB RAM, Radeon iGPU â†’ 0.1B-0.4B full train, 1B-3B LoRA fine-tune
 - **Research Verdict:** Mixed OIL format + C++ engine = **possible**; 0% loss always = **not guaranteed**; 512+ tok/s any hardware = **impossible guarantee**; 48T+ engine design = **possible**
 
 ---
 
 
 
-## 📊 Comparison with Existing Projects
+## ðŸ“Š Comparison with Existing Projects
 
 | Feature | llama.cpp | BitNet.cpp | MLX | OIL Engine |
 |---------|-----------|------------|-----|------------|
 | **Language** | C/C++ | C/C++ | C++/ObjC | **C++20** |
 | **Dependencies** | None | llama.cpp | Metal | **None** |
 | **Tensor library** | Custom | Custom | Custom | **Custom** |
-| **Training** | ❌ | ❌ | ✅ | **✅ Full** |
-| **Fine-tuning** | ❌ | ❌ | ✅ | **✅ Native OIL** |
+| **Training** | âŒ | âŒ | âœ… | **âœ… Full** |
+| **Fine-tuning** | âŒ | âŒ | âœ… | **âœ… Native OIL** |
 | **Quant formats** | GGUF many | SPARK only | FP16/FP32 | **OIL8/OIL4/SPARK** |
-| **Mixed per-block** | Grouped (K-quants) | Uniform | Uniform | **✅ Per-block routing** |
+| **Mixed per-block** | Grouped (K-quants) | Uniform | Uniform | **âœ… Per-block routing** |
 | **Target BPW** | 2-8 | 1.58 | 16 | **1.50** |
-| **CPU inference** | ✅ Fast | ✅ Faster | ❌ Metal | **✅ Custom SIMD** |
-| **GPU inference** | ✅ CUDA/Metal | ✅ CUDA | ✅ Metal | **✅ Vulkan/DX12** |
-| **Tokenizer** | BPE/SentencePiece | External | External | **✅ Built-in** |
-| **Autograd** | ❌ | ❌ | ✅ | **✅ Custom** |
-| **SIMD math** | ✅ | ✅ | ❌ | **✅ AVX2/NEON** |
-| **Distributed** | ❌ | ❌ | ✅ FSDP | **✅ Design included** |
-| **Fine-tune system** | ❌ | ❌ | ✅ | **✅ Native OIL** |
+| **CPU inference** | âœ… Fast | âœ… Faster | âŒ Metal | **âœ… Custom SIMD** |
+| **GPU inference** | âœ… CUDA/Metal | âœ… CUDA | âœ… Metal | **âœ… Vulkan/DX12** |
+| **Tokenizer** | BPE/SentencePiece | External | External | **âœ… Built-in** |
+| **Autograd** | âŒ | âŒ | âœ… | **âœ… Custom** |
+| **SIMD math** | âœ… | âœ… | âŒ | **âœ… AVX2/NEON** |
+| **Distributed** | âŒ | âŒ | âœ… FSDP | **âœ… Design included** |
+| **Fine-tune system** | âŒ | âŒ | âœ… | **âœ… Native OIL** |
 | **Model zoo** | 100+ models | BitNet only | MLX only | **Converter tools** |
 | **License** | MIT | MIT | MIT | **Proprietary** |
 
 ---
 
-## 💻 Developer Machine Reality
+## ðŸ’» Developer Machine Reality
 
 This project is being developed on:
 
@@ -1862,18 +1862,18 @@ This project is being developed on:
 
 | Model Size | Full Train | Fine-tune |
 |-----------|-----------|-----------|
-| 0.1B (100M) | ✅ (~4h) | ✅ |
-| 0.4B (400M) | ✅ (~20h) | ✅ |
-| 1B | ⚠️ RAM limit | ✅ (~8h) |
-| 3B | ⚠️ RAM limit | ⚠️ (~16h) |
-| 7B | ⚠️ Needs more RAM | ⚠️ Needs more RAM |
+| 0.1B (100M) | âœ… (~4h) | âœ… |
+| 0.4B (400M) | âœ… (~20h) | âœ… |
+| 1B | âš ï¸ RAM limit | âœ… (~8h) |
+| 3B | âš ï¸ RAM limit | âš ï¸ (~16h) |
+| 7B | âš ï¸ Needs more RAM | âš ï¸ Needs more RAM |
 | 48T (multi-node) | Future milestone | Future milestone |
 
-The architecture is designed for scale — distributed training hooks, FSDP sharding, and tensor parallelism are built into the engine design so the same code can scale from laptop to cluster.
+The architecture is designed for scale â€” distributed training hooks, FSDP sharding, and tensor parallelism are built into the engine design so the same code can scale from laptop to cluster.
 
 ---
 
-## 🎯 Performance Targets
+## ðŸŽ¯ Performance Targets
 
 These are **honest targets** based on published research and hardware constraints:
 
@@ -1883,23 +1883,23 @@ These are **honest targets** based on published research and hardware constraint
 | 1B inference (CPU) | 50-100 tok/s | Memory-bound, KV cache dominant |
 | 7B inference (CPU) | 5-15 tok/s | llama.cpp territory |
 | 7B inference (GPU) | 30-100 tok/s | Future CUDA path |
-| OIL8 → FP32 quality | Perplexity diff < 0.01 | With fine-tune |
-| SPARK → FP16 quality | Perplexity diff < 0.05 | Proven by research |
-| Disk vs FP32 (OIL8) | 4× reduction | 32B→8B per weight |
-| Disk vs FP32 (mixed) | 20× reduction | 32B→1.5B average |
-| Kernel speed vs scalar | 4-8× (AVX2) | Theoretical peak |
-| Kernel speed vs llama.cpp | 1-2× (SPARK LUT) | TL kernel advantage |
+| OIL8 â†’ FP32 quality | Perplexity diff < 0.01 | With fine-tune |
+| SPARK â†’ FP16 quality | Perplexity diff < 0.05 | Proven by research |
+| Disk vs FP32 (OIL8) | 4Ã— reduction | 32Bâ†’8B per weight |
+| Disk vs FP32 (mixed) | 20Ã— reduction | 32Bâ†’1.5B average |
+| Kernel speed vs scalar | 4-8Ã— (AVX2) | Theoretical peak |
+| Kernel speed vs llama.cpp | 1-2Ã— (SPARK LUT) | TL kernel advantage |
 
 ---
 
-## 🛠️ Tools & CLI
+## ðŸ› ï¸ Tools & CLI
 
 | Binary | Source | Purpose |
 |--------|--------|---------|
 | `oil-infer` | `tools/infer.cpp` | Interactive chat / generation from .oil model |
 | `oil-train` | `tools/train.cpp` | Train model from scratch with config |
 | `oil-finetune` | `tools/finetune.cpp` | Fine-tune loaded .oil model natively |
-| `oil-convert` | `tools/convert.cpp` | Convert GGUF/HF/FP32 → .oil |
+| `oil-convert` | `tools/convert.cpp` | Convert GGUF/HF/FP32 â†’ .oil |
 | `oil-bench` | `tools/bench.cpp` | Run benchmarks |
 | `oil-info` | `tools/info.cpp` | Inspect .oil file contents |
 
@@ -1932,180 +1932,180 @@ bench_quality.cpp      perplexity comparison (FP32 vs OIL8 vs OIL4 vs SPARK)
 ```
 test_all.cpp           Combined test runner (all tests in one binary)
 test_debug.cpp         Debug utilities test
-test_format.cpp        encode→decode→equality for each format
+test_format.cpp        encodeâ†’decodeâ†’equality for each format
 test_kernel.cpp        GEMM kernel correctness
 test_math.cpp          gemm correctness, gradient check
 test_model.cpp         tiny model forward/backward, gradient numerical check
 test_tensor.cpp        shape, view, slice, reshape, serialise round-trip
-test_tokenizer.cpp     encode→decode identity, BPE merge correctness
+test_tokenizer.cpp     encodeâ†’decode identity, BPE merge correctness
 test_trainer.cpp       Training loop and optimizer correctness
 ```
 
 ---
 
-## 📁 Project Structure
+## ðŸ“ Project Structure
 
 ```
 InNova/
-│
-├── include/
-│   └── oil/
-│       ├── types.h             # Core type definitions
-│       ├── tensor.h            # N-dimensional tensor
-│       ├── memory.h            # Aligned allocator, buffer, pool
-│       ├── math.h              # BLAS + activations + norms
-│       ├── random.h            # Xoroshiro128+ RNG
-│       ├── oil_format.h        # OIL binary format spec
-│       ├── codebook.h          # OIL8/OIL4/SPARK codebooks
-│       ├── format_planner.h    # BPW allocation planner
-│       ├── kernel.h            # GEMM kernel abstractions
-│       ├── transformer.h       # Transformer layer definitions
-│       ├── model.h             # Model containers
-│       ├── kv_cache.h          # KV cache
-│       ├── sampler.h           # Sampling strategies
-│       ├── generator.h         # Autoregressive generation
-│       ├── tokenizer.h         # BPE/Unigram tokenizer
-│       ├── autograd.h          # Computation graph
-│       ├── optimizer.h         # AdamW, SGD
-│       ├── trainer.h           # Training loop
-│       ├── ste_quantizer.h     # Straight-Through Estimator
-│       ├── finetune.h          # Native fine-tuning system
-│       ├── backend.h           # Hardware backend abstraction
-│       ├── gpu_compute.h       # GPU compute shader (DirectX/Triton)
-│       ├── moe_variants.h      # MoE variant configurations
-│
-├── src/
-│   ├── tensor.cpp
-│   ├── memory.cpp
-│   ├── math.cpp
-│   ├── math_avx2.cpp           # AVX2 math kernels
-│   ├── random.cpp
-│   ├── oil_format.cpp
-│   ├── codebook.cpp
-│   ├── format_planner.cpp
-│   ├── kernel_i2s.cpp          # I2_S MAD kernel
-│   ├── kernel_tl.cpp           # TL1/TL2 LUT kernel
-│   ├── kernel_oil8.cpp         # OIL8 lookup kernel
-│   ├── kernel_oil4.cpp         # OIL4 lookup kernel
-│   ├── transformer.cpp
-│   ├── model.cpp
-│   ├── kv_cache.cpp
-│   ├── sampler.cpp
-│   ├── generator.cpp
-│   ├── bpe_tokenizer.cpp
-│   ├── unigram_tokenizer.cpp
-│   ├── autograd.cpp
-│   ├── optimizer.cpp
-│   ├── trainer.cpp
-│   ├── ste_quantizer.cpp
-│   ├── finetune.cpp
-│   ├── int8_quant.cpp          # Activation quantization
-│   ├── backend.cpp             # Hardware backend
-│   ├── gpu_compute.cpp         # GPU compute shaders
-│   └── moe_variants.cpp        # MoE variant implementations
-│
-├── tools/
-│   ├── train.cpp
-│   ├── infer.cpp
-│   ├── convert.cpp
-│   ├── bench.cpp
-│   └── info.cpp
-│
-├── tests/
-│   ├── test_all.cpp
-│   ├── test_debug.cpp
-│   ├── test_format.cpp
-│   ├── test_kernel.cpp
-│   ├── test_math.cpp
-│   ├── test_model.cpp
-│   ├── test_tensor.cpp
-│   ├── test_tokenizer.cpp
-│   └── test_trainer.cpp
-│
-├── bench/
-│   ├── bench_kernels.cpp
-│   ├── bench_inference.cpp
-│   └── bench_quality.cpp
-│
-├── cmake/
-│   ├── arch.cmake              # CPU architecture detection
-│   └── compiler.cmake          # Compiler flag detection
-│
-├── engines/
-│   ├── inference/
-│   │   └── inference.h / .cpp
-│   ├── trainer/
-│   │   ├── dense/
-│   │   ├── moe/
-│   │   │   ├── moe.h / .cpp
-│   │   │   ├── vision/
-│   │   │   ├── audio/
-│   │   │   ├── image/
-│   │   │   ├── ocr/
-│   │   │   ├── text/
-│   │   │   ├── video/
-│   │   │   └── embeddings/
-│   │   └── multimodel/
-│   │       ├── vision/
-│   │       ├── audio/
-│   │       ├── image/
-│   │       ├── ocr/
-│   │       ├── text/
-│   │       ├── video/
-│   │       └── embeddings/
-│   └── multimodal/
-│
-├── wiki/                       # Per-file documentation (repo-wiki style)
-│   ├── Home.md                 # Wiki home page
-│   ├── files/                  # 91 per-file docs
-│   │   ├── _index.md           # File docs index
-│   │   ├── types.h.md, tensor.h.md, ...
-│   │   ├── tensor.cpp.md, math.cpp.md, ...
-│   │   ├── engine-inference.cpp.md, ...
-│   │   └── tool-convert.cpp.md, ...
-│   ├── Architecture.md
-│   ├── Build-Guide.md
-│   ├── Usage-Guide.md
-│   ├── Api-Reference.md
-│   ├── OIL-Format.md
-│   ├── Training.md
-│   ├── Inference.md
-│   ├── Research.md
-│   ├── Contributing.md
-│   └── _Sidebar.md
-│
-├── .bitnet/                    # Reference knowledge (BitNet.cpp)
-├── data/                       # Training data (tinyshakespeare.txt)
-│
-├── CMakeLists.txt              # Root build file
-├── README.md                   # This file
-├── BLUEPRINT.md                # Detailed build plan
-├── SPEC.md                     # Mission breakdown
-├── GROK.md                     # Initial session summary
-├── RESEARCH.md                 # Full research archive
-├── test_data.txt               # Test data
-├── my_model.oil                # Sample OIL model
-└── oil_config.h.in             # Config template
+â”‚
+â”œâ”€â”€ include/
+â”‚   â””â”€â”€ oil/
+â”‚       â”œâ”€â”€ types.h             # Core type definitions
+â”‚       â”œâ”€â”€ tensor.h            # N-dimensional tensor
+â”‚       â”œâ”€â”€ memory.h            # Aligned allocator, buffer, pool
+â”‚       â”œâ”€â”€ math.h              # BLAS + activations + norms
+â”‚       â”œâ”€â”€ random.h            # Xoroshiro128+ RNG
+â”‚       â”œâ”€â”€ oil_format.h        # OIL binary format spec
+â”‚       â”œâ”€â”€ codebook.h          # OIL8/OIL4/SPARK codebooks
+â”‚       â”œâ”€â”€ format_planner.h    # BPW allocation planner
+â”‚       â”œâ”€â”€ kernel.h            # GEMM kernel abstractions
+â”‚       â”œâ”€â”€ transformer.h       # Transformer layer definitions
+â”‚       â”œâ”€â”€ model.h             # Model containers
+â”‚       â”œâ”€â”€ kv_cache.h          # KV cache
+â”‚       â”œâ”€â”€ sampler.h           # Sampling strategies
+â”‚       â”œâ”€â”€ generator.h         # Autoregressive generation
+â”‚       â”œâ”€â”€ tokenizer.h         # BPE/Unigram tokenizer
+â”‚       â”œâ”€â”€ autograd.h          # Computation graph
+â”‚       â”œâ”€â”€ optimizer.h         # AdamW, SGD
+â”‚       â”œâ”€â”€ trainer.h           # Training loop
+â”‚       â”œâ”€â”€ ste_quantizer.h     # Straight-Through Estimator
+â”‚       â”œâ”€â”€ finetune.h          # Native fine-tuning system
+â”‚       â”œâ”€â”€ backend.h           # Hardware backend abstraction
+â”‚       â”œâ”€â”€ gpu_compute.h       # GPU compute shader (DirectX/Triton)
+â”‚       â”œâ”€â”€ moe_variants.h      # MoE variant configurations
+â”‚
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ tensor.cpp
+â”‚   â”œâ”€â”€ memory.cpp
+â”‚   â”œâ”€â”€ math.cpp
+â”‚   â”œâ”€â”€ math_avx2.cpp           # AVX2 math kernels
+â”‚   â”œâ”€â”€ random.cpp
+â”‚   â”œâ”€â”€ oil_format.cpp
+â”‚   â”œâ”€â”€ codebook.cpp
+â”‚   â”œâ”€â”€ format_planner.cpp
+â”‚   â”œâ”€â”€ kernel_i2s.cpp          # I2_S MAD kernel
+â”‚   â”œâ”€â”€ kernel_tl.cpp           # TL1/TL2 LUT kernel
+â”‚   â”œâ”€â”€ kernel_oil8.cpp         # OIL8 lookup kernel
+â”‚   â”œâ”€â”€ kernel_oil4.cpp         # OIL4 lookup kernel
+â”‚   â”œâ”€â”€ transformer.cpp
+â”‚   â”œâ”€â”€ model.cpp
+â”‚   â”œâ”€â”€ kv_cache.cpp
+â”‚   â”œâ”€â”€ sampler.cpp
+â”‚   â”œâ”€â”€ generator.cpp
+â”‚   â”œâ”€â”€ bpe_tokenizer.cpp
+â”‚   â”œâ”€â”€ unigram_tokenizer.cpp
+â”‚   â”œâ”€â”€ autograd.cpp
+â”‚   â”œâ”€â”€ optimizer.cpp
+â”‚   â”œâ”€â”€ trainer.cpp
+â”‚   â”œâ”€â”€ ste_quantizer.cpp
+â”‚   â”œâ”€â”€ finetune.cpp
+â”‚   â”œâ”€â”€ int8_quant.cpp          # Activation quantization
+â”‚   â”œâ”€â”€ backend.cpp             # Hardware backend
+â”‚   â”œâ”€â”€ gpu_compute.cpp         # GPU compute shaders
+â”‚   â””â”€â”€ moe_variants.cpp        # MoE variant implementations
+â”‚
+â”œâ”€â”€ tools/
+â”‚   â”œâ”€â”€ train.cpp
+â”‚   â”œâ”€â”€ infer.cpp
+â”‚   â”œâ”€â”€ convert.cpp
+â”‚   â”œâ”€â”€ bench.cpp
+â”‚   â””â”€â”€ info.cpp
+â”‚
+â”œâ”€â”€ tests/
+â”‚   â”œâ”€â”€ test_all.cpp
+â”‚   â”œâ”€â”€ test_debug.cpp
+â”‚   â”œâ”€â”€ test_format.cpp
+â”‚   â”œâ”€â”€ test_kernel.cpp
+â”‚   â”œâ”€â”€ test_math.cpp
+â”‚   â”œâ”€â”€ test_model.cpp
+â”‚   â”œâ”€â”€ test_tensor.cpp
+â”‚   â”œâ”€â”€ test_tokenizer.cpp
+â”‚   â””â”€â”€ test_trainer.cpp
+â”‚
+â”œâ”€â”€ bench/
+â”‚   â”œâ”€â”€ bench_kernels.cpp
+â”‚   â”œâ”€â”€ bench_inference.cpp
+â”‚   â””â”€â”€ bench_quality.cpp
+â”‚
+â”œâ”€â”€ cmake/
+â”‚   â”œâ”€â”€ arch.cmake              # CPU architecture detection
+â”‚   â””â”€â”€ compiler.cmake          # Compiler flag detection
+â”‚
+â”œâ”€â”€ engines/
+â”‚   â”œâ”€â”€ inference/
+â”‚   â”‚   â””â”€â”€ inference.h / .cpp
+â”‚   â”œâ”€â”€ trainer/
+â”‚   â”‚   â”œâ”€â”€ dense/
+â”‚   â”‚   â”œâ”€â”€ moe/
+â”‚   â”‚   â”‚   â”œâ”€â”€ moe.h / .cpp
+â”‚   â”‚   â”‚   â”œâ”€â”€ vision/
+â”‚   â”‚   â”‚   â”œâ”€â”€ audio/
+â”‚   â”‚   â”‚   â”œâ”€â”€ image/
+â”‚   â”‚   â”‚   â”œâ”€â”€ ocr/
+â”‚   â”‚   â”‚   â”œâ”€â”€ text/
+â”‚   â”‚   â”‚   â”œâ”€â”€ video/
+â”‚   â”‚   â”‚   â””â”€â”€ embeddings/
+â”‚   â”‚   â””â”€â”€ multimodel/
+â”‚   â”‚       â”œâ”€â”€ vision/
+â”‚   â”‚       â”œâ”€â”€ audio/
+â”‚   â”‚       â”œâ”€â”€ image/
+â”‚   â”‚       â”œâ”€â”€ ocr/
+â”‚   â”‚       â”œâ”€â”€ text/
+â”‚   â”‚       â”œâ”€â”€ video/
+â”‚   â”‚       â””â”€â”€ embeddings/
+â”‚   â””â”€â”€ multimodal/
+â”‚
+â”œâ”€â”€ wiki/                       # Per-file documentation (repo-wiki style)
+â”‚   â”œâ”€â”€ Home.md                 # Wiki home page
+â”‚   â”œâ”€â”€ files/                  # 91 per-file docs
+â”‚   â”‚   â”œâ”€â”€ _index.md           # File docs index
+â”‚   â”‚   â”œâ”€â”€ types.h.md, tensor.h.md, ...
+â”‚   â”‚   â”œâ”€â”€ tensor.cpp.md, math.cpp.md, ...
+â”‚   â”‚   â”œâ”€â”€ engine-inference.cpp.md, ...
+â”‚   â”‚   â””â”€â”€ tool-convert.cpp.md, ...
+â”‚   â”œâ”€â”€ Architecture.md
+â”‚   â”œâ”€â”€ Build-Guide.md
+â”‚   â”œâ”€â”€ Usage-Guide.md
+â”‚   â”œâ”€â”€ Api-Reference.md
+â”‚   â”œâ”€â”€ OIL-Format.md
+â”‚   â”œâ”€â”€ Training.md
+â”‚   â”œâ”€â”€ Inference.md
+â”‚   â”œâ”€â”€ Research.md
+â”‚   â”œâ”€â”€ Contributing.md
+â”‚   â””â”€â”€ _Sidebar.md
+â”‚
+â”œâ”€â”€ .bitnet/                    # Reference knowledge (BitNet.cpp)
+â”œâ”€â”€ data/                       # Training data (tinyshakespeare.txt)
+â”‚
+â”œâ”€â”€ CMakeLists.txt              # Root build file
+â”œâ”€â”€ README.md                   # This file
+â”œâ”€â”€ BLUEPRINT.md                # Detailed build plan
+â”œâ”€â”€ SPEC.md                     # Mission breakdown
+â”œâ”€â”€ GROK.md                     # Initial session summary
+â”œâ”€â”€ RESEARCH.md                 # Full research archive
+â”œâ”€â”€ test_data.txt               # Test data
+â”œâ”€â”€ my_model.oil                # Sample OIL model
+â””â”€â”€ oil_config.h.in             # Config template
 ```
 
 ---
 
-## 📚 Documentation
+## ðŸ“š Documentation
 
 InNova has two levels of documentation:
 
-### Quick Reference — `docs/`
+### Quick Reference â€” `docs/`
 
 The **[docs/](docs/)** folder contains structured, topic-based documentation:
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — System design & philosophy
-- **[BUILD.md](docs/BUILD.md)** — Build & installation guide
-- **[USAGE.md](docs/USAGE.md)** — Usage guide & examples
-- **[API_REFERENCE.md](docs/API_REFERENCE.md)** — Complete C++ API reference
-- **[RESEARCH.md](docs/RESEARCH.md)** — Research foundation & papers
-- **[MODULES/](docs/MODULES/)** — Per-module deep dives
-- **[INTERNAL/](docs/INTERNAL/)** — Internal design documents
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** â€” System design & philosophy
+- **[BUILD.md](docs/BUILD.md)** â€” Build & installation guide
+- **[USAGE.md](docs/USAGE.md)** â€” Usage guide & examples
+- **[API_REFERENCE.md](docs/API_REFERENCE.md)** â€” Complete C++ API reference
+- **[RESEARCH.md](docs/RESEARCH.md)** â€” Research foundation & papers
+- **[MODULES/](docs/MODULES/)** â€” Per-module deep dives
+- **[INTERNAL/](docs/INTERNAL/)** â€” Internal design documents
 
-### Per-File Deep Dive — `wiki/`
+### Per-File Deep Dive â€” `wiki/`
 
 The **[wiki/](wiki/Home.md)** folder contains **repo-wiki style documentation** with one markdown file per source file:
 - Every header (`include/oil/`), source (`src/`), engine, tool, and test file documented
@@ -2116,45 +2116,45 @@ The **[wiki/](wiki/Home.md)** folder contains **repo-wiki style documentation** 
 
 ---
 
-## ⚠️ Honest Flags (Do NOT Overpromise)
+## âš ï¸ Honest Flags (Do NOT Overpromise)
 
 | Statement | Verdict |
 |-----------|---------|
-| "100% lossless always" | ❌ — Info theory: compress → information loss. **Near-lossless at high BPW = achievable** |
-| "512+ tok/s on any hardware" | ❌ — Weak HW + large model → single digits |
-| "48T train on 14GB RAM" | ❌ — Impossible regardless of format |
-| "Better than GPT-4 at 100× smaller" | ❌ — Scaling laws are real |
-| "Rivals llama.cpp first day" | ❌ — They have years of community optimization |
-| "Zero code reuse from BitNet" | ❌ — Studying their kernels is the whole point of `.bitnet` |
-| "All 7 phases done in 1 week" | ❌ — Years-long project for solo/team |
+| "100% lossless always" | âŒ â€” Info theory: compress â†’ information loss. **Near-lossless at high BPW = achievable** |
+| "512+ tok/s on any hardware" | âŒ â€” Weak HW + large model â†’ single digits |
+| "48T train on 14GB RAM" | âŒ â€” Impossible regardless of format |
+| "Better than GPT-4 at 100Ã— smaller" | âŒ â€” Scaling laws are real |
+| "Rivals llama.cpp first day" | âŒ â€” They have years of community optimization |
+| "Zero code reuse from BitNet" | âŒ â€” Studying their kernels is the whole point of `.bitnet` |
+| "All 7 phases done in 1 week" | âŒ â€” Years-long project for solo/team |
 
 ### What IS 100% Provably Achievable (v0.1)
 
-- ✅ **Working C++ engine** that loads OIL8 files and runs inference
-- ✅ **Train small models (0.1B-0.4B)** entirely in C++
-- ✅ **Fine-tune 1B-3B models** with LoRA-style adapters
-- ✅ **Disk reduction ~4× vs FP32** for OIL8 format
-- ✅ **OIL8 quality near FP32** with proper VQ + fine-tune
-- ✅ **Clean separation** of TRAINER and INFERENCE engines
-- ✅ **Multi-format per-layer** (OIL8 for sensitive, OIL4/OIL2 for tolerant)
-- ✅ **Phase-by-phase delivery** — each phase independently useful
-- ✅ **Linux CI/CD pipeline** (GitHub Actions)
-- ✅ **47 total claims** (46 proven + 1 pending)
-- ✅ **128-page research whitepaper**
-- ✅ **iGPU zero-copy via Vulkan unified memory** (C-046)
-- ✅ **Out-of-core training via mmap** (C-047)
+- âœ… **Working C++ engine** that loads OIL8 files and runs inference
+- âœ… **Train small models (0.1B-0.4B)** entirely in C++
+- âœ… **Fine-tune 1B-3B models** with LoRA-style adapters
+- âœ… **Disk reduction ~4Ã— vs FP32** for OIL8 format
+- âœ… **OIL8 quality near FP32** with proper VQ + fine-tune
+- âœ… **Clean separation** of TRAINER and INFERENCE engines
+- âœ… **Multi-format per-layer** (OIL8 for sensitive, OIL4/OIL2 for tolerant)
+- âœ… **Phase-by-phase delivery** â€” each phase independently useful
+- âœ… **Linux CI/CD pipeline** (GitHub Actions)
+- âœ… **47 total claims** (46 proven + 1 pending)
+- âœ… **128-page research whitepaper**
+- âœ… **iGPU zero-copy via Vulkan unified memory** (C-046)
+- âœ… **Out-of-core training via mmap** (C-047)
 
 ---
 
-## 🤝 Contributing
+## ðŸ¤ Contributing
 
 This is a solo-developed project, but contributions are welcome:
 
-1. **Bug reports** — Open an issue with reproduction steps
-2. **Kernel optimizations** — If you spot a faster SIMD path, PR is welcome
-3. **Additional formats** — OIL2, OIL1, or custom codebook sizes
-4. **Backend ports** — CUDA, Metal, Vulkan compute shaders
-5. **Documentation** — Tutorials, examples, API docs
+1. **Bug reports** â€” Open an issue with reproduction steps
+2. **Kernel optimizations** â€” If you spot a faster SIMD path, PR is welcome
+3. **Additional formats** â€” OIL2, OIL1, or custom codebook sizes
+4. **Backend ports** â€” CUDA, Metal, Vulkan compute shaders
+5. **Documentation** â€” Tutorials, examples, API docs
 
 ### Coding Standards
 
@@ -2167,14 +2167,14 @@ This is a solo-developed project, but contributions are welcome:
 
 ---
 
-## 🐛 Known Issues & Troubleshooting
+## ðŸ› Known Issues & Troubleshooting
 
 ### Build Issues
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
 | `CMake Error: generator: Ninja` | Ninja not installed | `winget install Ninja-build.Ninja` or use `-G "Visual Studio 17 2022"` |
-| `fatal error: 'source_location' not found` | Compiler too old | Use Clang ≥ 16 or MSVC 2022 |
+| `fatal error: 'source_location' not found` | Compiler too old | Use Clang â‰¥ 16 or MSVC 2022 |
 | `link: undefined symbol oil::math::gemm` | Missing library link | Ensure `oil_math` is linked: `target_link_libraries(... oil_math)` |
 | `OIL_AVX2 not defined` | Arch detection failed | Manual: `cmake -DOIL_AVX2=ON ..` |
 | `test_all.exe crashes with 0xC0000409` | GPU compute path on non-GPU system | Build without GPU: `cmake -DOIL_BUILD_GPU=OFF ..` |
@@ -2203,7 +2203,7 @@ build/tests/test_tensor --gtest_filter="*serialize*"
 
 ---
 
-## 🐳 Docker Development
+## ðŸ³ Docker Development
 
 ### Quick Docker Build
 
@@ -2219,7 +2219,7 @@ RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
 ### Multi-Platform Build (Cross-Compile)
 
 ```bash
-# Linux → Windows cross build (x86_64)
+# Linux â†’ Windows cross build (x86_64)
 cmake -B build-mingw -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw64.cmake
 
 # ARM64 build (Raspberry Pi, AWS Graviton)
@@ -2228,9 +2228,9 @@ cmake -B build-arm64 -DOIL_NEON=ON -DCMAKE_CXX_FLAGS="-march=armv8-a+fp+simd"
 
 ---
 
-## 🔧 API Code Examples
+## ðŸ”§ API Code Examples
 
-### C++ API — Minimal Inference
+### C++ API â€” Minimal Inference
 
 ```cpp
 #include <oil/model.h>
@@ -2265,7 +2265,7 @@ int main() {
 }
 ```
 
-### C++ API — Minimal Training
+### C++ API â€” Minimal Training
 
 ```cpp
 #include <oil/model.h>
@@ -2296,14 +2296,14 @@ int main() {
 }
 ```
 
-### C++ API — Manual Tensor Ops
+### C++ API â€” Manual Tensor Ops
 
 ```cpp
 #include <oil/tensor.h>
 #include <oil/math.h>
 
 int main() {
-    // Create 2×3 matrix
+    // Create 2Ã—3 matrix
     auto A = oil::Tensor<float>::randn({2, 3});
     auto B = oil::Tensor<float>::randn({3, 4});
 
@@ -2322,7 +2322,7 @@ int main() {
 }
 ```
 
-### C API — Minimal (Future)
+### C API â€” Minimal (Future)
 
 ```c
 // Planned: C bindings for embedding in other languages
@@ -2333,9 +2333,9 @@ int main() {
 
 ---
 
-## 📜 License
+## ðŸ“œ License
 
-**ALL RIGHTS RESERVED — PRIVATE AND PROPRIETARY**
+**ALL RIGHTS RESERVED â€” PRIVATE AND PROPRIETARY**
 
 This codebase is proprietary. No part of this software may be reproduced, distributed, or transmitted in any form or by any means without prior written permission of the owner.
 
@@ -2343,11 +2343,11 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 
 ---
 
-## 📝 Changelog
+## ðŸ“ Changelog
 
 ### v0.1.02 (2026-07-26)
 - **337+ files, 97,500+ lines** across 82 build targets
-- Linux CI/CD pipeline (GitHub Actions) — builds and tests on Ubuntu
+- Linux CI/CD pipeline (GitHub Actions) â€” builds and tests on Ubuntu
 - Vulkan compute backend with dynamic loading for GPU inference
 - Distributed training implementation complete (FSDP, TP, RingAllReduce, ParameterServer)
 - Code signing for all 60+ binaries
@@ -2358,7 +2358,7 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 - 32 tests covering all modules
 
 ### v0.1 (2026-07-11)
-- Initial release — complete C++ AI engine with zero dependencies
+- Initial release â€” complete C++ AI engine with zero dependencies
 - Core tensor library with autograd, SIMD math, OIL format codec
 - Full training pipeline: AdamW, DataLoader, checkpoint save/load,
   autograd integrated into all transformer ops (10 ops, DFS backward)
@@ -2376,7 +2376,7 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 
 ---
 
-## 📝 Release Notes — v0.1.02 "Zero Dep" (Production)
+## ðŸ“ Release Notes â€” v0.1.02 "Zero Dep" (Production)
 
 **Release Date:** 2026-07-26
 **Previous:** v0.1 (2026-07-11)
@@ -2385,42 +2385,42 @@ This codebase is proprietary. No part of this software may be reproduced, distri
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Core Tensor Library | ✅ Complete | N-dimensional tensor with views, slicing, broadcasting, autograd |
-| Math Library | ✅ Complete | BLAS (gemm/gemv/dot/axpy), activations, norms, softmax — SIMD AVX2 |
-| OIL Format System | ✅ Complete | OIL8/OIL4/SPARK codecs, FormatPlanner, serialiser/deserialiser |
-| GEMM Kernels | ✅ Complete | I2_S MAD (AVX2), TL1/TL2 LUT, OIL8 lookup, OIL4 lookup |
-| Transformer Model | ✅ Complete | DenseModel with RoPE, SwiGLU, RMSNorm, KV cache |
-| Inference Engine | ✅ Complete | Autoregressive generation, top-k/top-p sampling, streaming |
-| BPE Tokenizer | ✅ Complete | Train from scratch, encode/decode, save/load |
-| Training Engine | ✅ Complete | AdamW/SGD, autograd graph, checkpointing, DataLoader |
-| OIL-Native Training | ✅ Complete | STE quantizer, codebook update, LoRA fine-tuning |
-| MoE Architecture | ✅ Complete | MoMMoE with modality-aware experts (287+109 lines) |
-| Modal Modules | ✅ Complete | VISION, AUDIO, IMAGE_GEN, VIDEO_GEN, OCR, TEXT, EMBEDDINGS all implemented in moe/ and multimodel/ |
-| Build System | ✅ Complete | 16 library targets, 6 tools, 9 tests, 3 benchmarks |
-| CLI Tools | ✅ Complete | oil-train, oil-infer, oil-finetune, oil-convert, oil-info, oil-bench |
-| GPU Compute | ✅ Alpha | DirectX/Triton shader pipeline, `oil::gpu_compute` module |
+| Core Tensor Library | âœ… Complete | N-dimensional tensor with views, slicing, broadcasting, autograd |
+| Math Library | âœ… Complete | BLAS (gemm/gemv/dot/axpy), activations, norms, softmax â€” SIMD AVX2 |
+| OIL Format System | âœ… Complete | OIL8/OIL4/SPARK codecs, FormatPlanner, serialiser/deserialiser |
+| GEMM Kernels | âœ… Complete | I2_S MAD (AVX2), TL1/TL2 LUT, OIL8 lookup, OIL4 lookup |
+| Transformer Model | âœ… Complete | DenseModel with RoPE, SwiGLU, RMSNorm, KV cache |
+| Inference Engine | âœ… Complete | Autoregressive generation, top-k/top-p sampling, streaming |
+| BPE Tokenizer | âœ… Complete | Train from scratch, encode/decode, save/load |
+| Training Engine | âœ… Complete | AdamW/SGD, autograd graph, checkpointing, DataLoader |
+| OIL-Native Training | âœ… Complete | STE quantizer, codebook update, LoRA fine-tuning |
+| MoE Architecture | âœ… Complete | MoMMoE with modality-aware experts (287+109 lines) |
+| Modal Modules | âœ… Complete | VISION, AUDIO, IMAGE_GEN, VIDEO_GEN, OCR, TEXT, EMBEDDINGS all implemented in moe/ and multimodel/ |
+| Build System | âœ… Complete | 16 library targets, 6 tools, 9 tests, 3 benchmarks |
+| CLI Tools | âœ… Complete | oil-train, oil-infer, oil-finetune, oil-convert, oil-info, oil-bench |
+| GPU Compute | âœ… Alpha | DirectX/Triton shader pipeline, `oil::gpu_compute` module |
 
 ### Test Results
 
 ```
-test_all       ── ✅ Combined runner (all subsystems)
-test_debug     ── ✅ Debug utilities
-test_format    ── ✅ OIL8/OIL4/SPARK encode→decode→equality
-test_kernel    ── ✅ GEMM kernel correctness
-test_math      ── ✅ Gemm, softmax, norm gradient check
-test_model     ── ✅ Tiny model forward/backward
-test_tensor    ── ✅ Shape, view, slice, reshape, serialise round-trip
-test_tokenizer ── ✅ BPE encode→decode identity
-test_trainer   ── ✅ Training loop, loss decreases, checkpoint works
+test_all       â”€â”€ âœ… Combined runner (all subsystems)
+test_debug     â”€â”€ âœ… Debug utilities
+test_format    â”€â”€ âœ… OIL8/OIL4/SPARK encodeâ†’decodeâ†’equality
+test_kernel    â”€â”€ âœ… GEMM kernel correctness
+test_math      â”€â”€ âœ… Gemm, softmax, norm gradient check
+test_model     â”€â”€ âœ… Tiny model forward/backward
+test_tensor    â”€â”€ âœ… Shape, view, slice, reshape, serialise round-trip
+test_tokenizer â”€â”€ âœ… BPE encodeâ†’decode identity
+test_trainer   â”€â”€ âœ… Training loop, loss decreases, checkpoint works
 ```
 
 ### Known Limitations (v0.1)
-- **GPU inference:** ✅ Vulkan compute backend with dynamic loading
+- **GPU inference:** âœ… Vulkan compute backend with dynamic loading
 - **MoE training:** Router/experts implemented but not end-to-end battle-tested
 - **Multimodal:** All 7 modalities have implementations, joint cross-attention model pending
 - **Max model size:** ~0.4B params full train, ~3B LoRA fine-tune (limited by 14GB RAM)
-- **Cross-platform:** ✅ Windows + Linux CI/CD
-- **Distributed training:** ✅ Implementation complete (FSDP, TP, RingAllReduce, ParameterServer)
+- **Cross-platform:** âœ… Windows + Linux CI/CD
+- **Distributed training:** âœ… Implementation complete (FSDP, TP, RingAllReduce, ParameterServer)
 - **C API:** No C bindings yet (planned for v0.3)
 
 ### Binary Sizes (Release Build)
@@ -2435,14 +2435,14 @@ test_trainer   ── ✅ Training loop, loss decreases, checkpoint works
 | `oil-bench.exe` | ~1.5 MB | Benchmark runner |
 | `test_all.exe` | ~3.0 MB | All tests combined |
 
-All binaries are statically linked — no DLL dependencies. Copy and run anywhere.
+All binaries are statically linked â€” no DLL dependencies. Copy and run anywhere.
 
 ---
 
-## 🔮 Future Directions
+## ðŸ”® Future Directions
 
-### Short-Term (v0.2 — v0.5)
-- End-to-end MoMBlock integration test: text in → MoE MoMBlock → output
+### Short-Term (v0.2 â€” v0.5)
+- End-to-end MoMBlock integration test: text in â†’ MoE MoMBlock â†’ output
 - Load balancing: test auxiliary loss across modality groups
 - Expert parallelism: distribute experts across CPU threads
 - Vision: ImageNet-1k classification benchmark
@@ -2451,10 +2451,10 @@ All binaries are statically linked — no DLL dependencies. Copy and run anywher
 - Micro-batch + gradient accumulation
 - ZeRO-style optimizer state sharding (CPU offload)
 
-### Medium-Term (v0.6 — v1.0)
+### Medium-Term (v0.6 â€” v1.0)
 - Full 0.1B-0.4B param model training on single machine
 - Distributed training over 2+ machines
-- GPU compute shader (DirectX/Triton → any GPU)
+- GPU compute shader (DirectX/Triton â†’ any GPU)
 - Joint multimodal cross-attention model
 - End-to-end MoMBlock integration test
 - Cross-platform: Windows (Clang-cl), Linux (GCC), macOS (Clang)
@@ -2471,20 +2471,20 @@ All binaries are statically linked — no DLL dependencies. Copy and run anywher
 
 ---
 
-## 📚 References
+## ðŸ“š References
 
-1. BitNet: Scaling 1-bit Transformers for Large Language Models — arXiv:2310.11453
-2. The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits — arXiv:2402.17764
-3. bitnet.cpp: Efficient Edge Inference for Ternary LLMs — arXiv:2502.11880
-4. AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration — arXiv:2306.00978
-5. Neural Discrete Representation Learning (VQ-VAE) — NeurIPS 2017
-6. Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity — arXiv:2101.03961
-7. Mixtral of Experts — arXiv:2401.04088
-8. BitsMoE: Scaling Bit-width for Mixture-of-Experts — arXiv:2410.01045
-9. Gemini: A Family of Highly Capable Multimodal Models — arXiv:2312.11805
-10. Attention Is All You Need — NeurIPS 2017
-11. Superintelligence: Paths, Dangers, Strategies — Nick Bostrom, 2014
+1. BitNet: Scaling 1-bit Transformers for Large Language Models â€” arXiv:2310.11453
+2. The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits â€” arXiv:2402.17764
+3. bitnet.cpp: Efficient Edge Inference for Ternary LLMs â€” arXiv:2502.11880
+4. AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration â€” arXiv:2306.00978
+5. Neural Discrete Representation Learning (VQ-VAE) â€” NeurIPS 2017
+6. Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity â€” arXiv:2101.03961
+7. Mixtral of Experts â€” arXiv:2401.04088
+8. BitsMoE: Scaling Bit-width for Mixture-of-Experts â€” arXiv:2410.01045
+9. Gemini: A Family of Highly Capable Multimodal Models â€” arXiv:2312.11805
+10. Attention Is All You Need â€” NeurIPS 2017
+11. Superintelligence: Paths, Dangers, Strategies â€” Nick Bostrom, 2014
 
 ---
 
-*"NOTHING is impossible — reality is that no one tried to do that."*
+*"NOTHING is impossible â€” reality is that no one tried to do that."*

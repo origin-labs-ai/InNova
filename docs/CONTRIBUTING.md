@@ -4,7 +4,7 @@
 
 ---
 
-## 🎉 Welcome!
+## ðŸŽ‰ Welcome!
 
 Thank you for your interest in contributing to InNova! We welcome contributions from everyone, whether you're a seasoned developer or just starting out with AI and C++.
 
@@ -12,49 +12,49 @@ This document provides guidelines for contributing to InNova. Following these gu
 
 ---
 
-## 📋 Ways to Contribute
+## ðŸ“‹ Ways to Contribute
 
 There are many ways to contribute to InNova:
 
-### 🐛 Bug Reports
+### ðŸ› Bug Reports
 
 - **Find a bug?** Open an issue with a clear description
 - **Have a fix?** Submit a pull request
 - **Confirm a bug?** Comment on existing issues with additional information
 
-### 💡 Feature Requests
+### ðŸ’¡ Feature Requests
 
 - **Have an idea?** Open an issue to discuss it
 - **Want to implement?** Submit a pull request
 - **Need clarification?** Ask questions in discussions
 
-### 📖 Documentation
+### ðŸ“– Documentation
 
 - **Find a typo?** Fix it!
 - **Missing docs?** Add them!
 - **Confusing explanation?** Improve it!
 
-### 🧪 Testing
+### ðŸ§ª Testing
 
 - **Find a test gap?** Add a test!
 - **Improve coverage?** Help us reach 100%
 - **Performance testing?** Benchmark and optimize
 
-### 🚀 Development
+### ðŸš€ Development
 
 - **Fix bugs** in existing code
 - **Implement new features** from the roadmap
 - **Optimize** existing implementations
 - **Refactor** for better maintainability
 
-### 🎓 Research
+### ðŸŽ“ Research
 
 - **Implement** new research papers
 - **Propose** new algorithms
 - **Benchmark** against other frameworks
 - **Publish** research using InNova
 
-### 🤝 Community
+### ðŸ¤ Community
 
 - **Answer questions** from other users
 - **Review** pull requests
@@ -63,7 +63,7 @@ There are many ways to contribute to InNova:
 
 ---
 
-## 🏁 Getting Started
+## ðŸ Getting Started
 
 ### 1. Set Up Your Development Environment
 
@@ -71,7 +71,7 @@ Follow the [Build Guide](BUILD.md) to get InNova compiled on your machine:
 
 ```bash
 # Clone the repository
-git clone https://github.com/xprimesamx/InNova
+git clone https://github.com/origin-labs-ai/InNova
 cd InNova
 
 # Build in debug mode for development
@@ -107,7 +107,7 @@ Branch naming conventions:
 
 ---
 
-## 📝 Pull Request Guidelines
+## ðŸ“ Pull Request Guidelines
 
 ### Before Submitting
 
@@ -159,7 +159,7 @@ Branch naming conventions:
 
 ---
 
-## 📛 Code Style Guidelines
+## ðŸ“› Code Style Guidelines
 
 ### General Principles
 
@@ -334,33 +334,33 @@ if (shape.rank() != 2) {
 
 ---
 
-## 🗂️ Code Organization
+## ðŸ—‚ï¸ Code Organization
 
 ### File Structure
 
 ```
 InNova/
-├── CMakeLists.txt              # Main build configuration
-├── README.md                   # Project documentation
-├── include/                    # Public headers
-│   └── oil/                    # All OIL headers
-│       ├── types.h            # Core types
-│       ├── tensor.h           # Tensor class
-│       ├── autograd.h         # Autograd engine
-│       └── ...
-├── src/                       # Source files
-│   ├── tensor.cpp             # Tensor implementation
-│   ├── autograd.cpp           # Autograd implementation
-│   └── ...
-├── engines/                    # Engines (inference, trainer)
-│   ├── inference/             # Inference engine
-│   └── trainer/               # Training engine
-├── tools/                      # CLI tools
-│   ├── convert.cpp            # Model conversion
-│   └── ...
-└── tests/                     # Tests
-    ├── test_tensor.cpp        # Tensor tests
-    └── ...
+â”œâ”€â”€ CMakeLists.txt              # Main build configuration
+â”œâ”€â”€ README.md                   # Project documentation
+â”œâ”€â”€ include/                    # Public headers
+â”‚   â””â”€â”€ oil/                    # All OIL headers
+â”‚       â”œâ”€â”€ types.h            # Core types
+â”‚       â”œâ”€â”€ tensor.h           # Tensor class
+â”‚       â”œâ”€â”€ autograd.h         # Autograd engine
+â”‚       â””â”€â”€ ...
+â”œâ”€â”€ src/                       # Source files
+â”‚   â”œâ”€â”€ tensor.cpp             # Tensor implementation
+â”‚   â”œâ”€â”€ autograd.cpp           # Autograd implementation
+â”‚   â””â”€â”€ ...
+â”œâ”€â”€ engines/                    # Engines (inference, trainer)
+â”‚   â”œâ”€â”€ inference/             # Inference engine
+â”‚   â””â”€â”€ trainer/               # Training engine
+â”œâ”€â”€ tools/                      # CLI tools
+â”‚   â”œâ”€â”€ convert.cpp            # Model conversion
+â”‚   â””â”€â”€ ...
+â””â”€â”€ tests/                     # Tests
+    â”œâ”€â”€ test_tensor.cpp        # Tensor tests
+    â””â”€â”€ ...
 ```
 
 ### Header File Guidelines
@@ -372,7 +372,7 @@ InNova/
 
 ---
 
-## 🧪 Testing Guidelines
+## ðŸ§ª Testing Guidelines
 
 ### Test Structure
 
@@ -428,7 +428,7 @@ gcovr -r . --html --html-details -o coverage.html
 
 ---
 
-## 📝 Commit Guidelines
+## ðŸ“ Commit Guidelines
 
 ### Commit Messages
 
@@ -489,7 +489,7 @@ perf(math): Optimize AVX2 GEMM with better tiling
 
 ---
 
-## 👥 Code Review Process
+## ðŸ‘¥ Code Review Process
 
 ### For Contributors
 
@@ -520,7 +520,7 @@ perf(math): Optimize AVX2 GEMM with better tiling
 
 ---
 
-## 📊 Performance Guidelines
+## ðŸ“Š Performance Guidelines
 
 ### When to Optimize
 
@@ -567,7 +567,7 @@ gprof build/bin/your_program gmon.out > analysis.txt
 
 ---
 
-## 📚 Documentation Guidelines
+## ðŸ“š Documentation Guidelines
 
 ### Documentation Standards
 
@@ -589,7 +589,7 @@ Tensor matmul(const Tensor& a, const Tensor& b);
 
 ---
 
-## 🎯 Roadmap & Priorities
+## ðŸŽ¯ Roadmap & Priorities
 
 ### Current Priorities (v0.2)
 
@@ -618,7 +618,7 @@ Look for issues labeled with:
 
 ---
 
-## 🤝 Community Guidelines
+## ðŸ¤ Community Guidelines
 
 ### Code of Conduct
 
@@ -640,19 +640,19 @@ All contributors will be recognized:
 
 ---
 
-## 📄 License
+## ðŸ“„ License
 
 By contributing to InNova, you agree that your contributions will be licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
 
 ---
 
-## 🎉 Thank You!
+## ðŸŽ‰ Thank You!
 
 Your contributions help make InNova better for everyone. Thank you for being part of the community!
 
 ---
 
-## 📞 Need Help?
+## ðŸ“ž Need Help?
 
 - **New to Git?** Check out [GitHub's Git Handbook](https://guides.github.com/introduction/git-handbook/)
 - **New to C++?** Check out [learncpp.com](https://www.learncpp.com/)

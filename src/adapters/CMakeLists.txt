@@ -70,6 +70,7 @@ if(OIL_ADAPTER_BUILD_TOOLS)
     add_adapter_tool(bench_full "tools/bench_full.cpp")
     add_adapter_tool(bench_ollama_comparison "tools/bench_ollama_comparison.cpp")
     add_adapter_tool(bench_bitnet_comparison "tools/bench_bitnet_comparison.cpp")
+    add_adapter_tool(bench_spark_loss "tools/bench_spark_loss.cpp")
 endif()
 
 # ── Tests ──────────────────────────────────────────────────────────────────

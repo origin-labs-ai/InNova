@@ -126,6 +126,111 @@ static Row test_gguf(const float* d, int64_t n) {
     return r;
 }
 
+// Inline Lloyd-Max helpers (mirrors FormatRegistry implementation)
+static void lm_train(const float* data, size_t n, float* centroids, int k) {
+    if (!data || n == 0 || k <= 0) return;
+    float mn = data[0], mx = data[0];
+    for (size_t i = 1; i < n; i++) { if (data[i] < mn) mn = data[i]; if (data[i] > mx) mx = data[i]; }
+    if (mn == mx) { for (int i = 0; i < k; i++) centroids[i] = mn; return; }
+    centroids[0] = mn + (mx - mn) * 0.5f;
+    for (int i = 1; i < k; i++) {
+        float pos = mn + (mx - mn) * (static_cast<float>(i) + 0.5f) / static_cast<float>(k);
+        double sum = 0.0, wsum = 0.0;
+        for (size_t j = 0; j < n; j++) { float d = std::fabs(data[j] - pos); sum += d; wsum += data[j] * d; }
+        centroids[i] = (sum > 1e-10) ? static_cast<float>(wsum / sum) : pos;
+    }
+    std::vector<size_t> cnts(static_cast<size_t>(k), 0);
+    std::vector<float> sums(static_cast<size_t>(k), 0.0f);
+    for (int iter = 0; iter < 50; iter++) {
+        std::fill(cnts.begin(), cnts.end(), 0);
+        std::fill(sums.begin(), sums.end(), 0.0f);
+        for (size_t i = 0; i < n; i++) {
+            int best = 0; float best_d = std::fabs(data[i] - centroids[0]);
+            for (int c = 1; c < k; c++) { float d = std::fabs(data[i] - centroids[c]); if (d < best_d) { best_d = d; best = c; } }
+            cnts[static_cast<size_t>(best)]++; sums[static_cast<size_t>(best)] += data[i];
+        }
+        bool conv = true;
+        for (int i = 0; i < k; i++) { if (cnts[static_cast<size_t>(i)] > 0) { float nc = sums[static_cast<size_t>(i)] / static_cast<float>(cnts[static_cast<size_t>(i)]); if (std::fabs(nc - centroids[i]) > 1e-8f) conv = false; centroids[i] = nc; } }
+        if (conv) break;
+    }
+}
+static int lm_near(float val, const float* c, int k) {
+    int b = 0; float bd = std::fabs(val - c[0]);
+    for (int i = 1; i < k; i++) { float d = std::fabs(val - c[i]); if (d < bd) { bd = d; b = i; } }
+    return b;
+}
+
+// Lloyd-Max with ENDPOINTS PINNED at 0.0 and 1.0.
+// Sparse data: zeros map to normalized 0.0 or 1.0 -> exact zero preservation (lossless).
+// Dense data: endpoints capture full range, inner centroids adapt to distribution.
+static void lm_train_pinned(const float* data, size_t n, float* centroids, int k) {
+    if (!data || n == 0 || k <= 0) return;
+    if (k == 1) { centroids[0] = 0.5f; return; }
+    centroids[0] = 0.0f;
+    centroids[k - 1] = 1.0f;
+    for (int i = 1; i < k - 1; i++)
+        centroids[i] = static_cast<float>(i) / static_cast<float>(k - 1);
+    std::vector<size_t> cnts(static_cast<size_t>(k), 0);
+    std::vector<float> sums(static_cast<size_t>(k), 0.0f);
+    for (int iter = 0; iter < 50; iter++) {
+        std::fill(cnts.begin(), cnts.end(), 0);
+        std::fill(sums.begin(), sums.end(), 0.0f);
+        for (size_t i = 0; i < n; i++) {
+            int best = 0; float best_d = std::fabs(data[i] - centroids[0]);
+            for (int c = 1; c < k; c++) { float d = std::fabs(data[i] - centroids[c]); if (d < best_d) { best_d = d; best = c; } }
+            cnts[static_cast<size_t>(best)]++; sums[static_cast<size_t>(best)] += data[i];
+        }
+        bool conv = true;
+        for (int i = 1; i < k - 1; i++) {
+            if (cnts[static_cast<size_t>(i)] > 0) {
+                float nc = sums[static_cast<size_t>(i)] / static_cast<float>(cnts[static_cast<size_t>(i)]);
+                if (std::fabs(nc - centroids[i]) > 1e-8f) conv = false;
+                centroids[i] = nc;
+            }
+        }
+        if (conv) break;
+    }
+}
+
+// OIL4 Column-Wise: per-column min/max + global Lloyd-Max codebook
+// Same structure as GPTQ (column-wise) but QUANTIZATION is different:
+// GPTQ uses UNIFORM levels, OIL uses LLOYD-MAX codebook (optimal for non-uniform data)
+static Row test_oil4_cw(const float* d, int64_t n, int64_t cols) {
+    Row r = {"OIL4_CW", 4.0f, -1, -1, -1};
+    int64_t rows = n / cols; if (rows * cols != n) { rows = 1; cols = n; }
+    std::vector<float> normalized(static_cast<size_t>(n));
+    std::vector<float> col_min(static_cast<size_t>(cols));
+    std::vector<float> col_range(static_cast<size_t>(cols));
+    for (int64_t c = 0; c < cols; c++) {
+        float lo = d[c], hi = d[c];
+        for (int64_t rr = 1; rr < rows; rr++) {
+            float v = d[rr * cols + c]; if (v < lo) lo = v; if (v > hi) hi = v;
+        }
+        float rng = hi - lo; if (rng < 1e-10f) rng = 1.0f;
+        col_min[static_cast<size_t>(c)] = lo;
+        col_range[static_cast<size_t>(c)] = rng;
+        for (int64_t rr = 0; rr < rows; rr++)
+            normalized[static_cast<size_t>(rr * cols + c)] = (d[rr * cols + c] - lo) / rng;
+    }
+    float cb[16];
+    lm_train_pinned(normalized.data(), static_cast<size_t>(n), cb, 16);
+    std::vector<float> deq(static_cast<size_t>(n));
+    for (int64_t c = 0; c < cols; c++) {
+        float lo = col_min[static_cast<size_t>(c)];
+        float rng = col_range[static_cast<size_t>(c)];
+        for (int64_t rr = 0; rr < rows; rr++) {
+            size_t flat = static_cast<size_t>(rr * cols + c);
+            float val = (d[rr * cols + c] - lo) / rng;
+            int idx = lm_near(val, cb, 16);
+            deq[flat] = lo + cb[idx] * rng;
+        }
+    }
+    r.mse = compute_mse(d, deq.data(), n);
+    r.cos = cosine_sim(d, deq.data(), n);
+    r.snr = snr_db(d, deq.data(), n);
+    return r;
+}
+
 static Row test_gptq(const float* d, int64_t n, int64_t cols) {
     Row r = {"GPTQ_4bit", 4.0f, -1, -1, -1};
     int64_t rows = n/cols; if(rows*cols!=n){rows=1;cols=n;}
@@ -260,6 +365,7 @@ int main() {
         for (auto& fmt : singles) { auto r = test_single(d, N, fmt); rows.push_back(r); csv_row("Gaussian", r); }
         auto rg = test_gguf(d, N); rows.push_back(rg); csv_row("Gaussian", rg);
         auto rq = test_gptq(d, N, COLS); rows.push_back(rq); csv_row("Gaussian", rq);
+        auto rcw = test_oil4_cw(d, N, COLS); rows.push_back(rcw); csv_row("Gaussian", rcw);
         for (float t : {2.0f, 3.0f, 4.0f}) { auto rm = test_mix(d, N, t); rows.push_back(rm); csv_row("Gaussian", rm); }
 
         double ref = rg.mse;
@@ -272,7 +378,7 @@ int main() {
             md << "| " << r.name << " | " << std::fixed << std::setprecision(2) << r.bpw << " | "
                << std::scientific << std::setprecision(4) << r.mse << " | " << vs_str(r.name, r.mse, r.bpw, ref) << " |\n";
         }
-        md << "\n**Key:** OIL formats with lower BPW = better compression. OIL_MIX = importance routing.\n\n---\n*Generated by InNova bench_poc*\n";
+        md << "\n**Key:** OIL4_CW = column-wise min/max + Lloyd-Max codebook. Same structure as GPTQ but non-uniform optimal levels for non-Gaussian data.\n\n---\n*Generated by InNova bench_poc*\n";
     }
 
     // ========================================================================
@@ -302,6 +408,7 @@ int main() {
             for (auto& fmt : singles) { auto r = test_single(d, N, fmt); rows.push_back(r); csv_row(dist.name, r); }
             auto rg = test_gguf(d, N); rows.push_back(rg); csv_row(dist.name, rg);
             auto rq = test_gptq(d, N, COLS); rows.push_back(rq); csv_row(dist.name, rq);
+            auto rcw = test_oil4_cw(d, N, COLS); rows.push_back(rcw); csv_row(dist.name, rcw);
             for (float t : {2.0f, 3.0f, 4.0f}) { auto rm = test_mix(d, N, t); rows.push_back(rm); csv_row(dist.name, rm); }
 
             double ref = rg.mse;
@@ -349,6 +456,7 @@ int main() {
             for (auto& fmt : singles) { auto r = test_single(d, N, fmt); rows.push_back(r); csv_row(dist.name, r); }
             auto rg = test_gguf(d, N); rows.push_back(rg); csv_row(dist.name, rg);
             auto rq = test_gptq(d, N, COLS); rows.push_back(rq); csv_row(dist.name, rq);
+            auto rcw = test_oil4_cw(d, N, COLS); rows.push_back(rcw); csv_row(dist.name, rcw);
             for (float t : {2.0f, 3.0f, 4.0f}) { auto rm = test_mix(d, N, t); rows.push_back(rm); csv_row(dist.name, rm); }
 
             double ref = rg.mse;
