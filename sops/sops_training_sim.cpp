@@ -62,7 +62,7 @@ struct SimFormat {
 static const SimFormat formats[] = {
     {"OIL1",       0, 1.0,   32.000},
     {"SPARK_Q0",   1, 1.5,   21.333},
-    {"SPARK",      3, 1.58,  20.253},
+    {"SPARK_Q0_GRP", 3, 1.5,   20.253},
     {"OIL2",       4, 2.0,   16.000},
     {"OIL4",       5, 4.0,    8.000},
     {"OIL8",       6, 8.0,    4.000},

@@ -7,15 +7,6 @@
 namespace oil {
 namespace kernel {
 
-// I2_S MAD: packed 2-bit SPARK weight × int8 activation
-// Storage: 4 SPARK values per byte, 1 shared scale per block
-// Compute: unpack → add/sub with scale factor
-void i2s_gemm(const Tensor& weights, const Tensor& activations,
-              Tensor& output, int M, int N, int K);
-void i2s_gemv(const uint8_t* packed_w, float w_scale,
-              const int8_t* act, float act_scale,
-              float* output, int K);
-
 // TL1: SPARK Lookup Table, groups of 2
 void tl1_gemm(const Tensor& weights, const Tensor& activations,
               Tensor& output, int M, int N, int K);
@@ -55,14 +46,6 @@ void avx2_gemm(const float* A, const float* B, float* C,
 // AVX2 tiled GEMM
 void avx2_tiled_gemm(const float* A, const float* B, float* C,
                      int M, int N, int K);
-
-// AVX2 I2S GEMM with LUT-based decode (32 values/iteration)
-void i2s_gemm_avx2(const Tensor& weights, const Tensor& activations,
-                   Tensor& output, int M, int N, int K);
-
-// AVX2 I2S GEMM with VNNI: packed SPARK × int8 activations
-void i2s_gemm_vnni(const uint8_t* packed_w, const int8_t* activations,
-                   float* output, int M, int N, int K);
 
 } // namespace kernel
 } // namespace oil

@@ -53,20 +53,49 @@ void collect_dense_params(DenseModel* dm, std::vector<Tensor*>& params) {
 
 Trainer::Trainer(Model* m, Tokenizer* t) : model_(m), tokenizer_(t), step_(0) {}
 
+namespace {
+// Shared compile body: register model parameters with the autograd engine and
+// hand them to whatever optimizer was selected (AdamW or Adafactor).
+void trainer_compile_common(Trainer* trainer, Optimizer* opt,
+                            const std::vector<Tensor*>& params) {
+    auto& engine = AutogradEngine::instance();
+    for (auto* p : params) {
+        p->requires_grad(true);
+        engine.register_parameter(p);
+    }
+    opt->add_param_group(params);
+}
+} // namespace
+
 void Trainer::compile(AdamW* opt, const TrainConfig& cfg) {
     optimizer_ = opt;
     DenseModel* dm = dynamic_cast<DenseModel*>(model_);
     if (dm) {
         model_params_.clear();
         collect_dense_params(dm, model_params_);
-        auto& engine = AutogradEngine::instance();
-        for (auto* p : model_params_) {
-            p->requires_grad(true);
-            engine.register_parameter(p);
-        }
-        optimizer_->add_param_group(model_params_);
+        trainer_compile_common(this, opt, model_params_);
     }
     opt->set_schedule(cfg.schedule, cfg.warmup_steps, cfg.train_steps);
+    opt->set_weight_decay(cfg.weight_decay);
+    loss_scale_ = cfg.mixed_precision ? cfg.loss_scale : 1.0f;
+    loss_scale_interval_ = cfg.loss_scale_interval;
+    grad_noise_eta_ = cfg.grad_noise_eta;
+    grad_noise_gamma_ = cfg.grad_noise_gamma;
+    label_smoothing_ = cfg.label_smoothing;
+    if (cfg.mixed_precision) init_mixed_precision();
+}
+
+void Trainer::compile(Adafactor* opt, const TrainConfig& cfg) {
+    optimizer_ = opt;
+    DenseModel* dm = dynamic_cast<DenseModel*>(model_);
+    if (dm) {
+        model_params_.clear();
+        collect_dense_params(dm, model_params_);
+        trainer_compile_common(this, opt, model_params_);
+    }
+    // Adafactor has no warmup/cosine scheduler; the learning rate is applied
+    // directly (and can be adjusted by the caller via Trainer::metrics()/set_lr).
+    opt->set_lr(cfg.learning_rate);
     opt->set_weight_decay(cfg.weight_decay);
     loss_scale_ = cfg.mixed_precision ? cfg.loss_scale : 1.0f;
     loss_scale_interval_ = cfg.loss_scale_interval;
@@ -299,14 +328,14 @@ void Trainer::save_checkpoint(const std::string& path) {
         auto& state = optimizer_->get_state(p);
         int64_t n = p->numel();
         int64_t written_m = 0, written_v = 0;
-        if (state.m.numel() > 0) {
+        if (state.m.buffer() && state.m.numel() > 0) {
             written_m = state.m.numel();
             fwrite(&written_m, sizeof(written_m), 1, fp);
             fwrite(state.m.data<float>(), (size_t)written_m * sizeof(float), 1, fp);
         } else {
             fwrite(&written_m, sizeof(written_m), 1, fp);
         }
-        if (state.v.numel() > 0) {
+        if (state.v.buffer() && state.v.numel() > 0) {
             written_v = state.v.numel();
             fwrite(&written_v, sizeof(written_v), 1, fp);
             fwrite(state.v.data<float>(), (size_t)written_v * sizeof(float), 1, fp);

@@ -371,6 +371,19 @@ void Adafactor::step() {
         float r_mean = 0;
         for (int64_t i = 0; i < d0; i++) r_mean += r[i];
         r_mean /= (float)d0;
+        // A parameter whose factorized second moment is zero (or non-finite)
+        // received no usable gradient this step — e.g. a fully masked-out
+        // block in selective fine-tuning or a zero-initialized adapter factor
+        // whose own gradient is identically zero. Updating it would evaluate
+        // v_hat = r*c/r_mean as 0/0 = NaN and poison the model, so only the
+        // weight-decay part is applied.
+        if (!(r_mean > 0.0f) || !std::isfinite(r_mean)) {
+            if (weight_decay_ != 0.0f && lr_ != 0.0f) {
+                float p_factor = 1.0f - weight_decay_ * lr_;
+                for (int64_t i = 0; i < n; i++) p[i] *= p_factor;
+            }
+            continue;
+        }
         float step = lr_ / (std::sqrt(r_mean) + eps_);
         float p_factor = 1.0f - weight_decay_ * lr_;
         for (int64_t i = 0; i < n; i++) {

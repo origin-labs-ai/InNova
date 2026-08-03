@@ -3,6 +3,7 @@
 #include "oil/types.h"
 #include "oil/format_planner.h"
 #include "oil/codebook.h"
+#include "oil/block_codec.h"
 
 #include <iostream>
 #include <string>
@@ -40,7 +41,7 @@ static ConvertArgs parse_args(int argc, char** argv) {
             std::cout << "  --format fmt   Input format: rawfp32 (default), gguf\n";
             std::cout << "  --bpw N        Target bits-per-weight for FormatPlanner (0=no compression)\n";
             std::cout << "  --verbose      Verbose output\n";
-            std::cout << "\nFormats: 1.0(oil1) 1.58(spark) 4.0(oil4) 8.0(oil8) 16.0(fp16) 32.0(fp32)\n";
+            std::cout << "\nFormats: 1.0(oil1) 1.50(spark) 4.0(oil4) 8.0(oil8) 16.0(fp16) 32.0(fp32)\n";
             exit(0);
         }
     }
@@ -308,73 +309,41 @@ static bool read_gguf(const std::string& path, std::vector<float>& all_weights,
     return true;
 }
 
-// Apply FormatPlanner to compress weights to target BPW
-static bool apply_format_plan(const std::vector<float>& f32_data, size_t num_weights,
-                               float target_bpw, oil::FormatPlan& plan,
-                               std::vector<uint8_t>& compressed_indices,
-                               std::vector<uint8_t>& codebook_data) {
-    if (target_bpw <= 0.0f) return false;
-    if (num_weights == 0) return false;
+// Quantize one tensor with the canonical block codec: per 256-weight block,
+// the planner-assigned format is encoded with quantize_block_all() so the
+// output is byte-identical to what the engine's dequantize_block_all()
+// decodes (single encoding per format ID — no hand-rolled lookalikes).
+struct TensorBlockData {
+    oil::Format format;
+    std::vector<uint8_t> indices;
+    std::vector<uint8_t> codebook;
+};
+
+static bool quantize_tensor_blocks(const float* data, int64_t numel, float target_bpw,
+                                   oil::FormatPlan* plan_out,
+                                   std::vector<TensorBlockData>& blocks,
+                                   std::vector<oil::Format>& formats) {
+    if (!data || numel <= 0 || target_bpw <= 0.0f) return false;
 
     oil::FormatPlanner planner(target_bpw);
-    int64_t num_blocks = (int64_t)((num_weights + 255) / 256);
-    plan = planner.plan_for_model(num_blocks * 256);
+    int64_t num_blocks = (int64_t)((numel + 255) / 256);
+    oil::FormatPlan plan = planner.plan_for_model(num_blocks * 256);
+    if (plan_out) *plan_out = plan;
 
-    oil::Format actual_format = oil::Format::OIL32;
-    for (auto& blk : plan.blocks) {
-        actual_format = blk.assigned_format;
-        break;
-    }
-
-    if (actual_format == oil::Format::SPARK_Q0) {
-        // SPARK: 2 bits per weight, pack 4 per byte
-        size_t packed_size = (num_weights + 3) / 4;
-        compressed_indices.resize(packed_size, 0);
-        codebook_data.resize(3 * 4); // {-1, 0, +1} stored as FP32
-        for (int i = 0; i < 3; i++) {
-            float val = (float)(i - 1);
-            memcpy(&codebook_data[i * 4], &val, 4);
-        }
-        for (size_t i = 0; i < num_weights; i++) {
-            int8_t q = (f32_data[i] > 0.5f) ? 1 : ((f32_data[i] < -0.5f) ? -1 : 0);
-            uint8_t packed = (uint8_t)(q + 1); // map -1->0, 0->1, 1->2
-            compressed_indices[i / 4] |= (packed << ((i % 4) * 2));
-        }
-    } else if (actual_format == oil::Format::OIL8) {
-        // OIL8: 8-bit codebook quantized
-        oil::CodebookOIL8 cb;
-        cb.train(f32_data.data(), (int)num_weights);
-        compressed_indices.resize(num_weights);
-        codebook_data.resize(cb.serialized_size());
-        cb.serialize(codebook_data.data());
-        for (size_t i = 0; i < num_weights; i++) {
-            compressed_indices[i] = cb.quantize(f32_data[i]);
-        }
-    } else if (actual_format == oil::Format::OIL4) {
-        // OIL4: 4-bit codebook quantized, pack 2 per byte
-        oil::CodebookOIL4 cb;
-        cb.train(f32_data.data(), (int)num_weights);
-        compressed_indices.resize((num_weights + 1) / 2);
-        codebook_data.resize(cb.serialized_size());
-        cb.serialize(codebook_data.data());
-        for (size_t i = 0; i < num_weights; i++) {
-            uint8_t idx = cb.quantize(f32_data[i]);
-            if (i % 2 == 0)
-                compressed_indices[i / 2] = idx & 0x0F;
-            else
-                compressed_indices[i / 2] |= (idx << 4);
-        }
-    } else {
-        // OIL1: 1 bit per weight, pack 8 per byte
-        compressed_indices.resize((num_weights + 7) / 8, 0);
-        codebook_data.resize(2 * 4); // {-1, +1} stored as FP32
-        float neg_one = -1.0f, pos_one = 1.0f;
-        memcpy(&codebook_data[0], &neg_one, 4);
-        memcpy(&codebook_data[4], &pos_one, 4);
-        for (size_t i = 0; i < num_weights; i++) {
-            if (f32_data[i] >= 0)
-                compressed_indices[i / 8] |= (1 << (i % 8));
-        }
+    blocks.clear();
+    formats.clear();
+    for (int64_t b = 0; b < num_blocks; b++) {
+        const int64_t start = b * 256;
+        const int64_t blen = std::min<int64_t>(256, numel - start);
+        oil::Format fmt = (b < (int64_t)plan.blocks.size())
+                              ? plan.blocks[(size_t)b].assigned_format
+                              : oil::Format::OIL8;
+        TensorBlockData blk;
+        blk.format = fmt;
+        if (!oil::quantize_block_all(fmt, data + start, (int)blen, blk.indices, blk.codebook))
+            return false;
+        formats.push_back(fmt);
+        blocks.push_back(std::move(blk));
     }
     return true;
 }
@@ -449,95 +418,97 @@ static bool convert_gguf(const std::string& in_path, const std::string& out_path
     hdr.config_size = 0;
     writer.write_header(hdr, nullptr);
 
-    // Use FormatPlanner if BPW target given
-    oil::FormatPlan format_plan;
-    std::vector<uint8_t> compressed_indices;
-    std::vector<uint8_t> codebook_data;
-    bool use_compression = false;
-
-    if (target_bpw > 0.0f && !all_weights.empty()) {
-        use_compression = apply_format_plan(all_weights, all_weights.size(), target_bpw,
-                                            format_plan, compressed_indices, codebook_data);
-    }
-
-    oil::Format actual_format = oil::Format::OIL32;
-    uint32_t codebook_bytes = 0;
-    if (use_compression) {
-        for (auto& blk : format_plan.blocks) {
-            actual_format = blk.assigned_format;
-            break;
-        }
-        codebook_bytes = (uint32_t)codebook_data.size();
-    }
+    const bool use_compression = (target_bpw > 0.0f && !all_weights.empty());
 
     std::vector<oil::FormatBlockEntry> fmt_entries;
-    {
-        oil::FormatBlockEntry fe;
-        fe.block_id = 0;
-        fe.format = (uint8_t)actual_format;
-        fe.cb_bytes = codebook_bytes;
-        fmt_entries.push_back(fe);
-    }
-    writer.write_format_table(fmt_entries);
+    std::vector<oil::TensorEntry> t_entries;
+    std::vector<std::string> t_names;
+    std::vector<oil::BlockData> block_data;
+    oil::Format primary_format = oil::Format::OIL32;
 
-    // If compression was applied, write all weights as a single block
-    if (use_compression) {
-        std::vector<oil::TensorEntry> t_entries;
-        std::vector<std::string> t_names;
-        size_t cursor = 0; (void)cursor;
-        for (size_t i = 0; i < all_names.size(); i++) {
-            oil::TensorEntry te;
-            te.name_len = (uint32_t)all_names[i].size();
-            te.block_start = (uint32_t)i;
-            te.num_blocks = 1;
-            t_entries.push_back(te);
-            t_names.push_back(all_names[i]);
-        }
-        writer.write_tensor_table(t_entries, t_names);
+    // Real stored bytes / weights across all written blocks — used to print
+    // the ACTUAL achieved BPW (not the requested target) after conversion.
+    double total_qbytes = 0.0;
+    int64_t total_qweights = 0;
 
-        for (size_t i = 0; i < all_names.size(); i++) {
-            oil::BlockData block;
-            block.format = actual_format;
-            block.num_weights = (uint32_t)all_shapes[i];
-            if (actual_format == oil::Format::SPARK_Q0 || actual_format == oil::Format::OIL1 ||
-                actual_format == oil::Format::OIL32) {
-                // Shared codebook for first block; subsequent blocks reuse it (zero-length indices)
+    size_t cursor = 0;
+    for (size_t i = 0; i < all_names.size(); i++) {
+        const int64_t numel = all_shapes[i];
+        if (numel < 0) { std::cerr << "Error: negative tensor size for " << all_names[i] << "\n"; return false; }
+
+        oil::TensorEntry te;
+        te.name_len = (uint32_t)all_names[i].size();
+        te.block_start = (uint32_t)fmt_entries.size();
+        te.num_blocks = 0;
+        t_entries.push_back(te);
+        t_names.push_back(all_names[i]);
+
+        if (use_compression) {
+            // Canonical per-block encoding for THIS tensor (its own plan), so
+            // the written payload is byte-identical to the engine decode path.
+            std::vector<TensorBlockData> blocks;
+            std::vector<oil::Format> formats;
+            oil::FormatPlan plan;
+            if (!quantize_tensor_blocks(all_weights.data() + cursor, numel, target_bpw,
+                                        &plan, blocks, formats)) {
+                std::cerr << "Error: block quantization failed for " << all_names[i] << "\n";
+                return false;
             }
-            block.indices = compressed_indices;
-            block.codebook = codebook_data;
-            writer.write_block(block);
-        }
-    } else {
-        // No compression: write FP32 data per tensor
-        std::vector<oil::TensorEntry> t_entries;
-        std::vector<std::string> t_names;
-        for (size_t i = 0; i < all_names.size(); i++) {
-            oil::TensorEntry te;
-            te.name_len = (uint32_t)all_names[i].size();
-            te.block_start = (uint32_t)i;
-            te.num_blocks = 1;
-            t_entries.push_back(te);
-            t_names.push_back(all_names[i]);
-        }
-        writer.write_tensor_table(t_entries, t_names);
+            for (size_t b = 0; b < blocks.size(); b++) {
+                total_qbytes += (double)(blocks[b].indices.size() +
+                                         blocks[b].codebook.size());
+                total_qweights += (int64_t)std::min<int64_t>(
+                    256, numel - (int64_t)b * 256);
 
-        size_t cursor = 0;
-        for (size_t i = 0; i < all_names.size(); i++) {
+                oil::FormatBlockEntry fe;
+                fe.block_id = (uint32_t)fmt_entries.size();
+                fe.format = (uint8_t)blocks[b].format;
+                fe.cb_bytes = (uint32_t)blocks[b].codebook.size();
+                fmt_entries.push_back(fe);
+
+                oil::BlockData block;
+                block.format = blocks[b].format;
+                block.num_weights = (uint32_t)std::min<int64_t>(256, numel - (int64_t)b * 256);
+                block.indices = std::move(blocks[b].indices);
+                block.codebook = std::move(blocks[b].codebook);
+                block_data.push_back(std::move(block));
+                te.num_blocks++;
+            }
+            if (primary_format == oil::Format::OIL32 && !formats.empty())
+                primary_format = formats[0];
+        } else {
+            // FP32: one raw block per tensor.
+            oil::FormatBlockEntry fe;
+            fe.block_id = (uint32_t)fmt_entries.size();
+            fe.format = (uint8_t)oil::Format::OIL32;
+            fe.cb_bytes = 0;
+            fmt_entries.push_back(fe);
+
             oil::BlockData block;
             block.format = oil::Format::OIL32;
-            block.num_weights = (uint32_t)all_shapes[i];
-            size_t byte_size = all_shapes[i] * sizeof(float);
+            block.num_weights = (uint32_t)numel;
+            const size_t byte_size = (size_t)numel * sizeof(float);
             block.indices.resize(byte_size);
-            memcpy(block.indices.data(), &all_weights[cursor], byte_size);
-            writer.write_block(block);
-            cursor += all_shapes[i];
+            if (byte_size > 0) memcpy(block.indices.data(), &all_weights[cursor], byte_size);
+            block_data.push_back(std::move(block));
+            te.num_blocks = 1;
         }
+        cursor += (size_t)numel;
     }
+
+    writer.write_format_table(fmt_entries);
+    writer.write_tensor_table(t_entries, t_names);
+    for (auto& block : block_data) writer.write_block(block);
 
     writer.close();
     std::cout << "Converted " << all_names.size() << " tensors to OIL: " << out_path;
-    if (use_compression)
-        std::cout << " (compressed to " << target_bpw << " BPW using " << oil::format_name(actual_format) << ")";
+    if (use_compression) {
+        const double achieved = (total_qweights > 0)
+            ? total_qbytes * 8.0 / (double)total_qweights : 0.0;
+        std::cout << " (requested " << target_bpw << " BPW; achieved "
+                  << achieved << " BPW; primary format "
+                  << oil::format_name(primary_format) << ")";
+    }
     std::cout << std::endl;
     return true;
 }

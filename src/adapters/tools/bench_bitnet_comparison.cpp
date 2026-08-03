@@ -174,7 +174,7 @@ static float measure_int8(const float* orig, const std::vector<uint8_t>& q, int 
 // ── OIL quantize/measure ──
 static int quantize_oil(const float* data, int K, std::vector<uint8_t>& out) {
     AdapterTensor t; t.name = "cmp"; t.data.assign(data, data + K); t.shape = {(int64_t)K};
-    BridgeConfig cfg; cfg.target_bpw = 1.58f; cfg.block_size = 256;
+    BridgeConfig cfg; cfg.target_bpw = 1.50f; cfg.block_size = 256;
     cfg.output_path = "tmp_bnc_oil.oil"; cfg.verbose = false;
     if (!write_oil_mixed({t}, cfg)) return -1;
     std::ifstream f(cfg.output_path, std::ios::binary);
@@ -202,7 +202,7 @@ struct FmtCmp { const char* name; float bpw;
 static int q_oil(const float* d, int K, std::vector<uint8_t>& o) { return quantize_oil(d, K, o); }
 
 static FmtCmp g_fmts[] = {
-    {"OIL Mixed",     1.58f, q_oil,                  measure_oil},
+    {"OIL Mixed",     1.50f, q_oil,                  measure_oil},
     {"BitNet 1.58b",  1.58f, [](const float* d, int K, std::vector<uint8_t>& o)->int { o = bitnet::quantize_spark(d, K); return 0; }, bitnet::measure_spark},
     {"BitNet 1-bit",  1.00f, [](const float* d, int K, std::vector<uint8_t>& o)->int { o = bitnet::quantize_oil1(d, K); return 0; }, bitnet::measure_oil1},
     {"INT4",          4.00f, [](const float* d, int K, std::vector<uint8_t>& o)->int { o = bitnet::quantize_int4(d, K); return 0; }, bitnet::measure_int4},
@@ -240,8 +240,8 @@ int main(int argc, char** argv) {
     int oil_wins = 0;
     for (int f = 1; f < NF; f++) if (mse[0] < mse[f]) oil_wins++;
     printf("\nOIL beats %d/%d BitNet formats on MSE\n", oil_wins, NF-1);
-    if (mse[0] < mse[1]) printf("🔥 OIL BEATS BitNet 1.58b AT SAME bpw (1.58) — OIL's mixed precision WINS!\n");
-    if (mse[0] < mse[3]) printf("🔥 OIL BEATS INT4 (4.0 bpw) AT 1.58 bpw — 2.5x BETTER COMPRESSION!\n");
+    if (mse[0] < mse[1]) printf("🔥 OIL BEATS BitNet 1.58b — OIL Mixed (1.50 bpw) WINS at LOWER bpw!\n");
+    if (mse[0] < mse[3]) printf("🔥 OIL BEATS INT4 (4.0 bpw) AT 1.50 bpw — 2.7x BETTER COMPRESSION!\n");
 
     char buf[32768]; int p = 0;
     p += snprintf(buf+p, sizeof(buf)-p, "{\"comparison\":\"OIL vs BitNet.cpp\",\"N\":%d,\"formats\":[\n", N);

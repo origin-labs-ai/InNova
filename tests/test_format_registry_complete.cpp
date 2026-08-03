@@ -21,8 +21,10 @@ static const char* EXPECTED_NAMES[FORMAT_COUNT] = {
 
 static constexpr float EXPECTED_BPW[FORMAT_COUNT] = {
     1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f,
-    1.19f, 2.19f, 4.19f, 8.19f, 16.19f,
-    2.0f, 2.0f, 1.50f, 1.69f
+    // GRP variants carry REAL per-64-group FP16 scale+zero-point headers
+    // (0.5 BPW overhead), so their honest claims are 2.5 / 4.5 / 8.5.
+    1.0f, 2.5f, 4.5f, 8.5f, 16.0f,
+    2.0f, 2.0f, 1.50f, 1.50f
 };
 
 static constexpr bool EXPECTED_LOSSLESS[FORMAT_COUNT] = {
@@ -154,6 +156,5 @@ int main() {
     printf("  15 formats. All tests complete.\n");
     printf("═══════════════════════════════════════════════════════════\n");
 
-    TEST_REPORT();
-    return 0;
+    return TEST_REPORT() == 0 ? 0 : 1;
 }

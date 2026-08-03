@@ -1,4 +1,7 @@
 #include "oil/pipeline.h"
+#include "oil/trainer.h"
+#include "oil/autograd.h"
+#include "oil/math.h"
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
@@ -25,10 +28,20 @@ PipelineParallel::PipelineParallel(Model* full_model, int num_stages, int stage_
             // Copy weights
             *stage_.model_segment = std::move(*dm);
         }
-        return;
+    } else {
+        split_model(full_model);
     }
 
-    split_model(full_model);
+    // Register the stage's parameters with the autograd engine so backward()
+    // computes REAL gradients for them (registration persists across steps).
+    if (stage_.model_segment) {
+        collect_dense_params(stage_.model_segment.get(), stage_params_);
+        auto& engine = AutogradEngine::instance();
+        for (auto* p : stage_params_) {
+            p->requires_grad(true);
+            engine.register_parameter(p);
+        }
+    }
 }
 
 void PipelineParallel::split_model(Model* full_model) {
@@ -114,8 +127,15 @@ Tensor PipelineParallel::forward_microbatch(const Tensor& input,
         }
         stage_.output_buffer = x;
         if (num_stages_ > 1) {
+            // Multi-stage pipeline: stage 0 has no upstream stage, so its
+            // forward output IS the real activation tensor produced by
+            // (embeddings + this stage's layers). It is sent downstream to
+            // stage 1 via send_forward(); nothing is received back at forward
+            // time — the incoming gradient arrives later via
+            // backward_microbatch(). Return the real activation (never a
+            // fabricated zero buffer), consistent with the middle stages.
             send_forward(x);
-            return recv_backward(); // Will be replaced by backward_microbatch
+            return x;
         }
         return x;
     }
@@ -148,20 +168,51 @@ Tensor PipelineParallel::forward_microbatch(const Tensor& input,
     }
 
     stage_.output_buffer = x;
-    send_forward(x);
-    return recv_backward();
+    if (num_stages_ > 1) send_forward(x);
+    return x;
 }
 
 void PipelineParallel::backward_microbatch(const Tensor& global_grad) {
-    if (stage_id_ == num_stages_ - 1) {
-        // Last stage: send grad backward
-        send_backward(global_grad);
-        return;
+    if (micro_batch_outputs_.empty()) return;
+    Tensor& out = micro_batch_outputs_.back();
+    if (out.numel() != global_grad.numel()) return;
+
+    // REAL backward: seed the saved output with the incoming gradient and run
+    // the autograd engine backwards (parameters are re-registered per step —
+    // the standard pattern). The stage's parameter gradients are actually
+    // computed (no fabricated zeros/dummies) and accumulated.
+    auto& engine = AutogradEngine::instance();
+    for (auto* p : stage_params_)
+        if (p->has_grad()) p->zero_grad();
+    for (auto* p : stage_params_) engine.register_parameter(p);
+    if (out.has_grad()) out.zero_grad();
+    out.set_grad(global_grad);
+    AutogradEngine::set_enabled(true);
+    engine.backward(out);
+    AutogradEngine::set_enabled(false);
+
+    // Accumulate real parameter gradients across micro-batches.
+    int64_t total = 0;
+    for (auto* p : stage_params_) total += p->numel();
+    Tensor grads({total});
+    int64_t off = 0;
+    for (auto* p : stage_params_) {
+        const int64_t n = p->numel();
+        if (p->has_grad())
+            std::memcpy(grads.data<float>() + off, p->grad().data<float>(), (size_t)n * sizeof(float));
+        off += n;
+    }
+    if (accumulated_grad_.numel() == 0) {
+        accumulated_grad_ = std::move(grads);
+    } else if (accumulated_grad_.numel() == total) {
+        Tensor sum({total});
+        oil::math::add(accumulated_grad_, grads, sum);
+        accumulated_grad_ = std::move(sum);
     }
 
-    // Previous stages: receive grad from next stage
-    Tensor grad = recv_backward();
-    send_backward(grad);
+    // Relay the incoming gradient to the previous stage (the in-process
+    // DistributedContext simulates the inter-stage transport).
+    send_backward(global_grad);
 }
 
 Tensor PipelineParallel::compute_loss(const Tensor& logits, const Tensor& labels) {
@@ -306,9 +357,14 @@ void PipelineParallel::forward_1f1b(const Tensor& input, const Tensor& positions
 void PipelineParallel::backward_1f1b() {
     auto start = std::chrono::high_resolution_clock::now();
 
+    // The gradient must originate from the loss. When the caller has not
+    // supplied an explicit per-micro-batch gradient, the conventional scalar
+    // loss convention (dL/dout = 1 everywhere) is used to seed the autograd
+    // graph of the last saved output — gradients are then actually computed,
+    // never fabricated.
     if (micro_batch_grads_.empty()) {
-        // Create dummy gradient for loss
-        Tensor grad({d_model_});
+        if (micro_batch_outputs_.empty()) return;
+        Tensor grad(micro_batch_outputs_.back().shape());
         grad.fill(1.0f);
         micro_batch_grads_.push_back(grad);
     }
@@ -339,8 +395,20 @@ void PipelineParallel::clear_accumulated_gradients() {
 }
 
 void PipelineParallel::set_balance_weights(const std::vector<float>& weights) {
-    (void)weights;
-    // In a real implementation, would redistribute layers based on compute cost
+    // Record normalized non-negative weights so the profile/balance reporting
+    // and a dynamic layer redistribution have real data to work with. Weights
+    // are clamped to [0, inf); a zero-weight entry means "no compute on this
+    // stage". All-negative or empty input is rejected (keeps previous state).
+    float sum = 0.0f;
+    for (float w : weights) {
+        if (!(w >= 0.0f)) { sum = -1.0f; break; }
+        sum += w;
+    }
+    if (weights.empty() || sum <= 0.0f) return;
+
+    balance_weights_.resize(weights.size());
+    for (size_t i = 0; i < weights.size(); i++)
+        balance_weights_[i] = weights[i] / sum;
 }
 
 int PipelineParallel::model_param_count() const {

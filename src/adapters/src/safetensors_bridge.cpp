@@ -181,7 +181,7 @@ std::vector<AdapterTensor> load_safetensors(const std::string& path, bool verbos
         std::string obj = json.substr(obj_start, obj_end - obj_start);
 
         // Extract dtype from within the object.
-        std::string dtype_str = extract_json_string(obj, "\"dtype\"");
+        std::string dtype_str = extract_json_string(obj, "dtype");
         if (dtype_str.empty()) continue;
 
         // Extract shape array.

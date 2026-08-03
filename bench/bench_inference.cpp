@@ -109,7 +109,7 @@ static void bench_model_size(const oil::TransformerConfig& cfg) {
         {"FP32",   32.0f},
         {"OIL8",    8.0f},
         {"OIL4",    4.0f},
-        {"SPARK",  1.58f},
+        {"SPARK",  1.50f},
         {"OIL1",   1.0f},
     };
 

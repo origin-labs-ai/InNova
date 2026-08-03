@@ -511,8 +511,8 @@ void ModelSnapshot::save(Optimizer* opt, int step, float current_lr,
             continue;
         }
         auto& st = opt->get_state(p);
-        int64_t sz_m = st.m.numel();
-        int64_t sz_v = st.v.numel();
+        int64_t sz_m = st.m.buffer() ? st.m.numel() : 0;
+        int64_t sz_v = st.v.buffer() ? st.v.numel() : 0;
         fwrite(&sz_m, sizeof(sz_m), 1, fp);
         if (sz_m > 0) {
             fwrite(st.m.data<float>(), (size_t)sz_m * sizeof(float), 1, fp);

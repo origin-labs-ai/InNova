@@ -66,6 +66,7 @@ void DenseModel::init_weights() {
     }
     rand_fill(lm_head->weight);
     norm->weight.fill(1.0f);
+    rand_fill(tok_embeddings->weight);
 }
 
 void DenseModel::get_parameters(std::vector<Tensor*>& params) {

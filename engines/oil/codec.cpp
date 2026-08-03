@@ -67,7 +67,9 @@ Tensor OIL8Decoder::decode_blocks(const std::vector<EncodedBlock>& blocks, const
 
     int64_t offset = 0;
     for (const auto& block : blocks) {
+        if (offset >= total) break;
         for (uint32_t i = 0; i < block.num_weights; i++) {
+            if (offset >= total) break;
             out_data[offset++] = block.codebook.dequantize(block.indices[i]);
         }
     }

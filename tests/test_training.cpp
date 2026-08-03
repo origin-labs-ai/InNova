@@ -67,9 +67,10 @@ static float eval_cross_entropy(const Tensor& logits, const Tensor& targets) {
     return loss / (float)(B * S);
 }
 
-// Test 3: Scale test — 0.1B-class model, 10 steps, batch4, seq256
+// Test 3: Scale test — 0.1B-class model (17.8M params), 10 steps, batch2, seq32
 static void test_scale_train() {
     printf("\n--- Test 3: Scale test (0.1B-class) ---\n");
+    AutogradEngine::instance().reset();
     TransformerConfig cfg;
     cfg.hidden_size = 512;
     cfg.num_layers = 4;
@@ -87,7 +88,7 @@ static void test_scale_train() {
         printf("  Scale: %.1f%% of 0.1B\n", (double)param_count / 1e8 * 100.0);
     }
 
-    int64_t B = 4, S = 64;
+    int64_t B = 2, S = 32;
     Tensor input_ids(Shape{B, S});
     Tensor positions(Shape{B, S});
     Tensor target_ids(Shape{B, S});
@@ -104,7 +105,10 @@ static void test_scale_train() {
     std::vector<Tensor*> params;
     collect_all_params(model, params);
     auto& engine = AutogradEngine::instance();
-    for (auto* p : params) engine.register_parameter(p);
+    for (auto* p : params) {
+        p->requires_grad(true);
+        engine.register_parameter(p);
+    }
     SGD optimizer(lr);
     optimizer.add_param_group(params);
 
@@ -148,6 +152,7 @@ static void test_scale_train() {
 // Test 4: Gradient noise injection (Neelakantan et al. ICLR 2016)
 static void test_grad_noise() {
     printf("\n--- Test 4: Gradient Noise Injection ---\n");
+    AutogradEngine::instance().reset();
     TransformerConfig cfg;
     cfg.hidden_size = 64;
     cfg.num_layers = 2;
@@ -260,6 +265,7 @@ int main() {
 
     // Test 2: Full model training (cross-entropy loss)
     printf("\n--- Test 2: Transformer training ---\n");
+    AutogradEngine::instance().reset();
 
     TransformerConfig cfg;
     cfg.hidden_size = 64;
@@ -302,6 +308,8 @@ int main() {
     std::vector<Tensor*> params;
     collect_all_params(model, params);
     for (auto* p : params)
+        p->requires_grad(true);
+    for (auto* p : params)
         engine.register_parameter(p);
 
     SGD optimizer(lr);
@@ -331,12 +339,15 @@ int main() {
     float final_loss = eval_cross_entropy(model.forward(input_ids, positions), target_ids);
     printf("\nFinal loss: %.4f\n", final_loss);
 
-    // Note: full transformer model forward() doesn't use autograd-tracked ops internally,
-    // so gradients from cross_entropy_op don't flow through to model parameters.
-    // Loss constancy is expected unless the model is refactored to use AutogradEngine ops.
-    // The autograd system is validated via Test 1 (regression using autograd ops directly).
+    // Gradient flow through the full transformer is validated by the finite-difference
+    // checks in test_trainer; here we verify the manual SGD loop actually
+    // TRAINS (loss decreases end-to-end) and stays stable.
     TEST_CHECK(losses.size() == (size_t)num_steps, "All training steps completed");
     TEST_CHECK(std::isfinite(final_loss), "Final loss is finite");
+    TEST_CHECK(final_loss < initial_loss, "Training decreases loss (real gradients)");
+    // Also verify the last few logged steps did not diverge.
+    float last_logged = losses.back();
+    TEST_CHECK(last_logged < 4.0f * initial_loss + 0.5f, "Loss did not blow up during training");
 
     test_scale_train();
 

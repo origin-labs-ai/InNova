@@ -1,4 +1,5 @@
 #include "oil/asi.h"
+#include "oil/multi_agent.h"
 #include "oil/test.h"
 #include "oil/model.h"
 #include "oil/tensor.h"
@@ -14,6 +15,7 @@
 
 using namespace oil;
 using namespace oil::asi;
+using namespace oil::multi_agent;
 
 static void test_self_monitor() {
     TEST_SUITE("G1: SelfMonitor");
@@ -163,7 +165,7 @@ static void test_nas() {
     TEST_CHECK(arch.hidden > 0, "NAS returns valid hidden size");
     TEST_CHECK(arch.score > 0, "NAS returns valid score");
 
-    NeuralArchitectureSearch::Architecture base{12, 4096, 0.0f};
+    Architecture base{12, 4096, 0.0f};
     (void)base;
 }
 

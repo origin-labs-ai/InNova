@@ -68,7 +68,7 @@ void FormatPlanner::compute_format_mix(int num_blocks, float target_bpw,
     const float bpw_oil8 = 8.0f;
     const float bpw_oil4 = 4.0f;
     const float bpw_oil2 = 2.0f;
-    const float bpw_spark = 2.0f;
+    const float bpw_spark = 1.5f;
 
     float f32 = 0, f16 = 0, f8 = 0, f4 = 0, f2 = 0, f_sp = 0, f1 = 0;
 
@@ -145,9 +145,9 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
 
     plan.selected_single = FormatRegistry::get_single_format(target_bpw_);
 
-    const auto& two_mixes = FormatRegistry::get_all_two_mixes();
+    const auto& twi_mixes = FormatRegistry::get_all_twi_mixes();
     float best_two_diff = 1e9f;
-    for (const auto& m : two_mixes) {
+    for (const auto& m : twi_mixes) {
         float diff = std::fabs(m.effective_bpw - target_bpw_);
         if (diff < best_two_diff) {
             best_two_diff = diff;
@@ -168,74 +168,37 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
 
     float single_diff = std::fabs(plan.selected_single.bpw - target_bpw_);
 
-    if (best_two_diff < single_diff && best_two_diff < best_four_diff) {
-        plan.uses_mix = true;
+    // Generic mix allocator — handles BOTH the two-tier (twi) and four-tier
+    // (four) blends. Each mix tier's ratio spreads across the (importance-
+    // ordered) blocks, and the tier's RegFormat is mapped to its real Format
+    // through the registry helper regformat_to_format(). This covers ARBITRARY
+    // tier sets, including GRP formats (OIL1_GRP..OIL8_GRP, SPARK_Q0_GRP) and
+    // SPARK adaptive mixes, so the plan's achieved BPW is honest (it no longer
+    // collapses a 4/2-tier mix like QUAD_SPARK_Q1/SARK_MIX_Q0 to OIL1).
+    const bool use_twi = (best_two_diff < single_diff &&
+                          best_two_diff < best_four_diff);
+    const bool use_four = (best_four_diff < single_diff &&
+                           best_four_diff < best_two_diff);
 
-        int crit_count = (int)std::round(plan.selected_mix.tier1_ratio * num_weight_blocks);
-        int rest_count = num_weight_blocks - crit_count;
+    const auto emit_mix_plan = [&](const MixDescriptor& mix) {
+        const int nt = std::max(1, std::min(mix.num_tiers, 4));
+        const RegFormat tiers[4] = { mix.tier1_fmt, mix.tier2_fmt,
+                                     mix.tier3_fmt, mix.tier4_fmt };
+        const float ratios[4] = { mix.tier1_ratio, mix.tier2_ratio,
+                                  mix.tier3_ratio, mix.tier4_ratio };
 
-        std::vector<int> indices(num_weight_blocks);
-        for (int i = 0; i < num_weight_blocks; i++) indices[i] = i;
-        if (!importance_scores_.empty()) {
-            std::sort(indices.begin(), indices.end(), [this](int a, int b) {
-                float sa = a < (int)importance_scores_.size() ? importance_scores_[a] : 0;
-                float sb = b < (int)importance_scores_.size() ? importance_scores_[b] : 0;
-                return sa > sb;
-            });
+        // Per-tier block counts driven by the mix ratios. The LAST tier
+        // absorbs the remainder so the blend always covers every block
+        // (identical semantics for 2- and 4-tier descriptors).
+        std::vector<int> counts(static_cast<size_t>(nt), 0);
+        int used = 0;
+        for (int t = 0; t < nt - 1; t++) {
+            counts[static_cast<size_t>(t)] =
+                (int)std::round(ratios[t] * (double)num_weight_blocks);
+            used += counts[static_cast<size_t>(t)];
         }
-
-        RegFormat crit_fmt = plan.selected_mix.tier1_fmt;
-        RegFormat rest_fmt = plan.selected_mix.tier2_fmt;
-
-        for (int i = 0; i < num_weight_blocks; i++) {
-            int idx = indices[i];
-            plan.blocks[idx].id = (uint32_t)idx;
-            plan.blocks[idx].weight_index = (uint32_t)(idx * weights_per_block);
-            plan.blocks[idx].num_weights = (uint32_t)weights_per_block;
-            plan.blocks[idx].registry_format = (i < crit_count) ? crit_fmt : rest_fmt;
-            RegFormat rf = plan.blocks[idx].registry_format;
-            if (rf == RegFormat::OIL32)
-                plan.blocks[idx].assigned_format = Format::OIL32;
-            else if (rf == RegFormat::OIL16)
-                plan.blocks[idx].assigned_format = Format::OIL16;
-            else if (rf == RegFormat::OIL8)
-                plan.blocks[idx].assigned_format = Format::OIL8;
-            else if (rf == RegFormat::OIL4)
-                plan.blocks[idx].assigned_format = Format::OIL4;
-            else if (rf == RegFormat::OIL2)
-                plan.blocks[idx].assigned_format = Format::OIL2;
-            else if (rf == RegFormat::SPARK_Q0)
-                plan.blocks[idx].assigned_format = Format::SPARK_Q0;
-            else
-                plan.blocks[idx].assigned_format = Format::OIL1;
-            if (idx < (int)importance_scores_.size()) {
-                plan.blocks[idx].importance_score = importance_scores_[idx];
-            } else {
-                plan.blocks[idx].importance_score = 0;
-            }
-        }
-        // Count format distribution
-        plan.num_oil32_blocks = plan.num_oil16_blocks = plan.num_oil8_blocks = 0;
-        plan.num_oil4_blocks = plan.num_oil2_blocks = 0;
-        plan.num_spark_blocks = plan.num_oil1_blocks = 0;
-        for (const auto& b : plan.blocks) {
-            if (b.assigned_format == Format::OIL32)      plan.num_oil32_blocks++;
-            else if (b.assigned_format == Format::OIL16)  plan.num_oil16_blocks++;
-            else if (b.assigned_format == Format::OIL8)   plan.num_oil8_blocks++;
-            else if (b.assigned_format == Format::OIL4)   plan.num_oil4_blocks++;
-            else if (b.assigned_format == Format::OIL2)   plan.num_oil2_blocks++;
-            else if (b.assigned_format == Format::SPARK_Q0) plan.num_spark_blocks++;
-            else plan.num_oil1_blocks++;
-        }
-    } else if (best_four_diff < single_diff && best_four_diff < best_two_diff) {
-        plan.uses_mix = true;
-        plan.selected_mix = best_four;
-
-        int t1 = (int)std::round(best_four.tier1_ratio * num_weight_blocks);
-        int t2 = (int)std::round(best_four.tier2_ratio * num_weight_blocks);
-        int t3 = (int)std::round(best_four.tier3_ratio * num_weight_blocks);
-        int t4 = num_weight_blocks - t1 - t2 - t3;
-        if (t4 < 0) t4 = 0;
+        counts[static_cast<size_t>(nt) - 1] =
+            (num_weight_blocks - used > 0) ? num_weight_blocks - used : 0;
 
         std::vector<int> indices(num_weight_blocks);
         for (int i = 0; i < num_weight_blocks; i++) indices[i] = i;
@@ -248,58 +211,49 @@ FormatPlan FormatPlanner::allocate(int num_weight_blocks, int weights_per_block)
         }
 
         for (int i = 0; i < num_weight_blocks; i++) {
-            int idx = indices[i];
+            const int idx = indices[i];
             plan.blocks[idx].id = (uint32_t)idx;
             plan.blocks[idx].weight_index = (uint32_t)(idx * weights_per_block);
             plan.blocks[idx].num_weights = (uint32_t)weights_per_block;
 
-            if (i < t1) {
-                plan.blocks[idx].registry_format = best_four.tier1_fmt;
-            } else if (i < t1 + t2) {
-                plan.blocks[idx].registry_format = best_four.tier2_fmt;
-            } else if (i < t1 + t2 + t3) {
-                plan.blocks[idx].registry_format = best_four.tier3_fmt;
-            } else {
-                plan.blocks[idx].registry_format = best_four.tier4_fmt;
+            // Find which tier owns this importance-sorted slot.
+            int tt = 0, cum = 0;
+            for (int t = 0; t < nt; t++) {
+                if (i < cum + counts[static_cast<size_t>(t)]) { tt = t; break; }
+                cum += counts[static_cast<size_t>(t)];
             }
 
-            {
-                RegFormat rf = plan.blocks[idx].registry_format;
-                if (rf == RegFormat::OIL32)
-                    plan.blocks[idx].assigned_format = Format::OIL32;
-                else if (rf == RegFormat::OIL16)
-                    plan.blocks[idx].assigned_format = Format::OIL16;
-                else if (rf == RegFormat::OIL8)
-                    plan.blocks[idx].assigned_format = Format::OIL8;
-                else if (rf == RegFormat::OIL4)
-                    plan.blocks[idx].assigned_format = Format::OIL4;
-                else if (rf == RegFormat::OIL2)
-                    plan.blocks[idx].assigned_format = Format::OIL2;
-                else if (rf == RegFormat::SPARK_Q0)
-                    plan.blocks[idx].assigned_format = Format::SPARK_Q0;
-                else
-                    plan.blocks[idx].assigned_format = Format::OIL1;
-            }
-
-            if (idx < (int)importance_scores_.size()) {
-                plan.blocks[idx].importance_score = importance_scores_[idx];
-            } else {
-                plan.blocks[idx].importance_score = 0;
-            }
+            plan.blocks[idx].registry_format = tiers[tt];
+            plan.blocks[idx].assigned_format = regformat_to_format(tiers[tt]);
+            plan.blocks[idx].importance_score =
+                (idx < (int)importance_scores_.size()) ? importance_scores_[idx] : 0.0f;
         }
-        // Count format distribution
-        plan.num_oil32_blocks = plan.num_oil16_blocks = plan.num_oil8_blocks = 0;
-        plan.num_oil4_blocks = plan.num_oil2_blocks = 0;
-        plan.num_spark_blocks = plan.num_oil1_blocks = 0;
+    };
+
+    const auto count_plan = [&]() {
+        plan.num_oil32_blocks = plan.num_oil16_blocks = 0;
+        plan.num_oil8_blocks = plan.num_oil4_blocks = 0;
+        plan.num_oil2_blocks = plan.num_spark_blocks = plan.num_oil1_blocks = 0;
         for (const auto& b : plan.blocks) {
-            if (b.assigned_format == Format::OIL32)      plan.num_oil32_blocks++;
-            else if (b.assigned_format == Format::OIL16)  plan.num_oil16_blocks++;
-            else if (b.assigned_format == Format::OIL8)   plan.num_oil8_blocks++;
-            else if (b.assigned_format == Format::OIL4)   plan.num_oil4_blocks++;
-            else if (b.assigned_format == Format::OIL2)   plan.num_oil2_blocks++;
-            else if (b.assigned_format == Format::SPARK_Q0) plan.num_spark_blocks++;
-            else plan.num_oil1_blocks++;
+            switch (b.assigned_format) {
+                case Format::OIL32:                    plan.num_oil32_blocks++; break;
+                case Format::OIL16: case Format::OIL16_GRP: plan.num_oil16_blocks++; break;
+                case Format::OIL8:  case Format::OIL8_GRP:  plan.num_oil8_blocks++; break;
+                case Format::OIL4:  case Format::OIL4_GRP:  plan.num_oil4_blocks++; break;
+                case Format::OIL2:  case Format::OIL2_GRP:  plan.num_oil2_blocks++; break;
+                case Format::SPARK_Q0: case Format::SPARK_Q0_GRP:
+                case Format::SPARK_SPARSE: case Format::SPARK_SPARSE_GRP:
+                                                       plan.num_spark_blocks++; break;
+                default:                                plan.num_oil1_blocks++; break; // OIL1 / OIL1_GRP
+            }
         }
+    };
+
+    if (use_twi || use_four) {
+        plan.uses_mix = true;
+        if (use_four) plan.selected_mix = best_four;
+        emit_mix_plan(plan.selected_mix);
+        count_plan();
     } else {
         std::vector<int> indices(num_weight_blocks);
         for (int i = 0; i < num_weight_blocks; i++) indices[i] = i;

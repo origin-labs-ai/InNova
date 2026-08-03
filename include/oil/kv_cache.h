@@ -25,6 +25,7 @@ public:
     std::pair<Tensor, Tensor> get_all(int layer) const;
     
     int context_len() const;
+    int context_len(int layer) const;
     int max_seq_len() const;
     
     size_t size_bytes() const;

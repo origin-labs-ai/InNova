@@ -144,6 +144,10 @@ NativeTrainMetrics NativeOILTrainer::train_step(const float* input, const float*
         pos.data<float>()[i] = (float)(i % (int64_t)seq_len);
     Tensor logits = model_->forward(inp, pos);
     Tensor loss_t = AutogradEngine::cross_entropy_op(logits, tgt);
+    // Reset parameter gradients so backward() accumulates only this step's
+    // gradients (AutogradEngine::clear() preserves registered parameters).
+    for (auto* p : model_params_)
+        if (p->has_grad()) p->zero_grad();
     auto& engine = AutogradEngine::instance();
     engine.backward(loss_t);
     engine.clear();
@@ -203,6 +207,8 @@ void NativeOILTrainer::warmup_phase(const std::vector<std::vector<float>>& data)
         for (int64_t i = 0; i < (int64_t)seq.size(); i++) pos.data<float>()[i] = (float)i;
         Tensor logits = model_->forward(inp, pos);
         Tensor loss = AutogradEngine::cross_entropy_op(logits, tgt);
+        for (auto* p : model_params_)
+            if (p->has_grad()) p->zero_grad();
         auto& engine = AutogradEngine::instance();
         engine.backward(loss);
         engine.clear();

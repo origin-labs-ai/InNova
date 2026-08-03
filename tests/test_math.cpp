@@ -228,7 +228,8 @@ int main() {
         auto y = oil::Tensor::zeros({4});
         oil::math::gelu(x, y);
         assert(y.data<float>()[0] >= -0.1f);  // GELU(-2.0) ~ -0.045
-        assert(y.data<float>()[1] > 0.0f);
+        assert(y.data<float>()[1] < 0.0f);    // GELU(-1.0) is negative (~ -0.159)
+        assert(y.data<float>()[1] > -0.3f);
         assert(std::abs(y.data<float>()[2]) < 1e-6f);
         assert(y.data<float>()[3] > 0.0f);
     }

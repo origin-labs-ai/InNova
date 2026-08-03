@@ -52,8 +52,11 @@ public:
     Tensor accumulated_gradient() const;
     void clear_accumulated_gradients();
 
-    // Weights for pipeline balancing
+    // Weights for pipeline balancing (normalized + recorded; used by the
+    // profile/balance reporting and available for a dynamic layer
+    // redistribution).
     void set_balance_weights(const std::vector<float>& weights);
+    const std::vector<float>& balance_weights() const { return balance_weights_; }
 
     // Get/set model segment reference count to verify model splitting
     int model_param_count() const;
@@ -76,6 +79,14 @@ private:
     std::vector<Tensor> micro_batch_outputs_;
     std::vector<Tensor> micro_batch_grads_;
     Tensor accumulated_grad_;
+
+    // Normalized per-stage balance weights (set via set_balance_weights).
+    std::vector<float> balance_weights_;
+
+    // The stage's parameters, collected once at construction. backward()
+    // registers these with the autograd engine so REAL parameter gradients
+    // are computed and accumulated across micro-batches.
+    std::vector<Tensor*> stage_params_;
 
     bool profiling_ = false;
     int64_t profile_forward_ns_ = 0;

@@ -181,6 +181,12 @@ public:
     ExpertParallelStats get_stats() const;
     void reset_stats();
 
+    // Restore manager state previously saved by a checkpoint (used by
+    // FaultToleranceManager::restore_state). The node list and routing stats
+    // are written back verbatim so a checkpoint round-trips.
+    void restore_nodes(const std::vector<ClusterNode>& nodes);
+    void restore_stats(const ExpertParallelStats& stats);
+
     ClusterConfig config;
 
 private:

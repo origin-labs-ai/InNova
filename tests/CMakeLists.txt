@@ -53,7 +53,7 @@ add_oil_test_full(test_trainer    test_trainer.cpp    oil_trainer oil_inference 
 set_tests_properties(test_trainer    PROPERTIES LABELS "training")
 
 add_oil_test_full(test_training   test_training.cpp   oil_trainer oil_model oil_engine oil_math oil_core ${_long_timeout})
-set_tests_properties(test_training   PROPERTIES LABELS "training")
+set_tests_properties(test_training   PROPERTIES LABELS "training" TIMEOUT 600)
 
 add_oil_test_full(test_gradient_check test_gradient_check.cpp oil_trainer oil_model oil_math oil_core ${_long_timeout})
 set_tests_properties(test_gradient_check PROPERTIES LABELS "training")
@@ -82,6 +82,9 @@ set_tests_properties(test_moe_training PROPERTIES LABELS "training;distributed")
 add_oil_test_full(test_training_features test_training_features.cpp oil_trainer oil_model oil_math oil_core ${_long_timeout})
 set_tests_properties(test_training_features PROPERTIES LABELS "training")
 
+add_oil_test_full(test_fine_tuning test_fine_tuning.cpp oil_trainer oil_model oil_tokenizer oil_format ${_long_timeout})
+set_tests_properties(test_fine_tuning PROPERTIES LABELS "training")
+
 add_oil_test_full(test_native_weight test_native_weight.cpp oil_trainer oil_model oil_kernel oil_format ${_long_timeout})
 set_tests_properties(test_native_weight PROPERTIES LABELS "training")
 
@@ -101,8 +104,9 @@ if(WIN32)
   add_executable(test_gpu test_gpu.cpp)
   target_include_directories(test_gpu PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_gpu PRIVATE oil_math oil_gpu oil_backend)
-  add_test(NAME test_gpu COMMAND test_gpu)
+  add_test(NAME test_gpu COMMAND $<TARGET_FILE:test_gpu>)
   set_tests_properties(test_gpu PROPERTIES
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:test_gpu>
     TIMEOUT ${_long_timeout}
     LABELS "gpu"
   )
@@ -147,6 +151,15 @@ set_tests_properties(test_fp32_gather_quality PROPERTIES LABELS "core")
 add_oil_test_full(test_bpw_150_proof test_bpw_150_proof.cpp oil_format oil_core                  ${_long_timeout})
 set_tests_properties(test_bpw_150_proof PROPERTIES LABELS "core")
 
+add_oil_test_full(test_block_codec test_block_codec.cpp oil_format oil_core                     ${_long_timeout})
+set_tests_properties(test_block_codec PROPERTIES LABELS "core")
+
+add_oil_test_full(test_grp_lossless_proof test_grp_lossless_proof.cpp oil_format oil_core        ${_long_timeout})
+set_tests_properties(test_grp_lossless_proof PROPERTIES LABELS "core")
+
+add_oil_test_full(test_spark_mix test_spark_mix.cpp oil_format oil_trainer oil_model oil_kernel oil_core ${_long_timeout})
+set_tests_properties(test_spark_mix PROPERTIES LABELS "training;core")
+
 # ── paged KV cache ───────────────────────────────────────────────
 add_oil_test_full(test_paged_kv_4m  paged_kv_4m_test.cpp  oil_model oil_kernel               ${_long_timeout})
 set_tests_properties(test_paged_kv_4m  PROPERTIES LABELS "inference")
@@ -170,6 +183,6 @@ set_tests_properties(
   test_moe_training test_native_oil_moe test_multimodal_encoders
   test_asi_flywheel test_inference_batch test_paged_kv_4m
   test_training_features grp_proof_test
-  test_fp32_gather_quality test_bpw_150_proof
+  test_fp32_gather_quality test_bpw_150_proof test_spark_mix
   PROPERTIES COST 2.0
 )

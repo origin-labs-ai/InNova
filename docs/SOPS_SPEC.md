@@ -49,7 +49,7 @@ quantization that FLOPS completely ignores.
 
 Key results:
 - OIL4 (4-bit) = 8x SOPS advantage over FP32
-- SPARK_Q0 (2.0-bit) = 16.0x SOPS advantage
+- SPARK_Q0 (1.5-bit) = 21.33x SOPS advantage
 - OIL1 (1.0-bit) = 32x SOPS advantage
 - On a 12-core AVX2 CPU: measured 0.092 pSOPS
 - Gap to 1 ZSOPS: ~10.9 billion x
@@ -116,7 +116,7 @@ InNova uses 15 quantization formats, each with different bit-widths:
   Format             BPW      Bytes/Weight    Weights/Byte
   --------           ----     ------------    ------------
   OIL1               1.0      0.125           8
-  SPARK_Q0           2.0      0.25            4
+  SPARK_Q0           1.5      0.1875          5.33
   SPARK_SPARSE       2.0      0.25            4
   OIL2               2.0      0.25            4
   OIL4               4.0      0.5             2
@@ -124,11 +124,11 @@ InNova uses 15 quantization formats, each with different bit-widths:
   OIL16              16.0     2.0             0.5
   OIL32              32.0     4.0             0.25
   OIL1_GRP           1.0      0.125           8
-  OIL2_GRP           2.0      0.25            4
-  OIL4_GRP           4.0      0.5             2
-  OIL8_GRP           8.0      1.0             1
+  OIL2_GRP           2.5      0.3125          3.2
+  OIL4_GRP           4.5      0.5625          1.78
+  OIL8_GRP           8.5      1.0625          0.94
   OIL16_GRP          16.0     2.0             0.5
-  SPARK_Q0_GRP       2.0      0.25            4
+  SPARK_Q0_GRP       1.5      0.1875          5.33
   SPARK_SPARSE_GRP   2.0      0.25            4
 
 FLOPS cannot distinguish between any of these. SOPS can.
@@ -278,7 +278,7 @@ Format #1: SPARK_Q0
   Info Weight: 16.000x
   Values: Sign-bit quantized with FP16 scale
   Codebook: 4 centroids
-  MSE: ~1.70e-1 (lossy)
+  MSE: ~2.20e-1 (lossy)
   Packing: 4 elements per byte
   Use case: Spark quantization with quality preservation
 
@@ -296,7 +296,7 @@ Format #3: OIL2
   Info Weight: 16.000x
   Values: Lloyd-Max 4 centroids
   Codebook: 4 centroids
-  MSE: ~1.18e-1 (lossy)
+  MSE: ~2.20e-1 (lossy)
   Packing: 4 elements per byte
   Use case: Low-bit quantization with good quality
 
@@ -305,7 +305,7 @@ Format #4: OIL4
   Info Weight: 8.000x
   Values: Lloyd-Max 16 centroids
   Codebook: 16 centroids
-  MSE: ~9.40e-3 (lossy)
+  MSE: ~1.90e-2 (lossy)
   Packing: 2 elements per byte
   Use case: Primary quantization format, best quality/speed tradeoff
 
@@ -314,7 +314,7 @@ Format #6: OIL8
   Info Weight: 4.000x
   Values: Lloyd-Max 256 centroids
   Codebook: 256 centroids
-  MSE: 3.12e-05 (lossy but near-FP16 quality)
+  MSE: 1.30e-04 (lossy but near-FP16 quality)
   Packing: 1 element per byte
   Use case: High-quality quantization, near-FP16 quality
 
@@ -323,7 +323,7 @@ Format #7: OIL16
   Info Weight: 2.000x
   Values: Near-FP16 precision via vec_fp16_to_fp32
   Codebook: N/A (direct encoding)
-  MSE: 9.77e-04 (FP16 precision)
+  MSE: 2.00e-07 (FP16 precision)
   Packing: 0.5 elements per byte
   Use case: Precision-critical layers (attention, normalization)
 
@@ -341,7 +341,7 @@ Format #8: OIL32
 Format       BPW     Info Weight    Weights/Byte    FP32-equivalent ops/byte
 --------     ----    -----------    ------------    -----------------------
 OIL1         1.0     32.000x        8.0             256.0
-SPARK_Q0     2.0     16.000x        4.0             64.0
+SPARK_Q0     1.5     21.333x        5.33            113.78
 SPARK_SPARSE 2.0     16.000x        4.0             64.0
 OIL2         2.0     16.000x        4.0             64.0
 OIL4         4.0     8.000x         2.0             16.0
@@ -400,8 +400,8 @@ format B (BPW_b, ratio r_b):
 Mix Format                    Eff BPW    IW
 ----------------------------  -------   ------
 QUAD_OIL1_OIL2_OIL4_OIL8     1.88       17.021
-QUAD_OIL2_OIL4_OIL8_OIL16    2.78       11.511
-QUAD_OIL4_OIL8_OIL16_OIL32   4.72       6.780
+QUAD_OIL2_OIL4_OIL8_OIL16    2.92       10.959
+QUAD_OIL4_OIL8_OIL16_OIL32   5.84       5.479
 
 ### 6.4 Mix Format SOPS
 
@@ -610,7 +610,7 @@ Gap to 1 SOPS: ~10.9 billion x
 
 Index   Format       BPW     IW
      0       OIL1         1.0     32.0
-     1       SPARK_Q0     2.0     16.0
+     1       SPARK_Q0     1.5     21.33
      2       SPARK_SPARSE 2.0     16.0
      3       OIL2         2.0     16.0
      4       OIL4         4.0     8.0

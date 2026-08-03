@@ -50,21 +50,38 @@ void tl1_gemm(const Tensor& weights, const Tensor& activations,
             a_i8[n * K + k] = (int8_t)std::round(a[n * K + k] * scales[n]);
     }
 
-    // Build LUT and compute
+    // Build LUT and compute. Rows are ceil(K/4) bytes (odd K needs one extra
+    // byte for the tail weight).
+    const size_t row_bytes = (size_t)((K + 3) / 4);
     int total_lut_groups = K / 2;
     std::vector<int8_t> lut(total_lut_groups * 9);
     for (int m = 0; m < M; m++) {
         for (int n = 0; n < N; n++) {
-            const uint8_t* w_row = w + (m * N + n) * K / 4;
+            const uint8_t* w_row = w + (size_t)(m * N + n) * row_bytes;
             const int8_t* a_row = a_i8 + n * K;
             int32_t total = 0;
 
             tl1_precompute_lut(a_row, lut.data(), K, 1.0f);
 
-            for (int i = 0; i < K - 1; i += 2) {
-                uint8_t packed = w_row[i / 4];
-                int wi = (packed >> ((i % 4) * 2)) & 3;
-                total += lut[(i / 2) * 9 + wi];
+            // SPARK ternary weights {-1,0,+1} are packed 2 bits each, 4 per
+            // byte. Each LUT group covers a PAIR of weights (w0, w1); the
+            // row layout is lut[g*9 + (w0+1)*3 + (w1+1)].
+            for (int i = 0; i + 1 < K; i += 2) {
+                const uint8_t packed = w_row[i / 4];
+                const int c0 = (packed >> ((i % 4) * 2)) & 3;
+                const int c1 = (packed >> ((i % 4) * 2 + 2)) & 3;
+                const int w0 = (c0 == 0) ? -1 : (c0 == 1 ? 0 : 1);
+                const int w1 = (c1 == 0) ? -1 : (c1 == 1 ? 0 : 1);
+                total += lut[(i / 2) * 9 + (w0 + 1) * 3 + (w1 + 1)];
+            }
+            // Odd tail (K odd): one remaining weight, computed directly (the
+            // LUT only covers full pairs).
+            if (K % 2 == 1) {
+                const int i = K - 1;
+                const uint8_t packed = w_row[i / 4];
+                const int c0 = (packed >> ((i % 4) * 2)) & 3;
+                const int w0 = (c0 == 0) ? -1 : (c0 == 1 ? 0 : 1);
+                total += (int32_t)a_row[i] * w0;
             }
 
             ((float*)output.data())[m * N + n] = (float)total / scales[n];
@@ -126,12 +143,13 @@ void tl2_gemm(const Tensor& weights, const Tensor& activations,
             a_i8[n * K + k] = (int8_t)std::round(a[n * K + k] * scales[n]);
     }
 
-    // TL2 packing: 12 weights in 3 bytes, 4 groups of 3
-    int bytes_per_row = (K * 2 + 7) / 8; // 2 bits per weight
+    // TL2 packing: 12 weights in 3 bytes, 4 groups of 3 (2 bits per weight).
+    // Each row therefore occupies ceil(K/12)*3 bytes; odd tails are padded.
+    const size_t max_bytes = (size_t)(((K + 11) / 12) * 3);
 
     for (int m = 0; m < M; m++) {
         for (int n = 0; n < N; n++) {
-            const uint8_t* w_row = w + (m * N + n) * bytes_per_row;
+            const uint8_t* w_row = w + (size_t)(m * N + n) * max_bytes;
             const int8_t* a_row = a_i8 + n * K;
             int64_t total = 0;
 
@@ -140,7 +158,7 @@ void tl2_gemm(const Tensor& weights, const Tensor& activations,
                 int n_triples = std::min(4, (rem + 2) / 3);
                 if (n_triples <= 0) break;
 
-                int vals[12];
+                int vals[12] = {0};
                 for (int b = 0; b < 3; b++) {
                     uint8_t byte = w_row[g * 3 + b];
                     vals[b * 4 + 0] = decode_tl2(byte, 0);

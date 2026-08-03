@@ -174,14 +174,16 @@ void test_flash_attention_reference() {
     std::cout << "  FlashAttn max error: " << max_err << std::endl;
 }
 
-// P5: Kernel TL1 GEMM produces finite output
+// P5: Kernel TL1 GEMM correctness vs a reference (and finite output)
 void test_kernel_tl_gemm() {
     int64_t M = 4, N = 4, K = 16;
-    Tensor w(Shape{M, K}, DType::U8);
+    // The kernel's layout is one ceil(K/4)-byte packed row per (m,n) pair:
+    // M*N*ceil(K/4) bytes total, SPARK ternary {-1,0,+1} packed 2 bits each.
+    Tensor w(Shape{M * N * ((K + 3) / 4)}, DType::U8);
     Tensor a(Shape{K, N}, DType::F32);
     Tensor out(Shape{M, N}, DType::F32);
     RNG rng(77);
-    for (int i = 0; i < M * K; i++)
+    for (int i = 0; i < M * N * K / 4; i++)
         w.data<uint8_t>()[i] = (uint8_t)(rng.uniform() * 3.0f);
     for (int i = 0; i < K * N; i++)
         a.data<float>()[i] = (float)(rng.uniform() * 2.0f - 1.0f) * 0.5f;
@@ -193,6 +195,43 @@ void test_kernel_tl_gemm() {
         if (!std::isfinite(out.data<float>()[i])) { finite = false; break; }
     }
     PROTECT_TEST("P5 kernel TL1 GEMM produces finite output", finite);
+
+    // Reference: replicate the kernel's exact math — decode the packed
+    // ternary weights, quantize activations with the same per-column scale,
+    // and clamp every PAIR sum to int8 (the LUT's clamp) before accumulating.
+    const uint8_t* wp = w.data<uint8_t>();
+    const float* ap = a.data<float>();
+    const float* op = out.data<float>();
+    auto dec = [](int c) { return (c == 0) ? -1 : (c == 1 ? 0 : 1); };
+    double max_err = 0.0;
+    for (int m = 0; m < M; m++) {
+        for (int n = 0; n < N; n++) {
+            float max_abs = 0.0f;
+            for (int k = 0; k < K; k++) max_abs = std::max(max_abs, std::fabs(ap[n * K + k]));
+            if (max_abs < 1e-10f) max_abs = 1e-10f;
+            const float scale = 127.0f / max_abs;
+            std::vector<int8_t> ai((size_t)K);
+            for (int k = 0; k < K; k++)
+                ai[(size_t)k] = (int8_t)std::round(ap[n * K + k] * scale);
+            int32_t ref = 0;
+            const uint8_t* row = wp + (size_t)(m * N + n) * ((K + 3) / 4);
+            for (int k = 0; k + 1 < K; k += 2) {
+                const int c0 = (row[k / 4] >> ((k % 4) * 2)) & 3;
+                const int c1 = (row[k / 4] >> ((k % 4) * 2 + 2)) & 3;
+                int32_t sum = (int32_t)ai[(size_t)k] * dec(c0) + (int32_t)ai[(size_t)k + 1] * dec(c1);
+                ref += std::clamp(sum, -128, 127);
+            }
+            if (K % 2 == 1) {
+                const int k = (int)(K - 1);
+                const int c0 = (row[k / 4] >> ((k % 4) * 2)) & 3;
+                ref += (int32_t)ai[(size_t)k] * dec(c0);
+            }
+            const double expect = (double)ref / scale;
+            max_err = std::max(max_err, std::fabs(expect - op[m * N + n]));
+        }
+    }
+    PROTECT_TEST("P5 kernel TL1 GEMM matches reference", max_err < 1e-3);
+    std::cout << "  TL1 max error vs reference: " << max_err << std::endl;
 }
 
 // P6: Oil format roundtrip — use the proper save/load path via serialize

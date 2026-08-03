@@ -17,7 +17,6 @@ struct QuantBenchResult {
     double oil8_gflops;
     double oil4_gflops;
     double tl1_gflops;
-    double i2s_gflops;
 };
 
 static double measure_gflops(int64_t M, int64_t N, int64_t K, int iters,
@@ -32,7 +31,7 @@ static double measure_gflops(int64_t M, int64_t N, int64_t K, int iters,
 }
 
 static QuantBenchResult bench_all_quant_gemm(int64_t M, int64_t N, int64_t K) {
-    QuantBenchResult r = {0,0,0,0,0};
+    QuantBenchResult r = {0,0,0,0};
     RNG rng(42);
     Tensor A({M, K}), B({K, N}), C({M, N});
     for (int64_t i = 0; i < A.numel(); i++) A.data<float>()[i] = rng.uniform() * 2.0f - 1.0f;
@@ -62,9 +61,10 @@ static QuantBenchResult bench_all_quant_gemm(int64_t M, int64_t N, int64_t K) {
     }
     std::cerr << "  OIL8 done: " << r.oil8_gflops << " GFLOPS\n";
 
-    // TL1: SPARK packed weights
+    // TL1: SPARK packed ternary weights — the kernel's layout is one
+    // ceil(K/4)-byte packed row per (m,n) pair, i.e. M*N*ceil(K/4) bytes.
     {
-        Tensor w(Shape{M, K}, DType::U8);
+        Tensor w(Shape{M * N * ((K + 3) / 4)}, DType::U8);
         Tensor a(Shape{K, N}, DType::F32);
         Tensor out(Shape{M, N}, DType::F32);
         for (int64_t i = 0; i < w.numel(); i++) w.data<uint8_t>()[i] = (uint8_t)(rng.uniform() * 3.0f);
@@ -75,20 +75,6 @@ static QuantBenchResult bench_all_quant_gemm(int64_t M, int64_t N, int64_t K) {
         });
     }
     std::cerr << "  TL1 done: " << r.tl1_gflops << " GFLOPS\n";
-
-    // I2S: 2-bit SPARK
-    {
-        Tensor w(Shape{M, K}, DType::U8);
-        Tensor a(Shape{K, N}, DType::F32);
-        Tensor out(Shape{M, N}, DType::F32);
-        for (int64_t i = 0; i < w.numel(); i++) w.data<uint8_t>()[i] = (uint8_t)(rng.uniform() * 3.0f);
-        std::memcpy(a.data<float>(), B.data<float>(), (size_t)(K * N) * sizeof(float));
-        iters = 10;
-        r.i2s_gflops = measure_gflops(M, N, K, iters, [&]() {
-            kernel::i2s_gemm(w, a, out, (int)M, (int)N, (int)K);
-        });
-    }
-    std::cerr << "  I2S done: " << r.i2s_gflops << " GFLOPS\n";
 
     return r;
 }
@@ -107,10 +93,6 @@ int main(int argc, char** argv) {
     std::cout << "TL1:   " << r.tl1_gflops << " GFLOPS";
     if (r.fp32_gflops > 0 && r.tl1_gflops > 0)
         std::cout << "  (" << (r.tl1_gflops / r.fp32_gflops) << "x vs FP32)";
-    std::cout << "\n";
-    std::cout << "I2S:   " << r.i2s_gflops << " GFLOPS";
-    if (r.fp32_gflops > 0 && r.i2s_gflops > 0)
-        std::cout << "  (" << (r.i2s_gflops / r.fp32_gflops) << "x vs FP32)";
     std::cout << "\n";
     std::cout << "=== Done ===\n";
     return 0;

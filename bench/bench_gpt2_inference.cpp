@@ -155,7 +155,9 @@ static QuantizedWeight quantize_weight(const float* src, int64_t n) {
         }
     }
 
-    // SPARK: sign-based
+    // BitNet b1.58-style ternary {-1,0,+1} with a per-tensor scale. This is a
+    // generic ternary baseline — NOT the canonical SPARK_Q0 codec (which is
+    // per-32 FP16 scale + sign bits); we label it honestly below.
     double sum_abs = 0.0;
     for (int64_t i = 0; i < n; i++) sum_abs += std::abs(src[i]);
     q.spark_scale = (float)(sum_abs / (double)n + 1e-10);
@@ -189,7 +191,7 @@ static void dequantize_spark(const QuantizedWeight& q, float* dst, int64_t n) {
 // ===========================================================================
 // GPT-2 Minimal Forward Pass
 // ===========================================================================
-enum class QuantMode { FP32, OIL8, OIL4, SPARK_Q0 };
+enum class QuantMode { FP32, OIL8, OIL4, BITNET_158 };
 
 struct QuantizedGPT2Weights {
     GPT2Config cfg;
@@ -277,7 +279,7 @@ static std::vector<float> get_dequantized_weight(
     switch (mode) {
         case QuantMode::OIL8:     dequantize_oil8(*qwp, result.data(), n); break;
         case QuantMode::OIL4:     dequantize_oil4(*qwp, result.data(), n); break;
-        case QuantMode::SPARK_Q0:  dequantize_spark(*qwp, result.data(), n); break;
+        case QuantMode::BITNET_158:  dequantize_spark(*qwp, result.data(), n); break;
         default: break;
     }
     return result;
@@ -486,8 +488,8 @@ int main(int argc, char** argv) {
         {"Once upon a time", "Creative start"},
     };
 
-    std::vector<QuantMode> modes = {QuantMode::FP32, QuantMode::OIL8, QuantMode::OIL4, QuantMode::SPARK_Q0};
-    std::vector<std::string> mode_names = {"FP32", "OIL8", "OIL4", "SPARK_Q0"};
+    std::vector<QuantMode> modes = {QuantMode::FP32, QuantMode::OIL8, QuantMode::OIL4, QuantMode::BITNET_158};
+    std::vector<std::string> mode_names = {"FP32", "OIL8", "OIL4", "BITNET_158"};
 
     std::vector<QuantizedGPT2Weights> precomputed;
     for (auto mode : modes) {

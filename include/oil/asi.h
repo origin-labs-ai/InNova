@@ -230,7 +230,7 @@ private:
     std::vector<std::string> blocked_patterns_;
     std::unordered_map<std::string, std::string> invariants_;
     std::vector<AuditEntry> audit_log_;
-    std::mutex audit_mutex_;
+    mutable std::mutex audit_mutex_;
     int64_t current_timestamp();
 };
 

@@ -310,12 +310,12 @@ The following principles guide InNova's design:
 
 **Alternatives Considered:**
 - **CUDA:** NVIDIA-only, but widely used in AI
-- **Vulkan:** Cross-platform, but more complex
+- **Vulkan:** Cross-platform, but more complex (implemented as a dynamically-loaded backend in src/gpu_compute_vulkan.cpp)
 - **Metal:** macOS-only
 - **OpenCL:** Cross-platform, but less performant
 - **SYCL:** Cross-platform, but newer and less mature
 
-**Future:** Add Vulkan support for cross-platform GPU acceleration
+**Current:** DirectX 12 backend (Windows) + Vulkan backend (dynamically loaded) for cross-platform GPU acceleration
 
 ---
 

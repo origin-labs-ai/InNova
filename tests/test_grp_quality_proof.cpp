@@ -145,15 +145,15 @@ void test_anti_fraud_storage() {
     const auto& singles = oil::FormatRegistry::get_all_singles();
     for (const auto& s : singles) {
         if (s.id == oil::RegFormat::OIL32) continue; // OIL32 is identity
-        if (s.id == oil::RegFormat::SPARK_SPARSE) continue; // sparse format overflows on dense data
+        if (s.id == oil::RegFormat::SPARK_SPARSE) continue; // sparse formats overflow on dense data
+        if (s.id == oil::RegFormat::SPARK_SPARSE_GRP) continue; // sparse formats overflow on dense data
 
         oil::QuantResult qr = oil::FormatRegistry::quantize(data.data(), N, s);
 
-        // Calculate actual storage
-        int64_t storage_bytes = (int64_t)qr.indices.size() * sizeof(uint8_t) +
-                                (int64_t)qr.codebook_fp32.size() * sizeof(float) +
-                                (int64_t)qr.group_scales.size() * sizeof(float) +
-                                (int64_t)qr.group_zero_points.size() * sizeof(float);
+        // Actual ON-DISK storage: the canonical wire payload (indices +
+        // codebook channels). In-memory metadata (codebook_fp32, group
+        // scales/zero-points) is never serialized, so it is not counted.
+        int64_t storage_bytes = (int64_t)oil::FormatRegistry::serialized_size_bytes(qr);
 
         int64_t fp32_size = N * (int64_t)sizeof(float);
 
@@ -246,6 +246,5 @@ int main() {
     printf("  GRP Quality Proof complete.\n");
     printf("═══════════════════════════════════════════════════════════\n");
 
-    TEST_REPORT();
-    return 0;
+    return TEST_REPORT() == 0 ? 0 : 1;
 }

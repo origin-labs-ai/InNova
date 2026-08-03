@@ -70,25 +70,24 @@ add_library(oil_format
   src/codebook.cpp
   src/format_planner.cpp
   src/format_registry.cpp
+  src/block_codec.cpp
   src/vector_quantizer.cpp
-  src/quant_store.cpp
   src/oil_engines_core.cpp
   src/oil_engines_fp.cpp
   src/oil_engines_oil1.cpp
   src/oil_engines_oil2.cpp
   src/oil_engines_oil4.cpp
   src/oil_engines_oil8.cpp
-  src/oil_engines_quant.cpp
   src/oil_engines_spark.cpp
 )
 target_include_directories(oil_format PUBLIC include)
 target_link_libraries(oil_format PUBLIC oil_math)
 
 add_library(oil_kernel
-  src/kernel_i2s.cpp
   src/kernel_tl.cpp
   src/kernel_oil8.cpp
   src/kernel_oil4.cpp
+  src/kernel_gemm.cpp
   src/int8_quant.cpp
   src/kernel_production.cpp
 )
@@ -130,6 +129,7 @@ add_library(oil_trainer
   src/eval.cpp
   src/ste_quantizer.cpp
   src/finetune.cpp
+  src/fine_tuning.cpp
   src/log_writer.cpp
   src/distributed.cpp
   src/native_weight.cpp
@@ -263,6 +263,7 @@ add_library(oil_asi
   src/self_eval.cpp
   src/world_model.cpp
   src/multi_agent.cpp
+  src/asi_guardrails.cpp
 )
 target_include_directories(oil_asi PUBLIC include)
 target_link_libraries(oil_asi PUBLIC oil_trainer oil_model)
@@ -315,7 +316,10 @@ if(OIL_VULKAN AND WIN32)
 endif()
 
 if(OIL_BUILD_TOOLS)
-  add_executable(oil_infer tools/infer.cpp)
+  add_executable(oil_infer tools/infer.cpp
+    src/qwen35_tokenizer.cpp
+    src/json_parser.cpp
+  )
   target_include_directories(oil_infer PRIVATE engines/inference)
   target_link_libraries(oil_infer PRIVATE oil_engine oil_tokenizer)
 
@@ -346,10 +350,16 @@ if(OIL_BUILD_TOOLS)
   add_executable(oil_quantize tools/quantize.cpp)
   target_link_libraries(oil_quantize PRIVATE oil_format oil_kernel)
 
-  add_executable(oil_server tools/oil_server.cpp)
+  add_executable(oil_server tools/oil_server.cpp
+    src/qwen35_tokenizer.cpp
+    src/json_parser.cpp
+  )
   target_link_libraries(oil_server PRIVATE oil_model oil_tokenizer)
 
-  add_executable(oil_evaluate tools/evaluate.cpp)
+  add_executable(oil_evaluate tools/evaluate.cpp
+    src/qwen35_tokenizer.cpp
+    src/json_parser.cpp
+  )
   target_link_libraries(oil_evaluate PRIVATE oil_model oil_inference oil_tokenizer oil_trainer)
 endif()
 
@@ -416,9 +426,6 @@ if(OIL_BUILD_BENCHMARKS)
   # OIL quantized GEMM benchmarks (Gap #2)
   add_oil_bench(bench_oil_quant bench/bench_oil_quant.cpp oil_kernel oil_math oil_core)
 
-  # AWQ/GPTQ comparison benchmarks
-  add_oil_bench(bench_awq_gptq bench/bench_awq_gptq.cpp oil_format oil_core)
-
   # GPT-2 real inference quality test
   add_oil_bench(bench_gpt2_inference bench/bench_gpt2_inference.cpp oil_format oil_core)
 
@@ -429,7 +436,7 @@ if(OIL_BUILD_BENCHMARKS)
   # Training speed benchmarks
   add_oil_bench(bench_speed tools/bench_speed.cpp oil_trainer oil_model)
 
-  # PoC Benchmark: All OIL/SPARK formats vs industrial (GGUF/AWQ/GPTQ/NF4)
+  # PoC Benchmark: all in-house OIL/SPARK formats + OIL_MIX routing
   add_oil_bench(bench_poc bench/bench_poc_benchmark.cpp oil_format oil_core oil_math)
 endif()
 

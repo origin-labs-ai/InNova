@@ -51,11 +51,11 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
   add_compile_options(/W3 /utf-8)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 
-  if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(/O2 /DNDEBUG)
-  elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_options(/Od /Zi /DOIL_DEBUG)
-  endif()
+  # Per-config flags via string(APPEND): works for both single-config
+  # (Ninja/NMake) and multi-config (Visual Studio) generators, and never
+  # mixes /O2 with /RTC1 (Debug default) — MSVC rejects that combination.
+  string(APPEND CMAKE_CXX_FLAGS_RELEASE " /O2 /DNDEBUG")
+  string(APPEND CMAKE_CXX_FLAGS_DEBUG " /Od /Zi /DOIL_DEBUG")
 
   if(OIL_AVX2)
     add_compile_options(/arch:AVX2)

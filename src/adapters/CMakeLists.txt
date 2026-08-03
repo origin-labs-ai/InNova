@@ -19,6 +19,21 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(OIL_ADAPTER_BUILD_TOOLS "Build adapter edition CLI tools" ON)
 option(OIL_ADAPTER_BUILD_TESTS "Build adapter edition tests" ON)
 
+# Directory holding the parent project's already-built Release libraries
+# (oil_core, oil_math, oil_format, oil_kernel, oil_model). Override with
+#   -DPARENT_LIB_DIR=<absolute path to parent build Release dir>
+set(PARENT_LIB_DIR "" CACHE PATH "Parent project Release lib directory")
+if(NOT PARENT_LIB_DIR)
+    set(PARENT_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build_verify/Release")
+endif()
+foreach(_oil_lib oil_core oil_math oil_format oil_kernel oil_model)
+    if(NOT TARGET ${_oil_lib})
+        add_library(${_oil_lib} STATIC IMPORTED)
+        set_target_properties(${_oil_lib} PROPERTIES
+            IMPORTED_LOCATION "${PARENT_LIB_DIR}/${_oil_lib}.lib")
+    endif()
+endforeach()
+
 # ── Library: oil_adapter ───────────────────────────────────────────────────
 # Adapter bridge implementations + continual trainer + delta adapter + MTP heads
 set(ADAPTER_SOURCES
@@ -34,7 +49,7 @@ set(ADAPTER_SOURCES
 add_library(oil_adapter STATIC ${ADAPTER_SOURCES})
 target_include_directories(oil_adapter PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
 )
 target_link_libraries(oil_adapter PUBLIC
     oil_core
@@ -52,10 +67,10 @@ endif()
 # ── CLI tools ──────────────────────────────────────────────────────────────
 if(OIL_ADAPTER_BUILD_TOOLS)
     function(add_adapter_tool name src)
-        add_executable(${name} ${src})
+        add_executable(${name} ${src} ${ARGN})
         target_include_directories(${name} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/include"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
         )
         target_link_libraries(${name} PRIVATE oil_adapter)
         if(MSVC)
@@ -71,6 +86,13 @@ if(OIL_ADAPTER_BUILD_TOOLS)
     add_adapter_tool(bench_ollama_comparison "tools/bench_ollama_comparison.cpp")
     add_adapter_tool(bench_bitnet_comparison "tools/bench_bitnet_comparison.cpp")
     add_adapter_tool(bench_spark_loss "tools/bench_spark_loss.cpp")
+    add_adapter_tool(oil_verify_roundtrip "tools/oil_verify_roundtrip.cpp")
+    add_adapter_tool(dump_oil "tools/dump_oil.cpp")
+    add_adapter_tool(oil_chat "tools/oil_chat.cpp" "tools/qwen35_engine.cpp"
+        "../../src/qwen35_tokenizer.cpp" "../../src/json_parser.cpp")
+    if(MSVC)
+        target_compile_options(oil_chat PRIVATE /O2 /arch:AVX2)
+    endif()
 endif()
 
 # ── Tests ──────────────────────────────────────────────────────────────────
@@ -80,7 +102,7 @@ if(OIL_ADAPTER_BUILD_TESTS)
     add_executable(test_adapter_bridges "tests/test_adapter_bridges.cpp")
     target_include_directories(test_adapter_bridges PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
     )
     target_link_libraries(test_adapter_bridges PRIVATE oil_adapter)
     if(MSVC)

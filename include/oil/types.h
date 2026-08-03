@@ -17,21 +17,21 @@ namespace oil {
 enum class Activation : uint8_t { None, ReLU, GELU, SiLU };
 
 enum class Format : uint8_t {
-    OIL1            = 0,   // 1.00 BPW
+    OIL1            = 0,   // 0.5 BPW stored FP16 block means; 1.0 is the documented conservative cap (lossy)
     SPARK_Q0        = 1,   // 1.50 BPW (sign + shared FP16 scale, lossy)
-    OIL2            = 2,   // 2.00 BPW, 4 centroids Lloyd-Max (lossy)
-    OIL4            = 3,   // 4.00 BPW, 16 centroids Lloyd-Max (lossy)
-    OIL8            = 4,   // 8.00 BPW, 256 centroids Lloyd-Max (lossy)
+    OIL2            = 2,   // 2.00 BPW, 4-centroid lattice (lossy)
+    OIL4            = 3,   // 4.00 BPW, 16-centroid lattice (lossy)
+    OIL8            = 4,   // 8.00 BPW, 256-centroid lattice (lossy)
     OIL16           = 5,   // 16.00 BPW, FP16 storage (lossy)
     OIL32           = 6,   // 32.00 BPW, FP32 identity (lossless)
-    OIL1_GRP        = 7,   // 1.00 BPW, lossy grouped (improved quality via per-group scale/zp)
-    SPARK_Q0_GRP    = 8,   // 2.00 BPW, lossy grouped, sign + per-group scale
-    OIL2_GRP        = 9,   // 2.00 BPW, lossy grouped (improved quality via per-group scale/zp)
-    OIL4_GRP        = 10,  // 4.00 BPW, lossy grouped (improved quality via per-group scale/zp)
-    OIL8_GRP        = 11,  // 8.00 BPW, lossy grouped (improved quality via per-group scale/zp)
-    OIL16_GRP       = 12,  // 16.00 BPW, lossy grouped (improved quality via per-group scale/zp)
+    OIL1_GRP        = 7,   // 1.00 BPW, block FP16 scale + 16 slots + sign bits (no per-64 zp/scale)
+    SPARK_Q0_GRP    = 8,   // 1.50 BPW, block FP16 scale + sign bits + in-budget refinement
+    OIL2_GRP        = 9,   // 2.50 BPW, 2-bit lattice + per-64-group FP16 zp/scale (+0.5 BPW)
+    OIL4_GRP        = 10,  // 4.50 BPW, 4-bit lattice + per-64-group FP16 zp/scale (+0.5 BPW)
+    OIL8_GRP        = 11,  // 8.50 BPW, 8-bit lattice + per-64-group FP16 range/zp (+0.5 BPW)
+    OIL16_GRP       = 12,  // 16.00 BPW, FP16 storage (same as OIL16; no grouping at 16 BPW)
     SPARK_SPARSE     = 13,  // 2.00 BPW, lossy, sparse (uint16 index, int8 value) pairs
-    SPARK_SPARSE_GRP = 14,  // 2.00 BPW, lossy grouped, sparse + per-group scale
+    SPARK_SPARSE_GRP = 14,  // 2.00 BPW, lossy grouped, sparse + per-half-block FP16 scales
 };
 
 inline const char* format_name(Format f) {
@@ -64,14 +64,20 @@ inline float format_bpw(Format f) {
         case Format::OIL16:     return 16.0f;
         case Format::OIL32:     return 32.0f;
         case Format::OIL1_GRP:  return 1.0f;
-        case Format::OIL2_GRP:  return 2.0f;
-        case Format::OIL4_GRP:  return 4.0f;
-        case Format::OIL8_GRP:  return 8.0f;
+        // OIL2_GRP / OIL4_GRP / OIL8_GRP store REAL per-64-group FP16
+        // scale+zero-point headers (32 bits per 64 weights = 0.5 BPW
+        // overhead), included in their honest claims 2.5 / 4.5 / 8.5,
+        // matching FormatRegistry's descriptors. OIL1_GRP / SPARK_Q0_GRP
+        // keep a single block-level FP16 scale and SPARK_SPARSE_GRP
+        // per-half-block scales, so no 0.5 BPW overhead is added there.
+        case Format::OIL2_GRP:  return 2.5f;
+        case Format::OIL4_GRP:  return 4.5f;
+        case Format::OIL8_GRP:  return 8.5f;
         case Format::OIL16_GRP: return 16.0f;
         case Format::SPARK_SPARSE:     return 2.0f;
         case Format::SPARK_SPARSE_GRP:  return 2.0f;
         case Format::SPARK_Q0:          return 1.50f;
-        case Format::SPARK_Q0_GRP:      return 1.69f;
+        case Format::SPARK_Q0_GRP:      return 1.50f;
         default: return 0;
     }
 }

@@ -30,59 +30,6 @@ void fp8_e5m2_dequantize_per_channel(const Tensor& q, const Tensor& scales, int 
 float fp8_e5m2_quant_error(const Tensor& original, const Tensor& reconstructed);
 float fp8_e5m2_quant_snr(const Tensor& original, const Tensor& reconstructed);
 
-// NF4: Normal Float 4-bit quantization format
-uint8_t nf4_quantize(float val, float scale);
-float nf4_dequantize(uint8_t idx, float scale);
-Tensor nf4_dequant_tensor(const uint8_t* data, const float* scales,
-                          int64_t n, int64_t block_size);
-Tensor nf4_quantize_tensor(const float* data, int64_t n, int64_t block_size);
-Tensor nf4_quant_gemm(const Tensor& a, const uint8_t* b_q, const float* scales,
-                      int64_t M, int64_t N, int64_t K, int64_t block_size);
-void nf4_quantize_per_channel(const Tensor& t, int channel_dim, int64_t block_size, Tensor& q, Tensor& scales);
-void nf4_dequantize_per_channel(const Tensor& q, const Tensor& scales, int64_t block_size, int channel_dim, Tensor& out);
-float nf4_quant_error(const Tensor& original, const Tensor& reconstructed);
-float nf4_quant_snr(const Tensor& original, const Tensor& reconstructed);
-
-// AWQ: Activation-aware Weight Quantization
-class AWQQuantizer {
-public:
-    AWQQuantizer(int64_t group_size = 128, float alpha = 0.5f);
-    void compute_scales(const Tensor& weight, const Tensor& activation);
-    Tensor quantize(const Tensor& weight);
-    Tensor dequantize(const Tensor& q_weight);
-    Tensor quantize_batch(const Tensor& t);
-    Tensor dequantize_batch(const Tensor& q);
-    Tensor quant_gemm(const Tensor& a, const Tensor& b_q, int64_t M, int64_t N, int64_t K);
-    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
-    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
-    float quant_error(const Tensor& original, const Tensor& reconstructed);
-    float quant_snr(const Tensor& original, const Tensor& reconstructed);
-    std::vector<float> scales_;
-private:
-    int64_t group_size_;
-    float alpha_;
-};
-
-// GPTQ: Hessian-based quantization
-class GPTQQuantizer {
-public:
-    GPTQQuantizer(int64_t group_size = 128, int bits = 4);
-    Tensor quantize(const Tensor& weight, const Tensor& hessian);
-    Tensor dequantize(const Tensor& q_weight);
-    Tensor quantize_batch(const Tensor& t);
-    Tensor dequantize_batch(const Tensor& q);
-    Tensor quant_gemm(const Tensor& a, const Tensor& b_q, int64_t M, int64_t N, int64_t K);
-    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
-    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
-    float quant_error(const Tensor& original, const Tensor& reconstructed);
-    float quant_snr(const Tensor& original, const Tensor& reconstructed);
-private:
-    int64_t group_size_;
-    int bits_;
-    float max_q_;
-    float min_q_;
-};
-
 // OIL8 Engine: 256-entry FP32 codebook + per-block scaling
 class OIL8Engine {
 public:
@@ -141,7 +88,11 @@ private:
     mutable float stoch_temperature_ = 1.0f;
 };
 
-// Spark Engine: {-1, 0, +1} with per-block scale
+// Spark Engine: {-1, 0, +1} with per-block scale.
+// NOTE: this is an IN-MEMORY engine with its own self-consistent layout
+// (2-bit ternary + per-block max-abs scale). It is NOT the canonical wire
+// encoding — SPARK_Q0 on disk is produced by quantize_block_all() in
+// oil/block_codec.h (per-32 FP16 scale + sign bits).
 class SparkEngine {
 public:
     explicit SparkEngine(int64_t block_size = 128);
@@ -158,25 +109,10 @@ private:
     int64_t block_size_;
 };
 
-// I2S Engine: wraps SparkEngine (identical per-block quantization)
-class I2SEngine {
-public:
-    explicit I2SEngine(int64_t block_size = 128);
-    Tensor quantize(const Tensor& weight);
-    Tensor dequantize(const Tensor& packed, const Tensor& scales, int64_t n);
-    Tensor quantize_batch(const Tensor& t);
-    Tensor dequantize_batch(const Tensor& q);
-    Tensor quant_gemm(const Tensor& a, const Tensor& b_packed, const Tensor& b_scales, int64_t M, int64_t N, int64_t K);
-    void quantize_per_channel(const Tensor& t, int channel_dim, Tensor& q, Tensor& scales);
-    void dequantize_per_channel(const Tensor& q, const Tensor& scales, int channel_dim, Tensor& out);
-    float quant_error(const Tensor& original, const Tensor& reconstructed);
-    float quant_snr(const Tensor& original, const Tensor& reconstructed);
-private:
-    SparkEngine spark_;
-    int64_t block_size_;
-};
-
-// OIL1 Engine: Block mean (1 FP32 centroid per 32 elements)
+// OIL1 Engine: Block mean (1 FP32 centroid per 32 elements).
+// NOTE: in-memory engine; the `scale` argument to dequantize() is unused by
+// design because the block means are absolute values (not a relative lattice).
+// The canonical on-disk OIL1 is produced by quantize_block_all().
 class Oil1Engine {
 public:
     Oil1Engine();

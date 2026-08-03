@@ -117,7 +117,6 @@ void Oil1Engine::quantize_per_channel(const Tensor& t, int channel_dim,
 void Oil1Engine::dequantize_per_channel(const Tensor& q, const Tensor& scales,
                                             int channel_dim, Tensor& out) {
     (void)scales; (void)channel_dim;
-    out = Tensor(q.shape());
     float* od = out.data<float>();
     const float* qd = q.data<float>();
     int64_t block_size = 32;

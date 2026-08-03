@@ -177,7 +177,7 @@ static float measure_f16(const float* orig, const std::vector<uint8_t>& q, int K
 // ── OIL quantize/measure (reuse from bench_full logic) ──
 static int quantize_oil(const float* data, int K, std::vector<uint8_t>& out) {
     AdapterTensor t; t.name = "cmp"; t.data.assign(data, data + K); t.shape = {(int64_t)K};
-    BridgeConfig cfg; cfg.target_bpw = 1.58f; cfg.block_size = 256;
+    BridgeConfig cfg; cfg.target_bpw = 1.50f; cfg.block_size = 256;
     cfg.output_path = "tmp_cmp_oil.oil"; cfg.verbose = false;
     if (!write_oil_mixed({t}, cfg)) return -1;
     std::ifstream f(cfg.output_path, std::ios::binary);
@@ -209,7 +209,7 @@ static int q_q80(const float* d, int K, std::vector<uint8_t>& o) { o = llamacpp:
 static int q_f16(const float* d, int K, std::vector<uint8_t>& o) { o = llamacpp::quantize_f16(d, K); return 0; }
 
 static FmtCmp g_fmts[] = {
-    {"OIL Mixed", 1.58f, q_oil, measure_oil},
+    {"OIL Mixed", 1.50f, q_oil, measure_oil},
     {"llama Q4_0", 4.50f, q_q40, llamacpp::measure_q4_0},
     {"llama Q4_1", 5.00f, q_q41, llamacpp::measure_q4_1},
     {"llama Q8_0", 8.50f, q_q80, llamacpp::measure_q8_0},
@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
     for (int f = 1; f < NF; f++) if (mse[0] < mse[f]) oil_wins++;
     printf("\nOIL beats %d/%d llama.cpp formats on MSE\n", oil_wins, NF-1);
     printf("OIL uses %.1f%% less memory than Q4_0\n", (1.0f - bpw[0]/bpw[1]) * 100.0f);
-    if (mse[0] < mse[3]) printf("🔥 OIL BEATS EVEN F16 (16 bpw) AT 1.58 bpw — 10x COMPRESSION ADVANTAGE!\n");
+    if (mse[0] < mse[3]) printf("🔥 OIL BEATS EVEN F16 (16 bpw) AT 1.50 bpw — 10x COMPRESSION ADVANTAGE!\n");
 
     // JSON
     char buf[32768]; int p = 0;

@@ -4,7 +4,7 @@
 // Formats compared:
 //   1. OIL Mixed  (95% SPARK, 4% OIL4, 1% OIL8)  ~1.5 bpw
 //   2. GGUF Q8_0   (8.5 bpw, per-block 8-bit)
-//   3. Pure SPARK (1.58 bpw, all weights)
+//   3. Pure SPARK (1.50 bpw, all weights)
 //   4. Pure OIL1  (1.0 bpw, all weights)
 //   5. FP16         (16.0 bpw, baseline)
 //
@@ -391,7 +391,7 @@ static int quantize_oil(const float* data, int M, int K, std::vector<uint8_t>& o
     t.data.assign(data, data + M * K);
     t.shape = { (int64_t)K };
     BridgeConfig cfg;
-    cfg.target_bpw = 1.58f;
+    cfg.target_bpw = 1.50f;
     cfg.block_size = 256;
     cfg.output_path = "tmp_bench_oil.oil";
     cfg.verbose = false;
@@ -444,9 +444,9 @@ static int quantize_fp16(const float* data, int M, int K, std::vector<uint8_t>& 
 }
 
 static const FormatInfo g_formats[] = {
-    {"OIL Mixed",        1.58f, quantize_oil,      measure_error_oil},
+    {"OIL Mixed",        1.50f, quantize_oil,      measure_error_oil},
     {"GGUF Q8_0",        8.50f, quantize_q8,       gguf_q8::measure_error},
-    {"Pure SPARK",       1.58f, quantize_spark,     pure_quant::measure_error_spark},
+    {"Pure SPARK",       1.50f, quantize_spark,     pure_quant::measure_error_spark},
     {"Pure OIL1",        1.00f, quantize_oil1,      pure_quant::measure_error_oil1},
     {"FP16",            16.00f, quantize_fp16,      fp16_quant::measure_error},
 };

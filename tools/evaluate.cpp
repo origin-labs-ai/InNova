@@ -1,6 +1,6 @@
 #include "oil/model.h"
 #include "oil/eval.h"
-#include "oil/tokenizer.h"
+#include "oil/qwen35_tokenizer.h"
 #include "oil/metrics.h"
 
 #include <iostream>
@@ -10,9 +10,11 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
+#include <filesystem>
 
 struct EvalArgs {
     std::string model_path;
+    std::string model_dir;
     std::string task = "all";
     std::string data_path;
     int batch_size = 1;
@@ -25,6 +27,8 @@ static EvalArgs parse_args(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc)
             args.model_path = argv[++i];
+        else if (strcmp(argv[i], "--model-dir") == 0 && i + 1 < argc)
+            args.model_dir = argv[++i];
         else if (strcmp(argv[i], "--task") == 0 && i + 1 < argc)
             args.task = argv[++i];
         else if (strcmp(argv[i], "--data") == 0 && i + 1 < argc)
@@ -39,6 +43,8 @@ static EvalArgs parse_args(int argc, char** argv) {
             std::cout << "Usage: oil_evaluate --model model.oil --task <task> [options]\n";
             std::cout << "Tasks: perplexity, accuracy, classification, generation, hellaswag, all\n";
             std::cout << "Options:\n";
+            std::cout << "  --model-dir <dir>   Model directory with tokenizer.json\n";
+            std::cout << "                      (default: directory of --model)\n";
             std::cout << "  --data <path>       Eval data path\n";
             std::cout << "  --batch-size N       Batch size (default: 1)\n";
             std::cout << "  --context N          Context size (default: 512)\n";
@@ -65,19 +71,24 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    oil::BPETokenizer tokenizer;
-    std::string vocab_path = args.model_path;
-    size_t dot = vocab_path.rfind('.');
-    if (dot != std::string::npos)
-        vocab_path = vocab_path.substr(0, dot);
-    vocab_path += ".vocab";
+    if (args.model_dir.empty())
+        args.model_dir = std::filesystem::path(args.model_path).parent_path().string();
+
+    // Qwen3.5-family models ship tokenizer.json in the model dir; there is no
+    // separate .vocab file. load_from_dir reads tokenizer.json directly.
+    oil::Qwen35Tokenizer tokenizer;
     try {
-        std::ifstream f(vocab_path);
-        if (f.is_open()) {
-            f.close();
-            tokenizer.load(vocab_path);
+        if (!tokenizer.load_from_dir(args.model_dir)) {
+            std::cerr << "Error: failed to load tokenizer from " << args.model_dir
+                      << " (expected tokenizer.json)" << std::endl;
+            return 1;
         }
-    } catch (...) {}
+        std::cout << "Tokenizer loaded (" << tokenizer.vocab_size() << " vocab)"
+                  << " from " << args.model_dir << "\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading tokenizer: " << e.what() << std::endl;
+        return 1;
+    }
 
     std::cout << "Model loaded: " << model.param_count() << " params\n";
 

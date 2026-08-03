@@ -1,4 +1,4 @@
-﻿#include "oil/expert_parallel.h"
+#include "oil/expert_parallel.h"
 #include "oil/moe_variants.h"
 #include "oil/math.h"
 
@@ -918,6 +918,17 @@ void ExpertParallelManager::reset_stats() {
     impl_->stats = {};
 }
 
+void ExpertParallelManager::restore_nodes(const std::vector<ClusterNode>& nodes) {
+    std::lock_guard<std::mutex> lk(impl_->mtx);
+    impl_->nodes_ = nodes;
+    impl_->dispatcher.assign_experts_to_nodes((int64_t)nodes.size());
+}
+
+void ExpertParallelManager::restore_stats(const ExpertParallelStats& stats) {
+    std::lock_guard<std::mutex> lk(impl_->mtx);
+    impl_->stats = stats;
+}
+
 PipelineScheduler::PipelineScheduler(int64_t num_stages, int64_t micro_batch_size)
     : num_stages(num_stages), micro_batch_size(micro_batch_size) {
     stages_.resize((size_t)num_stages);
@@ -1056,6 +1067,8 @@ void FaultToleranceManager::checkpoint_state(const std::string& path) {
     state_data.reserve(4096);
     state_data += "nodes:" + std::to_string(nodes.size()) + ";";
     state_data += "failed:" + std::to_string(failed_nodes_.size()) + ";";
+    for (int64_t fn : failed_nodes_)
+        state_data += "failed_node{" + std::to_string(fn) + "};";
     for (auto& n : nodes) {
         state_data += "node{" + std::to_string(n.node_id) + "," +
                       n.address + "," + std::to_string(n.port) + "," +
@@ -1085,18 +1098,83 @@ void FaultToleranceManager::restore_state(const std::string& path) {
     if (fread(&data[0], 1, (size_t)sz, f) != sz) { fclose(f); return; }
     fclose(f);
 
+    std::lock_guard<std::mutex> lk(mtx_);
     failed_nodes_.clear();
+
+    // Mirror the format written by checkpoint_state():
+    //   nodes:N; failed:N; failed_node{id};* node{id,address,port,num_experts};*
+    //   stats{routed=..,dropped=..,failures=..}
+    std::vector<ClusterNode> restored_nodes;
+    ExpertParallelStats restored_stats;
+    bool have_stats = false;
+    int64_t failed_count = 0;
+
     size_t pos = 0;
     while (pos < data.size()) {
         size_t semi = data.find(';', pos);
-        if (semi == std::string::npos) break;
-        std::string token = data.substr(pos, semi - pos);
-        pos = semi + 1;
-        if (token.substr(0, 7) == "failed:") {
-            int64_t count = std::stoll(token.substr(7));
-            (void)count;
+        std::string token = (semi == std::string::npos)
+                                ? data.substr(pos)
+                                : data.substr(pos, semi - pos);
+        pos = (semi == std::string::npos) ? data.size() : semi + 1;
+
+        if (token.rfind("failed:", 0) == 0) {
+            // Total failed count; the actual ids are restored from the
+            // per-node "failed_node{id}" records below.
+            failed_count = std::stoll(token.substr(7));
+            (void)failed_count;
+        } else if (token.rfind("failed_node{", 0) == 0) {
+            size_t brace = token.find('}');
+            if (brace != std::string::npos)
+                failed_nodes_.push_back(std::stoll(token.substr(12, brace - 12)));
+        } else if (token.rfind("node{", 0) == 0) {
+            size_t brace = token.find('}');
+            if (brace != std::string::npos) {
+                std::string inner = token.substr(5, brace - 5);
+                size_t c1 = inner.find(',');
+                size_t c2 = c1 == std::string::npos ? std::string::npos
+                                                    : inner.find(',', c1 + 1);
+                size_t c3 = c2 == std::string::npos ? std::string::npos
+                                                    : inner.find(',', c2 + 1);
+                if (c1 != std::string::npos && c2 != std::string::npos &&
+                    c3 != std::string::npos) {
+                    ClusterNode n;
+                    n.node_id = std::stoll(inner.substr(0, c1));
+                    n.address = inner.substr(c1 + 1, c2 - c1 - 1);
+                    n.port = std::stoll(inner.substr(c2 + 1, c3 - c2 - 1));
+                    n.num_experts = std::stoll(inner.substr(c3 + 1));
+                    n.alive = true;
+                    restored_nodes.push_back(n);
+                }
+            }
+        } else if (token.rfind("stats{", 0) == 0) {
+            size_t brace = token.find('}');
+            if (brace != std::string::npos) {
+                std::string inner = token.substr(6, brace - 6);
+                auto parse_kv = [&](const std::string& key) -> int64_t {
+                    std::string key_eq = key + "=";
+                    size_t ks = inner.find(key_eq);
+                    if (ks == std::string::npos) return 0;
+                    size_t vs = ks + key_eq.size();
+                    size_t ve = inner.find(',', vs);
+                    std::string val = (ve == std::string::npos)
+                                          ? inner.substr(vs)
+                                          : inner.substr(vs, ve - vs);
+                    return val.empty() ? 0 : std::stoll(val);
+                };
+                restored_stats.total_tokens_routed = parse_kv("routed");
+                restored_stats.total_tokens_dropped = parse_kv("dropped");
+                restored_stats.node_failures_handled = parse_kv("failures");
+                have_stats = true;
+            }
         }
+        // "nodes:N" is informational; the node records carry the data.
     }
+
+    // Write the parsed node list and routing stats back into the manager so
+    // the checkpoint round-trips (previously the node/stats records were
+    // ignored and failed_nodes_ was left cleared).
+    if (!restored_nodes.empty()) manager_->restore_nodes(restored_nodes);
+    if (have_stats) manager_->restore_stats(restored_stats);
 }
 
 // ========================================================================

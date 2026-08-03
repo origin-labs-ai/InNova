@@ -262,11 +262,46 @@ int64_t HashMoE::compute_capacity(int64_t T) const {
 }
 
 std::vector<uint8_t> HashMoE::export_weights() const {
-    return {};
+    // Serialize the only trainable weights of a HashMoE (there is no router):
+    // each expert's gate/up/down projection weights, concatenated. Format
+    // mirrors the other MoE variants: one int64 total-float count followed by
+    // the raw weights (per expert: gate_proj, up_proj, down_proj).
+    size_t total = 0;
+    for (auto& e : experts) {
+        total += (size_t)e.gate_proj.weight.numel();
+        total += (size_t)e.up_proj.weight.numel();
+        total += (size_t)e.down_proj.weight.numel();
+    }
+    std::vector<uint8_t> d(sizeof(int64_t) + total * sizeof(float));
+    int64_t n = (int64_t)total;
+    std::memcpy(d.data(), &n, sizeof(int64_t));
+    size_t off = sizeof(int64_t);
+    auto write_w = [&](const Tensor& w) {
+        size_t sz = (size_t)w.numel() * sizeof(float);
+        std::memcpy(d.data() + off, w.data<float>(), sz);
+        off += sz;
+    };
+    for (auto& e : experts) {
+        write_w(e.gate_proj.weight);
+        write_w(e.up_proj.weight);
+        write_w(e.down_proj.weight);
+    }
+    return d;
 }
 
 void HashMoE::import_weights(const std::vector<uint8_t>& data) {
-    (void)data;
+    size_t off = sizeof(int64_t);
+    auto read_w = [&](Tensor& w) {
+        size_t sz = (size_t)w.numel() * sizeof(float);
+        if (off + sz <= data.size())
+            std::memcpy(w.data<float>(), data.data() + off, sz);
+        off += sz;
+    };
+    for (auto& e : experts) {
+        read_w(e.gate_proj.weight);
+        read_w(e.up_proj.weight);
+        read_w(e.down_proj.weight);
+    }
 }
 
 // ---- CROSS_LAYER ----

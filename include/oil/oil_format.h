@@ -21,7 +21,7 @@ struct OILHeader {
 
 struct FormatBlockEntry {
     uint32_t block_id;
-    uint8_t format;    // 0=OIL1, 1=SPARK, 2=oil4, 3=oil8
+    uint8_t format;    // Format enum value (0..14, see oil/types.h Format)
     uint32_t cb_bytes; // codebook size in bytes
 };
 
@@ -47,6 +47,7 @@ public:
     void write_header(const OILHeader& hdr, const uint8_t* config_data);
     void write_format_table(const std::vector<FormatBlockEntry>& entries);
     void write_block(const BlockData& block);
+    void write_raw(const char* data, size_t size);
     // Content-addressed dedup write: returns offset, skips duplicate blobs
     size_t write_dedup(const uint8_t* data, size_t size);
     void write_tensor_table(const std::vector<TensorEntry>& entries,
@@ -75,6 +76,12 @@ public:
     Tensor read_tensor(const std::string& name) const;
     std::vector<std::string> tensor_names() const;
     
+    // Random-access block reader using the prebuilt offset index (O(1)).
+    const uint8_t* block_ptr(uint32_t block_id) const;
+    size_t block_offset(uint32_t block_id) const { return block_offsets_[block_id]; }
+    const FormatBlockEntry& format_entry(uint32_t block_id) const { return cached_ft_[block_id]; }
+    bool tensor_blocks(const std::string& name, uint32_t& start, uint32_t& count) const;
+    
     // Check if file was successfully opened
     bool valid() const { return data_ != nullptr; }
 
@@ -92,6 +99,7 @@ private:
     uint32_t num_format_blocks_;
     uint32_t num_tensors_;
     mutable std::vector<FormatBlockEntry> cached_ft_;
+    std::vector<size_t> block_offsets_;   // per-block byte offset from file start
 };
 
 // ===========================================================================

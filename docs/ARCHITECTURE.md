@@ -228,9 +228,8 @@ Specialized kernels for different quantization formats.
 │  ┌─────────────────────────────────────────────────────────────┐  │
 │  │                    KERNELS                                    │  │
 │  │  • kernel_oil8.cpp    • kernel_tl.cpp (Ternary Lookup)       │  │
-│  │  • kernel_oil4.cpp    • kernel_i2s.cpp (Int2 + Scale)        │  │
-│  │  • int8_quant.cpp     • ste_quantizer.cpp                     │  │
-│  │  • format_planner.cpp • codebook.cpp                          │  │
+│  │  • kernel_oil4.cpp    • int8_quant.cpp                       │  │
+│  │  • ste_quantizer.cpp  • format_planner.cpp • codebook.cpp    │  │
 │  └─────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────┘
@@ -243,7 +242,6 @@ Specialized kernels for different quantization formats.
 - `src/kernel_oil8.cpp` - OIL8 kernel implementation
 - `src/kernel_oil4.cpp` - OIL4 kernel implementation
 - `src/kernel_tl.cpp` - Ternary Lookup kernel
-- `src/kernel_i2s.cpp` - Int2 + Scale kernel
 - `include/oil/int8_quant.h` - INT8 quantization
 - `src/int8_quant.cpp` - INT8 implementation
 - `include/oil/ste_quantizer.h` - Straight-Through Estimator
@@ -360,8 +358,8 @@ Training infrastructure and optimization.
 │  ┌──────────────┐  ┌──────────────┐                              │
 │  │ finetune     │  │  ste_quant   │                              │
 │  │              │  │              │                              │
-│  │ • QLoRA      │  │ • STE for    │                              │
-│  │ • LoRA       │  │   quantization│                              │
+│  │ • OIL-Rank   │  │ • STE for    │                              │
+│  │ • Low-rank Δ │  │   quantization│                              │
 │  │ • Full FT    │  │ • Gradient   │                              │
 │  │              │  │   estimation │                              │
 │  └──────────────┘  └──────────────┘                              │

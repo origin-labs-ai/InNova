@@ -388,8 +388,11 @@ CrossAttentionBlock::CrossAttentionBlock(const CrossAttentionLayerConfig& cfg)
 CrossAttentionBlock::~CrossAttentionBlock() { delete impl_; }
 
 Tensor CrossAttentionBlock::forward_self_attn(const Tensor& x) {
-    (void)x;
-    return Tensor({0});
+    // Real self-attention pass: attend x against itself. Self-attention is
+    // just cross-attention with query == key == value == x, so reuse the
+    // block's full cross-attention forward (q/k/v projections, scaled
+    // dot-product attention, output projection, residual + norms + FFN).
+    return forward(x, x, "");
 }
 
 Tensor CrossAttentionBlock::forward(const Tensor& query, const Tensor& key_value,

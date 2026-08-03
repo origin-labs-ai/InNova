@@ -217,15 +217,35 @@ Tensor Tensor::transpose(int dim1, int dim2) const {
 
 void Tensor::fill(float val) {
     int64_t n = numel();
-    if (dtype_ == DType::F32) {
-        float* d = data<float>();
-        for (int64_t i = 0; i < n; i++) d[i] = val;
-    } else if (dtype_ == DType::F16) {
-        uint16_t h = float_to_half(val);
-        uint16_t* d = data<uint16_t>();
-        for (int64_t i = 0; i < n; i++) d[i] = h;
-    } else {
-        OIL_CHECK(false, "fill: unsupported dtype");
+    switch (dtype_) {
+        case DType::F32: {
+            float* d = data<float>();
+            for (int64_t i = 0; i < n; i++) d[i] = val;
+            break;
+        }
+        case DType::F16: {
+            uint16_t h = float_to_half(val);
+            uint16_t* d = data<uint16_t>();
+            for (int64_t i = 0; i < n; i++) d[i] = h;
+            break;
+        }
+        case DType::I64: {
+            int64_t iv = (int64_t)val;
+            int64_t* d = data<int64_t>();
+            for (int64_t i = 0; i < n; i++) d[i] = iv;
+            break;
+        }
+        case DType::U8: {
+            uint8_t u = (uint8_t)val;
+            uint8_t* d = data<uint8_t>();
+            for (int64_t i = 0; i < n; i++) d[i] = u;
+            break;
+        }
+        case DType::U4: {
+            uint8_t nib = (uint8_t)val & 0xF;
+            memset(data(), (int)(nib | (nib << 4)), (size_t)size_bytes());
+            break;
+        }
     }
 }
 

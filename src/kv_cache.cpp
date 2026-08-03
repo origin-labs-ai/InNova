@@ -229,6 +229,10 @@ int KVCache::context_len() const {
     return caches_.empty() ? 0 : caches_[0].current_pos;
 }
 
+int KVCache::context_len(int layer) const {
+    return (layer >= 0 && layer < (int)caches_.size()) ? caches_[layer].current_pos : 0;
+}
+
 int KVCache::max_seq_len() const { return (int)max_seq_len_; }
 
 size_t KVCache::size_bytes() const {

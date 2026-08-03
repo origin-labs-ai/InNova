@@ -163,8 +163,7 @@ oil-train [OPTIONS]
     "norm_eps": 1e-6
   },
   "format": {
-    "target_bpw": 1.50,
-    "format_planner": "awq"
+    "target_bpw": 1.50
   },
   "training": {
     "batch_size": 4,
@@ -212,7 +211,7 @@ oil-finetune [OPTIONS]
 | `--batch-size`, `-b` | int | 4 | Batch size |
 | `--seq-length`, `-s` | int | 128 | Sequence length |
 | `--method` | string | full | Fine-tuning method: full, quantized |
-| `--target-bpw` | float | 1.58 | Target bits-per-weight for quantized fine-tuning |
+| `--target-bpw` | float | 1.50 | Target bits-per-weight for quantized fine-tuning |
 | `--target-modules` | string | all | Modules to fine-tune (comma-separated) |
 | `--freeze-base` | flag | false | Freeze base model weights |
 | `--log-interval` | int | 10 | Log every N steps |
@@ -248,29 +247,26 @@ oil-convert [OPTIONS]
 |--------|------|---------|-------------|
 | `--input`, `-i` | string | required | Input model file |
 | `--output`, `-o` | string | required | Output model file (.oil) |
-| `--input-format` | string | auto | Input format: auto, safetensors, gguf, pytorch |
-| `--target-bpw` | float | 1.50 | Target bits per weight for OIL format |
-| `--format-planner` | string | awq | Format planner: awq, uniform, custom |
+| `--format` | string | rawfp32 | Input format: rawfp32, gguf |
+| `--bpw` | float | 0 | Target bits per weight for FormatPlanner (0 = no compression) |
 | `--codebook-size` | int | 256 | Codebook size for OIL8 (256) or OIL4 (16) |
 | `--verbose`, `-v` | flag | false | Verbose output |
 
 **Supported Input Formats:**
-- HuggingFace `safetensors`
+- raw FP32 binary
 - `gguf` (GGML format)
-- PyTorch `.pt` files (limited support)
-- ONNX (planned)
 
 **Examples:**
 
 ```bash
-# Convert safetensors to OIL
-oil-convert -i model.safetensors -o model.oil --target-bpw 1.50
+# Convert raw FP32 to OIL
+oil-convert -i model.rawfp32 -o model.oil --bpw 1.50
 
 # Convert with different BPW
-oil-convert -i model.safetensors -o model_small.oil --target-bpw 2.0
+oil-convert -i model.rawfp32 -o model_small.oil --bpw 2.0
 
 # Convert GGUF to OIL
-oil-convert -i model.gguf -o model.oil --input-format gguf
+oil-convert -i model.gguf -o model.oil --format gguf
 ```
 
 ---
@@ -587,8 +583,7 @@ InNova uses JSON files for configuration.
     "save_interval": 1000
   },
   "format": {
-    "target_bpw": 1.50,
-    "format_planner": "awq"
+    "target_bpw": 1.50
   }
 }
 ```
@@ -599,7 +594,6 @@ InNova uses JSON files for configuration.
 {
   "quantization": {
     "target_bpw": 1.50,
-    "method": "awq",
     "calibration_data": "calib.txt",
     "codebook_size_oil8": 256,
     "codebook_size_oil4": 16,

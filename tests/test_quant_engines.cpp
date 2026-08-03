@@ -170,97 +170,6 @@ static void test_fp8_e5m2() {
     TEST_CHECK(std::isfinite(err), "E5M2 quant_error finite");
 }
 
-// NF4 quantize/dequantize
-static void test_nf4() {
-    TEST_SUITE("NF4");
-    float val = 0.5f;
-    float scale = 1.0f;
-    uint8_t idx = nf4_quantize(val, scale);
-    float nf4_scalar_dq = nf4_dequantize(idx, scale);
-    TEST_CHECK_CLOSE(val, nf4_scalar_dq, 0.5f, "NF4 scalar roundtrip");
-
-    int64_t N = 64, BS = 32;
-    Tensor orig({N});
-    for (int64_t i = 0; i < N; i++)
-        orig.data<float>()[i] = (float)(i - 32) / 8.0f;
-    Tensor q = nf4_quantize_tensor(orig.data<float>(), N, BS);
-    // Layout: [num_blocks float scales | N uint8 indices]
-    int64_t nf4_blocks = (N + BS - 1) / BS;
-    const float* nf4_scales = reinterpret_cast<const float*>(q.data<uint8_t>());
-    const uint8_t* nf4_idx = q.data<uint8_t>() + nf4_blocks * (int64_t)sizeof(float);
-    Tensor dq_t = nf4_dequant_tensor(nf4_idx, nf4_scales, N, BS);
-    TEST_CHECK(all_close(orig.data<float>(), dq_t.data<float>(), N, 1.0f), "NF4 tensor roundtrip");
-
-    // Per-channel
-    Tensor orig2d({2, 32});
-    for (int64_t i = 0; i < 2 * 32; i++)
-        orig2d.data<float>()[i] = (float)(i % 8) - 4.0f;
-    Tensor qc, sc;
-    nf4_quantize_per_channel(orig2d, 0, BS, qc, sc);
-    Tensor dqc({2, 32});
-    nf4_dequantize_per_channel(qc, sc, BS, 0, dqc);
-    TEST_CHECK(all_close(orig2d.data<float>(), dqc.data<float>(), 2 * 32, 1.0f), "NF4 per-channel roundtrip");
-
-    float err = nf4_quant_error(orig, dq_t);
-    TEST_CHECK(std::isfinite(err), "NF4 quant_error finite");
-    float snr = nf4_quant_snr(orig, dq_t);
-    TEST_CHECK(std::isfinite(snr), "NF4 quant_snr finite");
-}
-
-// AWQ quantize/dequantize
-static void test_awq() {
-    TEST_SUITE("AWQ");
-    AWQQuantizer awq(32, 0.5f);
-    Tensor weight({16, 32});
-    for (int64_t i = 0; i < 16 * 32; i++)
-        weight.data<float>()[i] = (float)(i % 16) - 8.0f;
-    Tensor act({8, 32});
-    for (int64_t i = 0; i < 8 * 32; i++)
-        act.data<float>()[i] = std::sin((float)i * 0.1f);
-    awq.compute_scales(weight, act);
-    Tensor q = awq.quantize(weight);
-    Tensor dq = awq.dequantize(q);
-    TEST_CHECK(all_close(weight.data<float>(), dq.data<float>(), 16 * 32, 2.0f), "AWQ weight roundtrip");
-
-    // Per-channel
-    Tensor qc, sc;
-    awq.quantize_per_channel(weight, 0, qc, sc);
-    Tensor dqc({16, 32});
-    awq.dequantize_per_channel(qc, sc, 0, dqc);
-    TEST_CHECK(all_close(weight.data<float>(), dqc.data<float>(), 16 * 32, 2.0f), "AWQ per-channel roundtrip");
-
-    float err = awq.quant_error(weight, dq);
-    TEST_CHECK(std::isfinite(err), "AWQ quant_error finite");
-    float snr = awq.quant_snr(weight, dq);
-    TEST_CHECK(std::isfinite(snr), "AWQ quant_snr finite");
-}
-
-// GPTQ quantize/dequantize
-static void test_gptq() {
-    TEST_SUITE("GPTQ");
-    GPTQQuantizer gptq(32, 4);
-    Tensor weight({8, 16});
-    for (int64_t i = 0; i < 8 * 16; i++)
-        weight.data<float>()[i] = (float)(i % 8) - 4.0f;
-    Tensor hessian({16, 16});
-    for (int64_t i = 0; i < 16; i++)
-        for (int64_t j = 0; j < 16; j++)
-            hessian.data<float>()[i * 16 + j] = (i == j) ? 2.0f : 0.1f;
-    Tensor q = gptq.quantize(weight, hessian);
-    Tensor dq = gptq.dequantize(q);
-    TEST_CHECK(all_close(weight.data<float>(), dq.data<float>(), 8 * 16, 4.0f), "GPTQ weight roundtrip");
-
-    // Per-channel
-    Tensor qc, sc;
-    gptq.quantize_per_channel(weight, 0, qc, sc);
-    Tensor dqc({8, 16});
-    gptq.dequantize_per_channel(qc, sc, 0, dqc);
-    TEST_CHECK(all_close(weight.data<float>(), dqc.data<float>(), 8 * 16, 2.0f), "GPTQ per-channel roundtrip");
-
-    float err = gptq.quant_error(weight, dq);
-    TEST_CHECK(std::isfinite(err), "GPTQ quant_error finite");
-}
-
 // SPARK quantize/dequantize
 static void test_spark() {
     TEST_SUITE("Spark");
@@ -380,9 +289,9 @@ static void test_quant_error_metrics() {
     TEST_CHECK(std::isfinite(snr), "quant_snr finite for identical");
 }
 
-// Per-block OIL8 vs Q8_0: prove OIL8 per-block beats uniform Q8_0
-static void test_perblock_oil8_beats_q8() {
-    TEST_SUITE("Per-block OIL8 vs Q8_0");
+// Per-block OIL8 vs uniform 8-bit grid: OIL codebook beats plain uniform grid
+static void test_perblock_oil8_beats_uniform8() {
+    TEST_SUITE("Per-block OIL8 vs uniform 8-bit grid");
     const int64_t N = 100320;
     const int64_t BS = 32;
 
@@ -398,8 +307,8 @@ static void test_perblock_oil8_beats_q8() {
         }
     }
 
-    // Q8_0 per-block uniform
-    double q8_sq = 0.0;
+    // Uniform 8-bit grid per-block (in-house reference)
+    double u8_sq = 0.0;
     for (int64_t b = 0; b < N / BS; b++) {
         float amax = 0.0f;
         for (int64_t i = 0; i < BS; i++)
@@ -411,10 +320,10 @@ static void test_perblock_oil8_beats_q8() {
             q = (std::max)(-128.0f, (std::min)(127.0f, q));
             float dq = q * scale;
             double d = (double)w[b * BS + i] - (double)dq;
-            q8_sq += d * d;
+            u8_sq += d * d;
         }
     }
-    double q8_mse = q8_sq / (double)N;
+    double u8_mse = u8_sq / (double)N;
 
     // OIL8 per-block k-means
     OIL8Engine oil8;
@@ -434,19 +343,19 @@ static void test_perblock_oil8_beats_q8() {
     }
     double oil8_mse = oil8_sq / (double)N;
 
-    printf("  Q8_0  (uniform per-block) MSE: %.6e\n", q8_mse);
+    printf("  u8_0  (uniform per-block) MSE: %.6e\n", u8_mse);
     printf("  OIL8  (k-means per-block) MSE: %.6e\n", oil8_mse);
-    if (oil8_mse < q8_mse) {
-        printf("  >>> OIL8 BEATS Q8_0 by %.2fx <<<\n", q8_mse / oil8_mse);
+    if (oil8_mse < u8_mse) {
+        printf("  >>> OIL8 BEATS u8_0 by %.2fx <<<\n", u8_mse / oil8_mse);
     } else {
-        printf("  Q8_0 wins by %.2fx\n", oil8_mse / q8_mse);
+        printf("  u8_0 wins by %.2fx\n", oil8_mse / u8_mse);
     }
-    TEST_CHECK(oil8_mse < q8_mse, "OIL8 per-block beats Q8_0 uniform");
+    TEST_CHECK(oil8_mse < u8_mse, "OIL8 per-block beats u8_0 uniform");
 }
 
-// Per-block OIL4 vs Q4_0: prove OIL4 per-block beats uniform Q4_0
-static void test_perblock_oil4_beats_q4() {
-    TEST_SUITE("Per-block OIL4 vs Q4_0");
+// Per-block OIL4 vs uniform 4-bit grid: OIL codebook beats plain uniform grid
+static void test_perblock_oil4_beats_uniform4() {
+    TEST_SUITE("Per-block OIL4 vs uniform 4-bit grid");
     const int64_t N = 100320;
     const int64_t BS = 32;
 
@@ -462,8 +371,8 @@ static void test_perblock_oil4_beats_q4() {
         }
     }
 
-    // Q4_0 per-block uniform
-    double q4_sq = 0.0;
+    // Uniform 4-bit grid per-block (in-house reference)
+    double u4_sq = 0.0;
     for (int64_t b = 0; b < N / BS; b++) {
         float bmin = w[b * BS], bmax = w[b * BS];
         for (int64_t i = 1; i < BS; i++) {
@@ -478,10 +387,10 @@ static void test_perblock_oil4_beats_q4() {
             q = (std::max)(0.0f, (std::min)(15.0f, q));
             float dq = q * scale + bmin;
             double d = (double)w[b * BS + i] - (double)dq;
-            q4_sq += d * d;
+            u4_sq += d * d;
         }
     }
-    double q4_mse = q4_sq / (double)N;
+    double u4_mse = u4_sq / (double)N;
 
     // OIL4 per-block k-means
     OIL4Engine oil4;
@@ -501,14 +410,14 @@ static void test_perblock_oil4_beats_q4() {
     }
     double oil4_mse = oil4_sq / (double)N;
 
-    printf("  Q4_0  (uniform per-block) MSE: %.6e\n", q4_mse);
+    printf("  u4_0  (uniform per-block) MSE: %.6e\n", u4_mse);
     printf("  OIL4  (k-means per-block) MSE: %.6e\n", oil4_mse);
-    if (oil4_mse < q4_mse) {
-        printf("  >>> OIL4 BEATS Q4_0 by %.2fx <<<\n", q4_mse / oil4_mse);
+    if (oil4_mse < u4_mse) {
+        printf("  >>> OIL4 BEATS u4_0 by %.2fx <<<\n", u4_mse / oil4_mse);
     } else {
-        printf("  Q4_0 wins by %.2fx\n", oil4_mse / q4_mse);
+        printf("  u4_0 wins by %.2fx\n", oil4_mse / u4_mse);
     }
-    TEST_CHECK(oil4_mse < q4_mse, "OIL4 per-block beats Q4_0 uniform");
+    TEST_CHECK(oil4_mse < u4_mse, "OIL4 per-block beats u4_0 uniform");
 }
 
 int main() {
@@ -520,15 +429,12 @@ int main() {
     test_oil4_roundtrip();
     test_fp8_e4m3();
     test_fp8_e5m2();
-    test_nf4();
-    test_awq();
-    test_gptq();
     test_spark();
     test_oil1();
     test_quant_gemm();
     test_quant_error_metrics();
-    test_perblock_oil8_beats_q8();
-    test_perblock_oil4_beats_q4();
+    test_perblock_oil8_beats_uniform8();
+    test_perblock_oil4_beats_uniform4();
 
     printf("\n============================================\n");
 

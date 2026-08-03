@@ -40,12 +40,12 @@ constexpr int    OIL2_CENTROIDS        = 4;
 constexpr int    OIL4_CENTROIDS        = 16;
 constexpr int    OIL8_CENTROIDS        = 256;
 constexpr int    SPARK_Q0_CENTROIDS    = 4;
-constexpr int    OIL16_CENTROIDS       = 256;
+constexpr int    OIL16_CENTROIDS       = 0;    // OIL16 stores raw FP16, no centroids
 constexpr int    OIL_FORMAT_COUNT      = 15;
 
 constexpr float  FP16_MAX_VALUE        = 65504.0f;
 constexpr float  FP32_EPSILON          = 1e-8f;
-constexpr float  SPARK_Q0_BPW          = 2.00f;
+constexpr float  SPARK_Q0_BPW          = 1.50f;
 
 // ── Training Defaults ─────────────────────────────────────────────────────
 

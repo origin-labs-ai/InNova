@@ -87,7 +87,8 @@ static void quantize_oil4(const float* src, uint8_t* dst,
 }
 
 // ---------------------------------------------------------------------------
-// Quantize to SPARK: {-1, 0, +1}
+// BitNet b1.58-style ternary {-1, 0, +1} baseline. NOT the canonical SPARK_Q0
+// codec (per-32 FP16 scale + sign bits) — labeled BITNET_158 below.
 // ---------------------------------------------------------------------------
 static void quantize_spark(const float* src, int8_t* dst, int64_t n) {
     for (int64_t i = 0; i < n; i++) {
@@ -108,7 +109,7 @@ static void quantize_oil1(const float* src, int8_t* dst, int64_t n) {
 }
 
 // ---------------------------------------------------------------------------
-// Dequantize SPARK back to float
+// Dequantize ternary back to float
 // ---------------------------------------------------------------------------
 static void dequantize_spark(const int8_t* src, float* dst, int64_t n) {
     for (int64_t i = 0; i < n; i++) dst[i] = (float)src[i];
@@ -258,7 +259,7 @@ int main() {
     }
 
     {
-        // SPARK
+        // BITNET_158: BitNet b1.58-style ternary baseline (log2(3) = 1.585 bpw)
         std::vector<int8_t> indices(N);
         std::vector<float> decoded(N);
 
@@ -271,7 +272,7 @@ int main() {
         double dq_us = (now_sec() - t0) * 1e6;
 
         QualityResult r;
-        r.format = "SPARK";
+        r.format = "BITNET_158";
         r.param_count = N;
         r.mse = compute_mse(ref.data(), decoded.data(), N);
         r.cosine = cosine_sim(ref.data(), decoded.data(), N);
@@ -318,11 +319,11 @@ int main() {
 
     for (auto& r : results) {
         float bpw = 0.0f;
-        if (r.format == "FP32")   bpw = 32.0f;
-        if (r.format == "OIL8")   bpw = 8.0f;
-        if (r.format == "OIL4")   bpw = 4.0f;
-        if (r.format == "SPARK") bpw = 1.58f;
-        if (r.format == "OIL1")  bpw = 1.0f;
+        if (r.format == "FP32")        bpw = 32.0f;
+        if (r.format == "OIL8")        bpw = 8.0f;
+        if (r.format == "OIL4")        bpw = 4.0f;
+        if (r.format == "BITNET_158")  bpw = 1.585f;  // log2(3) for ternary
+        if (r.format == "OIL1")        bpw = 1.0f;
 
         std::cout << std::left
                   << std::setw(12) << r.format
@@ -361,11 +362,11 @@ int main() {
     std::cout << "Format,BPW,MSE,CosineSimilarity,CompressionRatio" << std::endl;
     for (auto& r : results) {
         float bpw = 0.0f;
-        if (r.format == "FP32")   bpw = 32.0f;
-        if (r.format == "OIL8")   bpw = 8.0f;
-        if (r.format == "OIL4")   bpw = 4.0f;
-        if (r.format == "SPARK") bpw = 1.58f;
-        if (r.format == "OIL1")  bpw = 1.0f;
+        if (r.format == "FP32")        bpw = 32.0f;
+        if (r.format == "OIL8")        bpw = 8.0f;
+        if (r.format == "OIL4")        bpw = 4.0f;
+        if (r.format == "BITNET_158")  bpw = 1.585f;
+        if (r.format == "OIL1")        bpw = 1.0f;
         double compression = 32.0 / bpw;
         std::cout << r.format << ","
                   << std::setprecision(2) << bpw << ","

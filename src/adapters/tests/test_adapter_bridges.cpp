@@ -18,6 +18,7 @@
 #include <random>
 
 #include "oil/oil_format.h"
+#include "oil/block_codec.h"
 #include "oil/tensor.h"
 
 using namespace oil::adapters;
@@ -71,7 +72,7 @@ static void test_mixed_write() {
     BridgeConfig cfg;
     cfg.target_bpw = 2.0f;
     cfg.block_size = 256;
-    cfg.output_path = "/tmp/test_adapter.oil";
+    cfg.output_path = "test_adapter.oil";
 
     std::vector<AdapterTensor> tensors;
 
@@ -97,11 +98,58 @@ static void test_mixed_write() {
     check(bpw > 1.0f && bpw < 4.0f, "estimated BPW in valid range");
 }
 
+static void test_quad_budget_at_scale() {
+    std::fprintf(stdout, "\n=== QUAD_MIX Budget Tests ===\n");
+
+    constexpr int64_t N = 1 << 20; // 1M weights, 4096 blocks of 256
+    std::vector<float> data((size_t)N);
+    std::mt19937 rng(20260802);
+    for (int64_t g = 0; g < N / 1024; ++g) {
+        const float scale = 0.20f + 0.15f * (float)(g + 1);
+        std::normal_distribution<float> dist(0.0f, scale);
+        for (int64_t k = 0; k < 1024; ++k) data[(size_t)(g * 1024 + k)] = dist(rng);
+    }
+
+    const MixDescriptor* mix = nullptr;
+    for (const auto& m : FormatRegistry::get_all_four_mixes())
+        if (m.name == "QUAD_OIL2_OIL4_OIL8_OIL16") mix = &m;
+    check(mix != nullptr, "QUAD_OIL2_OIL4_OIL8_OIL16 registered");
+    if (!mix) return;
+
+    const std::vector<Format> fmts =
+        allocate_tensor_formats("layer0.weight", N, data.data(), 256, Format::OIL2, mix);
+
+    size_t total_bytes = 0;
+    bool budget_ok = true;
+    for (int b = 0; b < (int)fmts.size(); ++b) {
+        const Format bfmt = fmts[(size_t)b];
+        const int start = b * 256;
+        const int n = (int)std::min<int64_t>(256, N - start);
+        std::vector<uint8_t> indices, codebook;
+        quantize_block(bfmt, data.data() + start, n, indices, codebook);
+        const size_t stored = indices.size() + codebook.size();
+        const size_t cap = block_claimed_bytes(bfmt, (uint32_t)n);
+        if (stored > cap) budget_ok = false;
+        total_bytes += stored;
+    }
+    check(budget_ok, "every QUAD block fits its claimed byte budget");
+
+    const double expected = 2.92 * (double)N / 8.0;
+    const double actual = (double)total_bytes;
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "QUAD file bytes %.0f vs claimed %.0f (%.2f%% off)",
+                  actual, expected, 100.0 * (actual - expected) / expected);
+    check(std::fabs(actual - expected) / expected < 0.01, message);
+    std::fprintf(stdout, "QUAD_OIL2_OIL4_OIL8_OIL16 @ 1M weights: %zu bytes (claim 2.92 BPW -> %.0f)\n",
+                 total_bytes, expected);
+}
+
 static void test_raw_load() {
     std::fprintf(stdout, "\n=== Raw Load Tests ===\n");
 
     std::vector<float> data = {1.0f, 2.0f, 3.0f, -1.0f, -2.0f, -3.0f};
-    std::string path = "/tmp/test_raw.fp32";
+    std::string path = "test_adapter_raw.fp32";
     std::ofstream f(path, std::ios::binary);
     f.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(float));
     f.close();
@@ -121,6 +169,7 @@ int main() {
     test_fp_conversions();
     test_format_detection();
     test_mixed_write();
+    test_quad_budget_at_scale();
     test_raw_load();
 
     std::fprintf(stdout, "\n========================================\n");

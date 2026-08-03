@@ -229,6 +229,7 @@ public:
     Trainer(Model* model, Tokenizer* tokenizer);
     
     void compile(AdamW* optimizer, const TrainConfig& cfg = TrainConfig{});
+    void compile(Adafactor* optimizer, const TrainConfig& cfg = TrainConfig{});
     void fit(DataLoader& train_dl, const TrainConfig& cfg,
              DataLoader* val_dl = nullptr);
     
@@ -278,7 +279,7 @@ public:
 private:
     Model* model_;
     Tokenizer* tokenizer_;
-    AdamW* optimizer_ = nullptr;
+    Optimizer* optimizer_ = nullptr;
     TrainMetrics metrics_;
     LogCallback log_cb_;
     EpochCallback epoch_cb_;

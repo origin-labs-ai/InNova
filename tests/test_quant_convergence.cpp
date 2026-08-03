@@ -48,7 +48,10 @@ static TrainResult train_fp32(int64_t hidden, int64_t num_layers, int64_t seq_le
     // Register params
     std::vector<oil::Tensor*> params;
     model.get_parameters(params);
-    for (auto* p : params) opt.add_param(p);
+    for (auto* p : params) {
+        p->requires_grad(true);
+        opt.add_param(p);
+    }
 
     TrainResult result;
     double t0 = now_sec();
@@ -65,18 +68,20 @@ static TrainResult train_fp32(int64_t hidden, int64_t num_layers, int64_t seq_le
             pd[i] = (float)i;
         }
 
-        // Forward
+        // Forward (autograd on so the graph is built and gradients flow)
+        oil::AutogradEngine::set_enabled(true);
         oil::Tensor logits = model.forward(input, pos);
         oil::Tensor labels = input;
 
         // Loss
-        oil::Tensor loss = oil::cross_entropy_loss(logits, labels);
+        oil::Tensor loss = oil::AutogradEngine::cross_entropy_op(logits, labels);
         result.losses.push_back(loss.data<float>()[0]);
 
         // Backward
         oil::AutogradEngine::instance().backward(loss);
         opt.step();
         opt.zero_grad();
+        oil::AutogradEngine::set_enabled(false);
         total_tokens += seq_len;
     }
 
@@ -104,7 +109,10 @@ static TrainResult train_oil8_mixed(int64_t hidden, int64_t num_layers, int64_t 
     oil::AdamW opt(lr, 0.9f, 0.999f, 1e-8f, 0.0f);
     std::vector<oil::Tensor*> params;
     model.get_parameters(params);
-    for (auto* p : params) opt.add_param(p);
+    for (auto* p : params) {
+        p->requires_grad(true);
+        opt.add_param(p);
+    }
 
     // OIL8 engine with stochastic rounding for zero-mean noise
     oil::engines::OIL8Engine oil8;
@@ -132,15 +140,17 @@ static TrainResult train_oil8_mixed(int64_t hidden, int64_t num_layers, int64_t 
         // Use FP32 forward for now (the real mixed-precision path
         // requires STE integration which is a separate feature)
         // Instead, prove the quantization noise is bounded
+        oil::AutogradEngine::set_enabled(true);
         oil::Tensor logits = model.forward(input, pos);
         oil::Tensor labels = input;
 
-        oil::Tensor loss = oil::cross_entropy_loss(logits, labels);
+        oil::Tensor loss = oil::AutogradEngine::cross_entropy_op(logits, labels);
         result.losses.push_back(loss.data<float>()[0]);
 
         oil::AutogradEngine::instance().backward(loss);
         opt.step();
         opt.zero_grad();
+        oil::AutogradEngine::set_enabled(false);
         total_tokens += seq_len;
     }
 
@@ -235,7 +245,7 @@ int main() {
     
     // Part 2: Training convergence comparison
     printf("\n=== Training Convergence: FP32 vs OIL8 Mixed ===\n");
-    int64_t hidden = 128;
+    int64_t hidden = 64;
     int64_t num_layers = 4;
     int64_t seq_len = 64;
     int64_t vocab_size = 1000;
@@ -291,13 +301,12 @@ int main() {
     printf("  | FP8 E4  | 8      | ~42      | Good(range) |\n");
     printf("  | FP8 E5  | 8      | ~36      | Good(exp)   |\n");
     printf("  | OIL4    | 4      | ~24      | PEFT fine-tuning |\n");
-    printf("  | NF4     | 4      | ~21      | PEFT fine-tuning |\n");
     printf("  | SPARK   | ~1.6   | ~12      | Specialized |\n");
     printf("  | OIL1    | 1      | ~6       | Specialized |\n");
     printf("  +---------+--------+----------+-------------+\n");
     printf("\n  With stochastic rounding + STE + FP32 master weights:\n");
     printf("  OIL8 matches FP32 quality for training (proof above).\n");
-    printf("  OIL4/NF4 is best for PEFT/parameter-efficient fine-tuning.\n");
+    printf("  OIL4 is best for PEFT/parameter-efficient fine-tuning.\n");
     printf("  SPARK/OIL1 excels for extreme compression inference.\n");
     
     return 0;

@@ -81,10 +81,26 @@ private:
     MTPHeadConfig cfg_;
     MTPHeadMetrics metrics_;
     std::vector<MTPHeadWeights> heads_;
+    // Adafactor optimizer state (per head):
+    //   momentum_     — first moment m_t (beta1=0.9)
+    //   row_sq_       — row-wise second moment  R_t (size hidden)
+    //   col_sq_       — column-wise second moment C_t (size vocab)
+    //   bias_sq_      — second moment for the output bias (size vocab)
     std::vector<std::vector<float>> momentum_;
-    std::vector<std::vector<float>> velocity_;
+    std::vector<std::vector<float>> row_sq_;
+    std::vector<std::vector<float>> col_sq_;
+    std::vector<std::vector<float>> bias_sq_;
+    // Gradient for the current head's projection/bias, stashed by
+    // head_backward and consumed by update_weights (real Adafactor update).
+    std::vector<float> pending_w_grad_;
+    std::vector<float> pending_b_grad_;
     std::size_t step_ = 0;
     std::mt19937_64 rng_{42};
+
+    // Gradients computed by head_backward, consumed by update_weights so the
+    // AdamW step is a real, separate operation.
+    std::vector<float> pending_proj_grad_;
+    std::vector<float> pending_bias_grad_;
 };
 
 } // namespace adapters

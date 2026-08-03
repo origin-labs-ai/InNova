@@ -1,5 +1,5 @@
 #include "oil/model.h"
-#include "oil/tokenizer.h"
+#include "oil/qwen35_tokenizer.h"
 #include "oil/generator.h"
 #include "oil/production_socket.h"
 #include <iostream>
@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <map>
+#include <filesystem>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -32,7 +33,7 @@
 
 struct OilServerArgs {
     std::string model_path;
-    std::string vocab_path;
+    std::string model_dir;
     int port = 9090;
     int num_workers = 4;
     int max_tokens = 2048;
@@ -46,8 +47,8 @@ static OilServerArgs parse_args(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc)
             args.model_path = argv[++i];
-        else if (strcmp(argv[i], "--vocab") == 0 && i + 1 < argc)
-            args.vocab_path = argv[++i];
+        else if (strcmp(argv[i], "--model-dir") == 0 && i + 1 < argc)
+            args.model_dir = argv[++i];
         else if (strcmp(argv[i], "--port") == 0 && i + 1 < argc)
             args.port = std::stoi(argv[++i]);
         else if (strcmp(argv[i], "--workers") == 0 && i + 1 < argc)
@@ -64,7 +65,8 @@ static OilServerArgs parse_args(int argc, char** argv) {
             std::cout << "Usage: oil_server --model model.oil [options]\n";
             std::cout << "Options:\n";
             std::cout << "  --port N           Server port (default: 9090)\n";
-            std::cout << "  --vocab PATH       Tokenizer vocab file (default: model path without .oil + .vocab)\n";
+            std::cout << "  --model-dir DIR    Model directory with tokenizer.json\n";
+            std::cout << "                     (default: directory of --model)\n";
             std::cout << "  --workers N        Thread pool size (default: 4)\n";
             std::cout << "  --max-tokens N     Max generation tokens (default: 2048)\n";
             std::cout << "  --temperature F    Sampling temperature (default: 0.7)\n";
@@ -124,7 +126,7 @@ static std::string json_error(const std::string& msg) {
 
 class OilHTTPServer {
 public:
-    OilHTTPServer(oil::DenseModel* model, oil::BPETokenizer* tokenizer, int port, int workers)
+    OilHTTPServer(oil::DenseModel* model, oil::Tokenizer* tokenizer, int port, int workers)
         : model_(model), tokenizer_(tokenizer), port_(port), num_workers_(workers) {}
 
     void start() {
@@ -179,7 +181,7 @@ public:
 
 private:
     oil::DenseModel* model_;
-    oil::BPETokenizer* tokenizer_;
+    oil::Tokenizer* tokenizer_;
     int port_;
     int num_workers_;
     std::atomic<bool> running_{false};
@@ -564,27 +566,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Load tokenizer
-    oil::BPETokenizer tokenizer;
-    if (args.vocab_path.empty()) {
-        args.vocab_path = args.model_path;
-        size_t dot = args.vocab_path.rfind('.');
-        if (dot != std::string::npos)
-            args.vocab_path = args.vocab_path.substr(0, dot);
-        args.vocab_path += ".vocab";
-    }
+    // Load tokenizer — Qwen3.5-family models ship tokenizer.json in the model
+    // dir; there is no separate .vocab file.
+    if (args.model_dir.empty())
+        args.model_dir = std::filesystem::path(args.model_path).parent_path().string();
+    oil::Qwen35Tokenizer tokenizer;
     try {
-        std::ifstream f(args.vocab_path);
-        if (f.is_open()) {
-            f.close();
-            tokenizer.load(args.vocab_path);
-            std::cout << "Tokenizer loaded: " << args.vocab_path << "\n";
-        } else {
-            std::cerr << "Warning: vocab file not found: " << args.vocab_path << "\n";
-            std::cerr << "Tokenization will not be available\n";
+        if (!tokenizer.load_from_dir(args.model_dir)) {
+            std::cerr << "Error: failed to load tokenizer from " << args.model_dir
+                      << " (expected tokenizer.json)\n";
+            return 1;
         }
+        std::cout << "Tokenizer loaded (" << tokenizer.vocab_size() << " vocab)"
+                  << " from " << args.model_dir << "\n";
     } catch (const std::exception& e) {
-        std::cerr << "Warning: could not load tokenizer: " << e.what() << "\n";
+        std::cerr << "Error loading tokenizer: " << e.what() << "\n";
+        return 1;
     }
 
     std::signal(SIGINT, signal_handler);

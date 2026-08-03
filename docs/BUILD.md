@@ -4,7 +4,7 @@
 
 ---
 
-## ðŸ“‹ Quick Start
+## 📋 Quick Start
 
 ### Windows (Clang-cl)
 ```powershell
@@ -63,7 +63,7 @@ ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
 
 ---
 
-## ðŸ“¦ Prerequisites
+## 📦 Prerequisites
 
 ### Required Dependencies
 
@@ -92,7 +92,7 @@ ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
 
 ---
 
-## ðŸ› ï¸ Build Options
+## 🛠️ Build Options
 
 InNova uses CMake options to configure the build. You can enable/disable features using `-D` flags.
 
@@ -115,7 +115,7 @@ InNova uses CMake options to configure the build. You can enable/disable feature
 
 ---
 
-## ðŸŽ¯ Build Configurations
+## 🎯 Build Configurations
 
 ### Release Build (Recommended)
 
@@ -235,44 +235,44 @@ cmake --install build
 
 ---
 
-## ðŸ“ Build Output Structure
+## 📁 Build Output Structure
 
 After building, your `build/` directory will contain:
 
 ```
 build/
-â”œâ”€â”€ bin/                    # Tools and executables
-â”‚   â”œâ”€â”€ oil-convert         # Model format conversion
-â”‚   â”œâ”€â”€ oil-train           # Training tool
-â”‚   â”œâ”€â”€ oil-infer           # Inference tool
-â”‚   â”œâ”€â”€ oil-finetune        # Fine-tuning tool
-â”‚   â”œâ”€â”€ oil-info            # Model information
-â”‚   â”œâ”€â”€ oil-bench           # Benchmarking
-â”‚   â””â”€â”€ tests/              # Test executables
-â”‚       â”œâ”€â”€ test_tensor
-â”‚       â”œâ”€â”€ test_math
-â”‚       â”œâ”€â”€ test_kernel
-â”‚       â”œâ”€â”€ test_model
-â”‚       â”œâ”€â”€ test_tokenizer
-â”‚       â”œâ”€â”€ test_format
-â”‚       â”œâ”€â”€ test_trainer
-â”‚       â””â”€â”€ test_all
-â”‚
-â”œâ”€â”€ lib/                    # Libraries
-â”‚   â”œâ”€â”€ liboil_core.a       # Core library (static)
-â”‚   â”œâ”€â”€ liboil_math.a       # Math library
-â”‚   â”œâ”€â”€ liboil_format.a     # OIL format library
-â”‚   â””â”€â”€ ...
-â”‚
-â”œâ”€â”€ include/                # Public headers (symlink to source)
-â”‚   â””â”€â”€ oil/                # All public OIL headers
-â”‚
-â””â”€â”€ CMakeFiles/             # CMake build files
+├── bin/                    # Tools and executables
+│   ├── oil-convert         # Model format conversion
+│   ├── oil-train           # Training tool
+│   ├── oil-infer           # Inference tool
+│   ├── oil-finetune        # Fine-tuning tool
+│   ├── oil-info            # Model information
+│   ├── oil-bench           # Benchmarking
+│   └── tests/              # Test executables
+│       ├── test_tensor
+│       ├── test_math
+│       ├── test_kernel
+│       ├── test_model
+│       ├── test_tokenizer
+│       ├── test_format
+│       ├── test_trainer
+│       └── test_all
+│
+├── lib/                    # Libraries
+│   ├── liboil_core.a       # Core library (static)
+│   ├── liboil_math.a       # Math library
+│   ├── liboil_format.a     # OIL format library
+│   └── ...
+│
+├── include/                # Public headers (symlink to source)
+│   └── oil/                # All public OIL headers
+│
+└── CMakeFiles/             # CMake build files
 ```
 
 ---
 
-## ðŸ—ï¸ Build System Details
+## 🏗️ Build System Details
 
 ### CMake Targets
 
@@ -298,7 +298,7 @@ build/
 
 ---
 
-## ðŸ” Build Customization
+## 🔍 Build Customization
 
 ### Custom Compiler Flags
 
@@ -322,7 +322,7 @@ cmake --build build --parallel
 
 ---
 
-## âš¡ Parallel Build
+## ⚡ Parallel Build
 
 InNova supports parallel builds for faster compilation:
 
@@ -341,7 +341,7 @@ ninja -C build -j$(nproc)
 
 ---
 
-## ðŸ§¹ Clean Build
+## 🧹 Clean Build
 
 To clean and rebuild from scratch:
 
@@ -359,7 +359,7 @@ cmake --build build --parallel
 
 ---
 
-## ðŸ› Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
@@ -440,7 +440,7 @@ cmake --build build --parallel
 
 ---
 
-## ðŸ“Š Build Performance
+## 📊 Build Performance
 
 ### Build Times (Approximate)
 
@@ -462,7 +462,7 @@ cmake --build build --parallel
 
 ---
 
-## ðŸ”„ Continuous Integration
+## 🔄 Continuous Integration
 
 For CI/CD pipelines, use:
 
@@ -477,9 +477,9 @@ For CI/CD pipelines, use:
 
 ---
 
-## ðŸ“š Additional Resources
+## 📚 Additional Resources
 
-- [Wiki Build Guide](../wiki/Build-Guide.md) â€” Extended build documentation with troubleshooting
+- [Wiki Build Guide](../wiki/Build-Guide.md) — Extended build documentation with troubleshooting
 - [CMake Documentation](https://cmake.org/documentation/)
 - [Ninja Build System](https://ninja-build.org/)
 - [Clang Documentation](https://clang.llvm.org/docs/)
@@ -487,7 +487,7 @@ For CI/CD pipelines, use:
 
 ---
 
-## ðŸŽ‰ Success!
+## 🎉 Success!
 
 Once your build completes successfully, you're ready to:
 

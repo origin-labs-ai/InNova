@@ -332,8 +332,9 @@ void AutogradEngine::backward(Tensor& loss) {
 
     std::unordered_map<const void*, int> consumer_count;
     for (auto& node : nodes_) {
+        std::unordered_set<const void*> seen;
         for (auto& inp : node->inputs) {
-            if (inp.requires_grad())
+            if (inp.requires_grad() && seen.insert(inp.data()).second)
                 consumer_count[inp.data()]++;
         }
     }
@@ -346,7 +347,6 @@ void AutogradEngine::backward(Tensor& loss) {
     accum[loss.data()] = loss.grad();
 
     std::vector<const void*> stack;
-    std::unordered_set<const void*> visited;
     stack.push_back(loss.data());
 
     while (!stack.empty()) {
@@ -370,6 +370,7 @@ void AutogradEngine::backward(Tensor& loss) {
 
         stack.pop_back();
 
+        std::unordered_set<const void*> pushed;
         for (size_t i = 0; i < node->inputs.size() && i < grad_outputs.size(); ++i) {
             Tensor& inp = node->inputs[i];
             if (!inp.requires_grad()) continue;
@@ -395,8 +396,7 @@ void AutogradEngine::backward(Tensor& loss) {
                 aait->second = tmp;
             }
 
-            if (visited.find(inp.data()) == visited.end()) {
-                visited.insert(inp.data());
+            if (pushed.insert(inp.data()).second) {
                 stack.push_back(inp.data());
             }
         }
@@ -407,7 +407,22 @@ void AutogradEngine::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     nodes_.clear();
     output_to_node_.clear();
+    // param_map_ is intentionally PRESERVED: parameters are registered once
+    // (register_parameter) and must keep mapping to their gradient tensors
+    // across training steps. Wiping it here silently disables gradient
+    // accumulation in every training loop that calls backward()+clear() per
+    // step — the standard training pattern.
+}
+
+void AutogradEngine::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> plock(param_mutex_);
+    nodes_.clear();
+    output_to_node_.clear();
     param_map_.clear();
+    next_is_checkpoint_ = false;
+    last_checkpoint_.reset();
+    set_enabled(false);
 }
 
 AutogradEngine& AutogradEngine::instance() {

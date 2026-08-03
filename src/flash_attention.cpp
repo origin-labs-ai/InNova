@@ -40,7 +40,6 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
     static thread_local std::mt19937 drop_rng(std::random_device{}());
     static thread_local std::uniform_real_distribution<float> drop_dist(0.0f, 1.0f);
 
-    (void)dropout_p;
     int64_t B = Q.dim(0), H = Q.dim(1), N = Q.dim(2), D = Q.dim(3);
     float scale = 1.0f / std::sqrt((float)D);
 
@@ -94,8 +93,32 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
                         float masked = dot * scale;
                         if (m) masked += m[i * N + (jb + j)];
                         if (causal && (jb + j) > i) masked = -INFINITY;
+                        if (do_drop) {
+                            // Element-wise attention dropout on the raw
+                            // scores: one Bernoulli draw per (i, j) element.
+                            // Dropped positions become -INFINITY (zero
+                            // attention weight after softmax); kept positions
+                            // are rescaled by 1/(1-p) in log space so the
+                            // expected attention weights are preserved
+                            // (equivalent to dropout applied after softmax).
+                            if (drop_dist(drop_rng) < dropout_p) {
+                                masked = -INFINITY;
+                            } else if (drop_keep > 0.0f) {
+                                masked += std::log(1.0f / drop_keep);
+                            }
+                        }
                         scores[j] = masked;
                         if (masked > qk_max) qk_max = masked;
+                    }
+
+                    if (!std::isfinite(qk_max)) {
+                        // Fully masked key block (every key is -INFINITY, e.g.
+                        // a fully masked/causal- or dropout-masked row): skip
+                        // the exp/softmax accumulation for this block so that
+                        // exp(-INF - -INF) = exp(NaN) can never poison
+                        // row_sum/output. The output row was zero-initialized,
+                        // so a fully masked row simply stays zero.
+                        continue;
                     }
 
                     float new_rm = std::max(rm, qk_max);
@@ -161,11 +184,6 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
                 for (int64_t d = 0; d < D; ++d)
                     o_row[d] *= inv_sum;
 #endif
-                if (do_drop) {
-                    float mask_val = (drop_dist(drop_rng) < drop_keep) ? (1.0f / drop_keep) : 0.0f;
-                    for (int64_t d = 0; d < D; ++d)
-                        o_row[d] *= mask_val;
-                }
             }
         }
     }
@@ -174,7 +192,7 @@ Tensor flash_attention_forward(const Tensor& Q, const Tensor& K, const Tensor& V
 
 Tensor FlashAttention::forward(const Tensor& Q, const Tensor& K,
                                 const Tensor& V, const Tensor& mask) {
-    return flash_attention_forward(Q, K, V, mask, 0.0f, cfg_.causal);
+    return flash_attention_forward(Q, K, V, mask, cfg_.dropout, cfg_.causal);
 }
 
 } // namespace oil

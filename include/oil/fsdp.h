@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <unordered_map>
 
 namespace oil {
 
@@ -96,16 +97,27 @@ private:
         int64_t total_numel;
         int64_t shard_start;
         int64_t shard_numel;
+        Tensor* model_param = nullptr;   // The model's actual parameter tensor
+        bool local_param_is_full = false;// local_param aliases the FULL model param
         Tensor local_param;       // This rank's shard of the parameter
         Tensor local_grad;        // This rank's shard of the gradient
         Tensor fp32_master;       // FP32 master copy for mixed precision
-        Tensor optimizer_m;       // AdamW first moment (shard)
-        Tensor optimizer_v;       // AdamW second moment (shard)
+        Tensor optimizer_m;       // legacy optimizer state (unused after Adafactor switch)
+        Tensor optimizer_v;       // legacy optimizer state (unused after Adafactor switch)
         Tensor fp16_compute;      // FP16 compute copy
     };
 
     std::vector<ShardInfo> shards_;
     std::vector<std::string> shard_names_;
+
+    // Adafactor drives every rank's shard update. shard_opt_params_ holds the
+    // 2-D views registered with it (each aliases a shard's FP32 master copy).
+    Adafactor shard_opt_;
+    std::vector<Tensor> shard_opt_params_;
+    void register_shard_params();
+
+    // The forward output saved for the real autograd backward pass.
+    Tensor last_output_;
 
     // Flattened parameter state
     Tensor flat_params_;
@@ -170,9 +182,20 @@ private:
     int world_rank_;
     FullyShardedDataParallel::ZeROStage stage_;
 
+    // Parameter tensors of the wrapped block (enumerated once) and the
+    // forward output saved for backward. local_shards_[i] is this rank's
+    // contiguous slice of parameter i; local_grads_[i] is this rank's slice
+    // of parameter i's gradient (computed by the autograd engine).
+    std::vector<Tensor*> param_ptrs_;
+    Tensor last_output_;
     std::vector<Tensor> local_shards_;
     std::vector<Tensor> local_grads_;
     std::vector<Tensor> fp32_masters_;
+
+    void enumerate_params();
+    void ensure_local_shards();
+    void gather_and_install();
+    void shard_gradients();
 };
 
 // ===========================================================================
@@ -213,7 +236,8 @@ public:
     ZeROOptimizer(float lr, float beta1, float beta2, float eps,
                   float weight_decay, int world_size, int world_rank);
 
-    // Update a single parameter shard
+    // Update a single parameter shard (real Adafactor with persistent
+    // factorized state per shard buffer)
     void step(Tensor& param_shard, const Tensor& grad_shard,
               int64_t step_num);
 
@@ -237,6 +261,18 @@ private:
     int world_rank_;
     int64_t param_count_ = 0;
     int64_t step_ = 0;
+
+    // Per-parameter Adafactor state, keyed by the shard's data buffer so a
+    // repeated step() on the same shard keeps its row/column factors. Each
+    // ParamOpt owns a 2-D view of the shard buffer (Adafactor factorizes over
+    // two dims) plus the Adafactor that updates just that shard.
+    struct ParamOpt {
+        Tensor view;
+        Adafactor adafactor;
+    };
+    std::unordered_map<const float*, ParamOpt> optims_;
+
+    ParamOpt& opt_for(Tensor& buffer);
 };
 
 } // namespace oil

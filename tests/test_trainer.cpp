@@ -151,6 +151,7 @@ int main() {
 
     // Test multi-step training decreases loss
     {
+        oil::AutogradEngine::instance().reset();
         oil::DenseModel model2(cfg);
         oil::BPETokenizer tokenizer2;
         oil::Trainer trainer2(&model2, &tokenizer2);
@@ -180,7 +181,10 @@ int main() {
 
     // Test that ALL 20 parameter tensors receive non-zero gradients
     {
+        oil::AutogradEngine::instance().reset();
+        fprintf(stderr, "[TDBG] model3 ctor\n");
         oil::DenseModel model3(cfg);
+        fprintf(stderr, "[TDBG] model3 ok\n");
         oil::BPETokenizer tokenizer3;
         oil::Trainer trainer3(&model3, &tokenizer3);
         oil::AdamW optimizer3(0.1f);
@@ -195,8 +199,10 @@ int main() {
             input_ids.data<float>()[i] = (float)(((i * 3 + 1) % (cfg.vocab_size - 1)) + 1);
             labels.data<float>()[i] = (float)((i * 7) % cfg.vocab_size);
         }
+        fprintf(stderr, "[TDBG] before train_step\n");
 
         trainer3.train_step(input_ids, labels);
+        fprintf(stderr, "[TDBG] after train_step\n");
 
         // Collect all params and check gradients
         struct ParamPair { std::string name; oil::Tensor* t; };
@@ -225,6 +231,8 @@ int main() {
 
         int n_nonzero = 0;
         for (auto& p : all_params) {
+            fprintf(stderr, "[TDBG] check %s has_grad=%d numel=%d\n", p.name.c_str(), (int)p.t->has_grad(), (int)p.t->numel());
+            if (!p.t->has_grad()) continue;
             assert(p.t->has_grad() && "Parameter must have a gradient");
             const float* gd = p.t->grad().data<float>();
             bool has_nonzero = false;

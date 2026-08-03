@@ -61,6 +61,14 @@ public:
     void register_node(const std::shared_ptr<AutogradNode>& node);
     void clear();
 
+    // Full teardown: clears the recorded graph AND the parameter registry.
+    // Must be called between independent training sessions that destroy and
+    // recreate models — the parameter registry keeps raw Tensor* entries, and
+    // a destroyed model's memory can be reused by a later allocation, leaving
+    // stale (dangling) entries behind. Calling reset() before a new session
+    // guarantees every registry entry points at a live parameter.
+    void reset();
+
     static bool enabled() { return enabled_; }
     static void set_enabled(bool e) { enabled_ = e; }
 

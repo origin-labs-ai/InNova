@@ -83,7 +83,9 @@ ContinualMetrics ContinualTrainer::train_step_continual(
 
     if (has_old_logits_ && !old_logits_.empty()) {
         std::size_t n = (std::min)(old_logits_.size(), flat);
-        distillation_loss(input, old_logits_.data(), n, distill_l);
+        float distill_f = 0.0f;
+        distillation_loss(input, old_logits_.data(), n, distill_f);
+        distill_l = static_cast<double>(distill_f);
     }
 
     ecc_reg = ecc_regularizer();
@@ -106,7 +108,7 @@ ContinualMetrics ContinualTrainer::train_step_continual(
     sample.input.assign(input, input + flat);
     sample.target.assign(target, target + flat);
     sample.fisher_weight = 1.0f;
-    sample.task_id = current_task_;
+    sample.task_id = static_cast<uint32_t>(current_task_);
     replay_insert(std::move(sample));
 
     if (!has_old_logits_) {
@@ -170,7 +172,7 @@ void ContinualTrainer::consolidate_anchors() {
     anchor_.clear();
     anchor_.reserve(total);
     for (const auto* p : params) {
-        const float* d = p->data();
+        const float* d = static_cast<const float*>(p->data());
         for (int64_t i = 0; i < p->numel(); ++i) {
             anchor_.push_back(d[i]);
         }
@@ -197,7 +199,7 @@ float ContinualTrainer::ecc_regularizer() const {
     std::size_t offset = 0;
     double acc = 0.0;
     for (const auto* p : params) {
-        const float* cur = p->data();
+        const float* cur = static_cast<const float*>(p->data());
         std::size_t n = static_cast<std::size_t>(p->numel());
         for (std::size_t i = 0; i < n && (offset + i) < anchor_.size(); ++i) {
             double d = static_cast<double>(cur[i]) - static_cast<double>(anchor_[offset + i]);

@@ -205,19 +205,31 @@ Tensor Attention::forward(const Tensor& x, const Tensor& positions,
         Tensor k_rope = AutogradEngine::rotary_op(k_t, rope.cos_cached, rope.sin_cached, 0, S);
         attn_out = AutogradEngine::attention_op(q_rope, k_rope, v_t, num_heads, num_kv_heads, head_dim);
     } else {
-        // Inference path: transpose {B,S,H,D} -> {B,H,S,D}, then RoPE + KV cache + attention
         Tensor q_t = q_reshaped.transpose(1, 2);  // {B, H, S, D}
         Tensor k_t = k_reshaped.transpose(1, 2);  // {B, KV_H, S, D}
         Tensor v_t = v_reshaped.transpose(1, 2);  // {B, KV_H, S, D}
         
-        int64_t seq_start = cache.context_len();
-        rope.apply(q_t, seq_start, S);
-        rope.apply(k_t, seq_start, S);
-        cache.append(layer_idx, k_t, v_t);
-        auto [k_full, v_full] = cache.get_all(layer_idx);
-        int64_t S_full = k_full.shape().dims[2];
+        int64_t seq_start = 0;
+        int64_t S_full = S;
+        Tensor k_used, v_used;
+        if (B > 1) {
+            // Multi-batch inputs: cache is batch-1; do full-window causal attention
+            rope.apply(q_t, 0, S);
+            rope.apply(k_t, 0, S);
+            k_used = k_t;
+            v_used = v_t;
+        } else {
+            seq_start = cache.context_len(layer_idx);
+            rope.apply(q_t, seq_start, S);
+            rope.apply(k_t, seq_start, S);
+            cache.append(layer_idx, k_t, v_t);
+            auto [k_full, v_full] = cache.get_all(layer_idx);
+            k_used = k_full;
+            v_used = v_full;
+            S_full = k_full.shape().dims[2];
+        }
         float scale = 1.0f / std::sqrt((float)head_dim);
-        
+
         // For GQA: expand K/V from {B, KV_H, S_full, D} to {B, H, S, D}
         Tensor k_expanded, v_expanded;
         if (num_kv_heads < num_heads) {
@@ -231,15 +243,15 @@ Tensor Attention::forward(const Tensor& x, const Tensor& positions,
                         int64_t src_off = ((b * num_kv_heads + kh) * S_full + s) * head_dim;
                         int64_t dst_off = ((b * num_heads + h) * S_full + s) * head_dim;
                         memcpy(k_expanded.data<float>() + dst_off,
-                               k_full.data<float>() + src_off, head_dim * sizeof(float));
+                               k_used.data<float>() + src_off, head_dim * sizeof(float));
                         memcpy(v_expanded.data<float>() + dst_off,
-                               v_full.data<float>() + src_off, head_dim * sizeof(float));
+                               v_used.data<float>() + src_off, head_dim * sizeof(float));
                     }
                 }
             }
         } else {
-            k_expanded = k_full;
-            v_expanded = v_full;
+            k_expanded = k_used;
+            v_expanded = v_used;
         }
 
         // Use FlashAttention for long sequences (memory O(n) vs O(n²))
@@ -248,7 +260,7 @@ Tensor Attention::forward(const Tensor& x, const Tensor& positions,
             float* md = causal_mask.data<float>();
             for (int64_t s = 0; s < S; s++) {
                 for (int64_t t = 0; t < S_full; t++) {
-                    md[s * S_full + t] = (t > s + seq_start - S) ? -INFINITY : 0.0f;
+                    md[s * S_full + t] = (t > s + seq_start) ? -INFINITY : 0.0f;
                 }
             }
             attn_out = flash_attention_forward(q_t, k_expanded, v_expanded,
@@ -274,7 +286,7 @@ Tensor Attention::forward(const Tensor& x, const Tensor& positions,
                             for (int64_t d = 0; d < head_dim; d++)
                                 sum += qptr[d] * kptr[d];
                             sd[s_base + s * S_full + t] = sum * scale;
-                            if (t > s + seq_start - S)
+                            if (t > s + seq_start)
                                 sd[s_base + s * S_full + t] = -INFINITY;
                         }
                     }

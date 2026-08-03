@@ -20,6 +20,7 @@ build*/
 .vs/
 .idea/
 .claude/
+.cache/
 
 # Temp & OS
 __pycache__/

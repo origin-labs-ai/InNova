@@ -14,6 +14,7 @@ struct FlashAttentionConfig {
     int64_t block_size = 64;
     bool causal = true;
     float softmax_scale = 1.0f;
+    float dropout = 0.0f;   // attention dropout probability (0 disables)
 };
 
 class FlashAttention {

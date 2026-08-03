@@ -315,7 +315,7 @@ static void theorem4_mixed_beats_fp32() {
 
     printf("  Task: y = %.1f·x₁ + %.1f·x₂ + N(0, %.1f)\n",
            true_w1, true_w2, noise_std);
-    printf("  w₁ = %.4f (OIL8, 8-bit), w₂ = %.4f (Spark, 1.58-bit)\n\n",
+    printf("  w₁ = %.4f (OIL8, 8-bit), w₂ = %.4f (Spark, 1.50-bit)\n\n",
            true_w1, true_w2);
 
     printf("  --- Training Loss ---\n");

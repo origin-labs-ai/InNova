@@ -49,21 +49,21 @@ Supported quantization formats:
 
 ```cpp
 enum class Format : uint8_t {
-    OIL1            = 0,  // 1.00 BPW, 1 centroid
+    OIL1            = 0,  // 0.5 BPW stored FP16 block means; 1.0 is the documented conservative cap
     SPARK_Q0        = 1,  // 1.50 BPW, sign + shared FP16 scale (lossy)
     OIL2            = 2,  // 2.00 BPW, 4 centroids Lloyd-Max (lossy)
     OIL4            = 3,  // 4.00 BPW, 16 centroids Lloyd-Max (lossy)
     OIL8            = 4,  // 8.00 BPW, 256 centroids Lloyd-Max (lossy)
     OIL16           = 5,  // 16.00 BPW, FP16 storage (lossy)
     OIL32           = 6,  // 32.00 BPW, FP32 identity (lossless)
-    OIL1_GRP        = 7,  // ~1.19 BPW, lossy grouped (per-group scale/zp)
-    SPARK_Q0_GRP    = 8,  // ~1.69 BPW, lossy grouped, sign + per-group scale
-    OIL2_GRP        = 9,  // ~2.19 BPW, lossy grouped (per-group scale/zp)
-    OIL4_GRP        = 10, // ~4.19 BPW, lossy grouped (per-group scale/zp)
-    OIL8_GRP        = 11, // ~8.19 BPW, lossy grouped (per-group scale/zp)
-    OIL16_GRP       = 12, // ~16.19 BPW, lossy grouped (per-group scale/zp)
-    SPARK_SPARSE     = 13, // variable BPW, lossy sparse (uint16 index, int8 value)
-    SPARK_SPARSE_GRP = 14, // variable BPW, lossy grouped sparse (+ per-group scale)
+    OIL1_GRP        = 7,  // 1.0 BPW, block FP16 scale + sign bits (no per-64 zp/scale)
+    SPARK_Q0_GRP    = 8,  // 1.5 BPW, block FP16 scale + sign + refinement
+    OIL2_GRP        = 9,  // 2.5 BPW, 2-bit lattice + per-64-group FP16 zp/scale
+    OIL4_GRP        = 10, // 4.5 BPW, 4-bit lattice + per-64-group FP16 zp/scale
+    OIL8_GRP        = 11, // 8.5 BPW, 8-bit lattice + per-64-group FP16 range/zp
+    OIL16_GRP       = 12, // 16.0 BPW, FP16 storage (same as OIL16; no grouping at 16 BPW)
+    SPARK_SPARSE     = 13, // 2.0 BPW, lossy sparse (uint16 index, int8 value)
+    SPARK_SPARSE_GRP = 14, // 2.0 BPW, lossy grouped sparse (per-half-block FP16 scale)
 };
 
 // Usage

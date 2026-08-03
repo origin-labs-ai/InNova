@@ -398,7 +398,7 @@ int main(int argc, char** argv) {
         // ── OIL Mixed Precision ──
         {
             BridgeConfig cfg;
-            cfg.target_bpw = 1.58f;
+            cfg.target_bpw = 1.50f;
             cfg.block_size = 256;
             cfg.output_path = input_dir + "/" + name + "_mixed.oil";
             cfg.verbose = false;

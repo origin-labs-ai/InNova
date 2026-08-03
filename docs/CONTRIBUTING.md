@@ -4,7 +4,7 @@
 
 ---
 
-## ðŸŽ‰ Welcome!
+## 🎉 Welcome!
 
 Thank you for your interest in contributing to InNova! We welcome contributions from everyone, whether you're a seasoned developer or just starting out with AI and C++.
 
@@ -12,49 +12,49 @@ This document provides guidelines for contributing to InNova. Following these gu
 
 ---
 
-## ðŸ“‹ Ways to Contribute
+## 📋 Ways to Contribute
 
 There are many ways to contribute to InNova:
 
-### ðŸ› Bug Reports
+### 🐛 Bug Reports
 
 - **Find a bug?** Open an issue with a clear description
 - **Have a fix?** Submit a pull request
 - **Confirm a bug?** Comment on existing issues with additional information
 
-### ðŸ’¡ Feature Requests
+### 💡 Feature Requests
 
 - **Have an idea?** Open an issue to discuss it
 - **Want to implement?** Submit a pull request
 - **Need clarification?** Ask questions in discussions
 
-### ðŸ“– Documentation
+### 📖 Documentation
 
 - **Find a typo?** Fix it!
 - **Missing docs?** Add them!
 - **Confusing explanation?** Improve it!
 
-### ðŸ§ª Testing
+### 🧪 Testing
 
 - **Find a test gap?** Add a test!
 - **Improve coverage?** Help us reach 100%
 - **Performance testing?** Benchmark and optimize
 
-### ðŸš€ Development
+### 🚀 Development
 
 - **Fix bugs** in existing code
 - **Implement new features** from the roadmap
 - **Optimize** existing implementations
 - **Refactor** for better maintainability
 
-### ðŸŽ“ Research
+### 🎓 Research
 
 - **Implement** new research papers
 - **Propose** new algorithms
 - **Benchmark** against other frameworks
 - **Publish** research using InNova
 
-### ðŸ¤ Community
+### 🤝 Community
 
 - **Answer questions** from other users
 - **Review** pull requests
@@ -63,7 +63,7 @@ There are many ways to contribute to InNova:
 
 ---
 
-## ðŸ Getting Started
+## 🏁 Getting Started
 
 ### 1. Set Up Your Development Environment
 
@@ -107,7 +107,7 @@ Branch naming conventions:
 
 ---
 
-## ðŸ“ Pull Request Guidelines
+## 📝 Pull Request Guidelines
 
 ### Before Submitting
 
@@ -159,7 +159,7 @@ Branch naming conventions:
 
 ---
 
-## ðŸ“› Code Style Guidelines
+## 📛 Code Style Guidelines
 
 ### General Principles
 
@@ -334,33 +334,33 @@ if (shape.rank() != 2) {
 
 ---
 
-## ðŸ—‚ï¸ Code Organization
+## 🗂️ Code Organization
 
 ### File Structure
 
 ```
 InNova/
-â”œâ”€â”€ CMakeLists.txt              # Main build configuration
-â”œâ”€â”€ README.md                   # Project documentation
-â”œâ”€â”€ include/                    # Public headers
-â”‚   â””â”€â”€ oil/                    # All OIL headers
-â”‚       â”œâ”€â”€ types.h            # Core types
-â”‚       â”œâ”€â”€ tensor.h           # Tensor class
-â”‚       â”œâ”€â”€ autograd.h         # Autograd engine
-â”‚       â””â”€â”€ ...
-â”œâ”€â”€ src/                       # Source files
-â”‚   â”œâ”€â”€ tensor.cpp             # Tensor implementation
-â”‚   â”œâ”€â”€ autograd.cpp           # Autograd implementation
-â”‚   â””â”€â”€ ...
-â”œâ”€â”€ engines/                    # Engines (inference, trainer)
-â”‚   â”œâ”€â”€ inference/             # Inference engine
-â”‚   â””â”€â”€ trainer/               # Training engine
-â”œâ”€â”€ tools/                      # CLI tools
-â”‚   â”œâ”€â”€ convert.cpp            # Model conversion
-â”‚   â””â”€â”€ ...
-â””â”€â”€ tests/                     # Tests
-    â”œâ”€â”€ test_tensor.cpp        # Tensor tests
-    â””â”€â”€ ...
+├── CMakeLists.txt              # Main build configuration
+├── README.md                   # Project documentation
+├── include/                    # Public headers
+│   └── oil/                    # All OIL headers
+│       ├── types.h            # Core types
+│       ├── tensor.h           # Tensor class
+│       ├── autograd.h         # Autograd engine
+│       └── ...
+├── src/                       # Source files
+│   ├── tensor.cpp             # Tensor implementation
+│   ├── autograd.cpp           # Autograd implementation
+│   └── ...
+├── engines/                    # Engines (inference, trainer)
+│   ├── inference/             # Inference engine
+│   └── trainer/               # Training engine
+├── tools/                      # CLI tools
+│   ├── convert.cpp            # Model conversion
+│   └── ...
+└── tests/                     # Tests
+    ├── test_tensor.cpp        # Tensor tests
+    └── ...
 ```
 
 ### Header File Guidelines
@@ -372,7 +372,7 @@ InNova/
 
 ---
 
-## ðŸ§ª Testing Guidelines
+## 🧪 Testing Guidelines
 
 ### Test Structure
 
@@ -428,7 +428,7 @@ gcovr -r . --html --html-details -o coverage.html
 
 ---
 
-## ðŸ“ Commit Guidelines
+## 📝 Commit Guidelines
 
 ### Commit Messages
 
@@ -489,7 +489,7 @@ perf(math): Optimize AVX2 GEMM with better tiling
 
 ---
 
-## ðŸ‘¥ Code Review Process
+## 👥 Code Review Process
 
 ### For Contributors
 
@@ -520,7 +520,7 @@ perf(math): Optimize AVX2 GEMM with better tiling
 
 ---
 
-## ðŸ“Š Performance Guidelines
+## 📊 Performance Guidelines
 
 ### When to Optimize
 
@@ -567,7 +567,7 @@ gprof build/bin/your_program gmon.out > analysis.txt
 
 ---
 
-## ðŸ“š Documentation Guidelines
+## 📚 Documentation Guidelines
 
 ### Documentation Standards
 
@@ -589,7 +589,7 @@ Tensor matmul(const Tensor& a, const Tensor& b);
 
 ---
 
-## ðŸŽ¯ Roadmap & Priorities
+## 🎯 Roadmap & Priorities
 
 ### Current Priorities (v0.2)
 
@@ -618,7 +618,7 @@ Look for issues labeled with:
 
 ---
 
-## ðŸ¤ Community Guidelines
+## 🤝 Community Guidelines
 
 ### Code of Conduct
 
@@ -640,19 +640,19 @@ All contributors will be recognized:
 
 ---
 
-## ðŸ“„ License
+## 📄 License
 
 By contributing to InNova, you agree that your contributions will be licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
 
 ---
 
-## ðŸŽ‰ Thank You!
+## 🎉 Thank You!
 
 Your contributions help make InNova better for everyone. Thank you for being part of the community!
 
 ---
 
-## ðŸ“ž Need Help?
+## 📞 Need Help?
 
 - **New to Git?** Check out [GitHub's Git Handbook](https://guides.github.com/introduction/git-handbook/)
 - **New to C++?** Check out [learncpp.com](https://www.learncpp.com/)

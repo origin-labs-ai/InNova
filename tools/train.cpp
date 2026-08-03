@@ -103,8 +103,9 @@ int main(int argc, char** argv) {
     tokenizer.train(texts, static_cast<int>(cfg.vocab_size));
 
     oil::Trainer trainer(&model, &tokenizer);
-    oil::AdamW optimizer(args.learning_rate);
-    optimizer.set_schedule(oil::AdamW::Schedule::WARMUP_COSINE, 100, 10000);
+    // Adafactor is the default training optimizer (memory-efficient
+    // factorized second-moment estimates; no per-parameter Adam moments).
+    oil::Adafactor optimizer(args.learning_rate);
     trainer.compile(&optimizer);
 
     oil::DataLoader dataloader(&tokenizer, args.data_path,

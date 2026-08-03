@@ -34,6 +34,13 @@ enum class RegFormat : uint32_t {
 
     QUAD_OIL2_OIL4_OIL8_OIL16,
     QUAD_OIL4_OIL8_OIL16_OIL32,
+
+    // SPARK_MIX — adaptive, hard-capped mixes. Exactly the claimed BPW,
+    // never a bit more: the per-block byte budget is enforced by the
+    // adaptive allocator (allocate_mix_blocks). BPW values below are the
+    // HONEST weighted sums of the member formats' true stored BPW.
+    MIX_SPARK_Q0,      // 1.925 BPW exact — TWI_MIX: OIL8_GRP (1%) + OIL4_GRP (2%) + OIL2_GRP (52%) + OIL1_GRP (45%)
+    QUAD_SPARK_Q1,     // 2.075 BPW exact — QUAD_MIX: OIL32 (1%) + OIL8_GRP (1%) + OIL2_GRP (46%) + OIL1_GRP (52%)
 };
 
 struct FormatDescriptor {
@@ -62,11 +69,24 @@ struct MixDescriptor {
     RegFormat tier4_fmt;
     float tier4_ratio;
     float effective_bpw;
+    // Adaptive mixes (SPARK_MIX): blocks are assigned to member formats by
+    // measured reconstruction benefit per byte, under a HARD budget equal to
+    // the claimed effective_bpw. Non-adaptive mixes keep the registry ratios.
+    bool adaptive = false;
 };
 
 struct QuantResult {
     FormatDescriptor format;
+    // Canonical wire payload: the exact bytes the block codec stores on disk,
+    // concatenated per 256-weight wire block (block_codec.h). dequantize()
+    // walks block_idx_bytes/block_cb_bytes to slice each block's payload.
     std::vector<uint8_t> indices;
+    std::vector<uint8_t> codebook;         // wire codebook channel (OIL1 block means)
+    std::vector<uint32_t> block_idx_bytes; // per wire block: indices payload bytes
+    std::vector<uint32_t> block_cb_bytes;  // per wire block: codebook payload bytes
+    // In-memory metadata kept for compatibility (OIL32 FP32 copy and any
+    // caller-visible scales). NOT stored on disk — the wire payload in
+    // indices/codebook is the complete serialized form.
     std::vector<float> codebook_fp32;
     std::vector<float> group_scales;
     std::vector<float> group_zero_points;
@@ -78,17 +98,30 @@ struct QuantResult {
 
 class FormatRegistry {
 public:
+    // Per-block layout produced by the adaptive mix allocator. Block sizes
+    // may differ per block (row-aligned segmentation for narrow 2D tensors);
+    // every block's byte claim plus the format table entry is fully
+    // self-describing on disk (num_weights is stored per block).
+    struct MixBlockPlan {
+        std::vector<Format> formats;       // per block, wire formats 0..14
+        std::vector<int64_t> block_starts; // flat offset of each block in data
+        std::vector<int64_t> block_lens;   // weights per block
+    };
+
     static const std::vector<FormatDescriptor>& get_all_singles();
-    static const std::vector<MixDescriptor>& get_all_two_mixes();
+    static const std::vector<MixDescriptor>& get_all_twi_mixes();
     static const std::vector<MixDescriptor>& get_all_four_mixes();
 
     static FormatDescriptor get_single_format(float target_bpw);
-    static MixDescriptor get_two_mix(float target_bpw);
+    static MixDescriptor get_twi_mix(float target_bpw);
     static MixDescriptor get_four_mix(float target_bpw);
 
     static QuantResult quantize(const float* data, int64_t n, const FormatDescriptor& fmt);
     static QuantResult quantize_block(const float* block, size_t block_size, const FormatDescriptor& fmt);
     static void dequantize(const QuantResult& qr, float* output, int64_t n);
+    // Counts every byte required to reconstruct the quantized payload.
+    static size_t serialized_size_bytes(const QuantResult& qr);
+    static float actual_bpw(const QuantResult& qr);
     static float measure_mse(const float* original, const float* dequantized, int64_t n);
 
     static float evaluate_format_quality(const float* data, int64_t n, const FormatDescriptor& fmt);
@@ -105,6 +138,21 @@ public:
 
     static float compute_average_bpw(const std::vector<FormatDescriptor>& assignment);
 
+    // Adaptive mix allocation (SPARK_MIX_Q0 / SPARK_MIX_Q1).
+    // Per-block member-format assignment that treats the claimed effective
+    // BPW as a HARD byte budget: the returned plan NEVER costs more than
+    // ceil(effective_bpw * n / 8) bytes, and spends every byte only where it
+    // measurably reduces reconstruction error (benefit per byte spent).
+    // `shape` (optional): for rank-2 tensors whose column count is below the
+    // block size, blocks are aligned to whole ROWS (one block per row) so
+    // scales and tiers follow the matrix's row/column structure; otherwise
+    // fixed block_size blocks are used, which are row-aligned whenever the
+    // block size divides the column count.
+    static MixBlockPlan allocate_mix_blocks(const MixDescriptor& mix,
+                                            const float* data, int64_t n,
+                                            int block_size,
+                                            const std::vector<int64_t>* shape = nullptr);
+
     static QuantResult quantize_oil1(const float* data, int64_t n);
     static QuantResult quantize_oil2(const float* data, int64_t n);
     static QuantResult quantize_oil4(const float* data, int64_t n);
@@ -113,11 +161,6 @@ public:
     static QuantResult quantize_spark_sparse(const float* data, int64_t n);
 
 private:
-    static void lloyd_max_train(const float* data, size_t n, float* centroids, int k);
-    static int nearest_centroid(float val, const float* centroids, int k);
-    static void quantize_normal(const float* data, int64_t n,
-                                float* centroids, int k,
-                                std::vector<uint8_t>& indices);
     static FormatDescriptor find_closest_single(float target_bpw);
 };
 

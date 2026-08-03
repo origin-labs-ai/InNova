@@ -4,6 +4,7 @@
 #include "oil/kernel.h"
 #include "oil/types.h"
 #include "oil/tensor.h"
+#include "oil/block_codec.h"
 
 #include <iostream>
 #include <string>
@@ -16,12 +17,21 @@
 using namespace oil;
 
 static Format parse_format(const std::string& s) {
-    if (s == "fp32" || s == "FP32") return Format::OIL32;
-    if (s == "fp16" || s == "FP16") return Format::OIL16;
+    if (s == "fp32" || s == "FP32" || s == "oil32" || s == "OIL32") return Format::OIL32;
+    if (s == "fp16" || s == "FP16" || s == "oil16" || s == "OIL16") return Format::OIL16;
     if (s == "oil1" || s == "OIL1") return Format::OIL1;
-    if (s == "spark_q0" || s == "SPARK_Q0") return Format::SPARK_Q0;
+    if (s == "oil1_grp" || s == "OIL1_GRP") return Format::OIL1_GRP;
+    if (s == "oil2" || s == "OIL2") return Format::OIL2;
+    if (s == "oil2_grp" || s == "OIL2_GRP") return Format::OIL2_GRP;
     if (s == "oil4" || s == "OIL4") return Format::OIL4;
+    if (s == "oil4_grp" || s == "OIL4_GRP") return Format::OIL4_GRP;
     if (s == "oil8" || s == "OIL8") return Format::OIL8;
+    if (s == "oil8_grp" || s == "OIL8_GRP") return Format::OIL8_GRP;
+    if (s == "spark" || s == "SPARK" || s == "spark_q0" || s == "SPARK_Q0") return Format::SPARK_Q0;
+    if (s == "spark_q0_grp" || s == "SPARK_Q0_GRP") return Format::SPARK_Q0_GRP;
+    if (s == "spark_sparse" || s == "SPARK_SPARSE") return Format::SPARK_SPARSE;
+    if (s == "spark_sparse_grp" || s == "SPARK_SPARSE_GRP") return Format::SPARK_SPARSE_GRP;
+    std::cerr << "Warning: unknown format '" << s << "' — defaulting to oil8\n";
     return Format::OIL8;
 }
 
@@ -53,37 +63,16 @@ static QuantArgs parse_args(int argc, char** argv) {
             std::cout << "Usage: oil_quantize --input model.oil --output quantized.oil [options]\n";
             std::cout << "Options:\n";
             std::cout << "  --format <f>       Target format (default: oil8)\n";
-            std::cout << "                     Formats: fp32, fp16, oil1, spark, oil4, oil8\n";
+            std::cout << "                     Formats: fp32, fp16, oil1, oil1_grp, oil2,\n";
+            std::cout << "                     oil2_grp, oil4, oil4_grp, oil8, oil8_grp,\n";
+            std::cout << "                     spark (1.50 bpw), spark_q0_grp,\n";
+            std::cout << "                     spark_sparse, spark_sparse_grp\n";
             std::cout << "  --per-layer <csv>  Per-layer formats (name=fmt,name=fmt,...)\n";
             std::cout << "  --num-bits N       Number of bits (default: 8)\n";
             exit(0);
         }
     }
     return args;
-}
-
-static void quantize_block_oil8(const float* data, int64_t block_size,
-                                 std::vector<uint8_t>& indices,
-                                 std::vector<uint8_t>& codebook) {
-    CodebookOIL8 cb;
-    cb.train(data, (size_t)block_size);
-    codebook.resize(cb.serialized_size());
-    cb.serialize(codebook.data());
-    indices.resize((size_t)block_size);
-    for (int64_t i = 0; i < block_size; i++)
-        indices[(size_t)i] = cb.quantize(data[(size_t)i]);
-}
-
-static void quantize_block_oil4(const float* data, int64_t block_size,
-                                 std::vector<uint8_t>& indices,
-                                 std::vector<uint8_t>& codebook) {
-    CodebookOIL4 cb;
-    cb.train(data, (size_t)block_size);
-    codebook.resize(cb.serialized_size());
-    cb.serialize(codebook.data());
-    indices.resize((size_t)block_size);
-    for (int64_t i = 0; i < block_size; i++)
-        indices[(size_t)i] = cb.quantize(data[(size_t)i]);
 }
 
 int main(int argc, char** argv) {
@@ -147,13 +136,11 @@ int main(int argc, char** argv) {
 
         int64_t num_blocks = (tensor.numel() + 255) / 256;
 
-        FormatBlockEntry fbe;
-        fbe.block_id = block_id;
-        fbe.format = (uint8_t)fmt;
-        fbe.cb_bytes = (fmt == Format::OIL8 || fmt == Format::OIL4) ? 256 * 2 : 0;
-
         const float* data = tensor.data<float>();
         int64_t total_weights = tensor.numel();
+
+        // Real stored bytes produced by the canonical codec for this tensor.
+        size_t qbytes = 0;
 
         for (int64_t b = 0; b < num_blocks; b++) {
             int64_t block_start = b * 256;
@@ -164,52 +151,29 @@ int main(int argc, char** argv) {
             block.format = fmt;
             block.num_weights = (uint32_t)block_size;
 
-            switch (fmt) {
-            case Format::OIL8:
-                quantize_block_oil8(data + block_start, block_size,
-                                    block.indices, block.codebook);
-                break;
-            case Format::OIL4:
-                quantize_block_oil4(data + block_start, block_size,
-                                    block.indices, block.codebook);
-                break;
-            case Format::OIL32:
+            // Encode with the CANONICAL block codec — the single source of
+            // truth for on-disk payloads. This keeps the tool's output
+            // byte-identical in layout to everything the reader decodes
+            // (quantize_block_all/dequantize_block_all), for every format.
+            if (!quantize_block_all(fmt, data + block_start, (int)block_size,
+                                    block.indices, block.codebook)) {
+                std::cerr << "Warning: " << name << " block " << b
+                          << ": format unsupported by canonical codec, "
+                             "writing raw OIL32\n";
                 block.format = Format::OIL32;
-                block.indices.resize((size_t)block_size * sizeof(float));
-                std::memcpy(block.indices.data(), data + block_start,
-                           (size_t)block_size * sizeof(float));
-                break;
-            case Format::OIL16:
-                block.format = Format::OIL16;
-                block.indices.resize((size_t)block_size * 2);
-                {
-                    const float* src = data + block_start;
-                    uint16_t* dst = (uint16_t*)block.indices.data();
-                    for (int64_t i = 0; i < block_size; i++) {
-                        int sign = src[i] < 0 ? 1 : 0;
-                        float v = src[i] < 0 ? -src[i] : src[i];
-                        int e = 0;
-                        float m = v;
-                        if (v > 0) {
-                            e = 15;
-                            while (m < 1.0f) { m *= 2.0f; e--; }
-                            while (m >= 2.0f) { m /= 2.0f; e++; }
-                            m -= 1.0f;
-                        }
-                        uint16_t f16 = (uint16_t)((sign << 15) | ((e + 15) << 10) | (uint16_t)(m * 1024));
-                        dst[i] = f16;
-                    }
-                }
-                break;
-            default:
-                block.format = Format::OIL32;
-                block.indices.resize((size_t)block_size * sizeof(float));
-                std::memcpy(block.indices.data(), data + block_start,
-                           (size_t)block_size * sizeof(float));
-                break;
+                quantize_block_all(Format::OIL32, data + block_start,
+                                   (int)block_size, block.indices, block.codebook);
             }
 
             writer.write_block(block);
+            qbytes += block.indices.size() + block.codebook.size();
+
+            FormatBlockEntry entry;
+            entry.block_id = block_id;
+            entry.format = (uint8_t)block.format;
+            entry.cb_bytes = (uint32_t)block.codebook.size();
+            ft_entries.push_back(entry);
+
             block_id++;
         }
 
@@ -221,17 +185,9 @@ int main(int argc, char** argv) {
         names.push_back(name);
 
         size_t mb = (tensor.size_bytes() + 1048575) / 1048576;
-        size_t qmb = ((size_t)num_blocks * 256 + 1048575) / 1048576;
+        size_t qmb = (qbytes + 1048575) / 1048576;
         std::cout << "  " << name << ": " << mb << "MB -> " << qmb << "MB ("
                   << args.format << ")\n";
-
-        for (uint32_t b = 0; b < (uint32_t)num_blocks; b++) {
-            FormatBlockEntry entry;
-            entry.block_id = fbe.block_id + b;
-            entry.format = fbe.format;
-            entry.cb_bytes = fbe.cb_bytes;
-            ft_entries.push_back(entry);
-        }
     }
 
     writer.write_format_table(ft_entries);

@@ -3,7 +3,7 @@
 // ============================================================================
 // Usage:
 //   oil_ptq --input <path> [--format raw_fp32|raw_fp16|raw_fp8_e4m3|raw_fp8_e5m2|gguf|safetensors|oil] \\
-//           --output <out.oil> [--bpw 1.58] [--block-size 256] [--verbose]
+//           --output <out.oil> [--bpw 1.50] [--block-size 256] [--verbose]
 // ============================================================================
 #include "adapters/ptq_bridge.h"
 #include "adapters/adapter_core.h"
@@ -26,21 +26,21 @@ int main(int argc, char** argv) {
             "  --format <f>        Input format (default: auto-detect by magic)\n"
             "                      raw_fp32 | raw_fp16 | raw_fp8_e4m3 | raw_fp8_e5m2\n"
             "                      gguf | safetensors | oil\n"
-            "  --bpw <float>       Target bits-per-weight (default: 1.58 = mixed spark)\n"
-            "                      1.00 = all oil1, 1.58 = all spark, 4.0 = all oil4,\n"
+            "  --bpw <float>       Target bits-per-weight (default: 1.50 = SPARK_Q0)\n"
+            "                      1.00 = all oil1, 1.50 = all spark, 4.0 = all oil4,\n"
             "                       8.0 = all oil8, 16.0 = fp16, 32.0 = fp32\n"
             "  --block-size <N>    Block size for mixed allocation (default: 256)\n"
             "  --verbose           Print per-tensor stats\n"
             "  -h, --help          Show this help\n\n"
             "Examples:\n"
-            "  oil_ptq --input model.gguf --output model.oil --bpw 1.58 --verbose\n"
+            "  oil_ptq --input model.gguf --output model.oil --bpw 1.50 --verbose\n"
             "  oil_ptq --input weights.fp32 --output model.oil --format raw_fp32 --bpw 4.0\n"
             "  oil_ptq --input model.oil --output model_quant.oil --bpw 1.0  (re-quantize)\n");
         return 0;
     }
 
     BridgeConfig cfg;
-    cfg.target_bpw = 1.58f;
+    cfg.target_bpw = 1.50f;
     cfg.block_size = 256;
     std::string input_path, fmt_str;
 

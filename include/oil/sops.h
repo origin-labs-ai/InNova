@@ -32,7 +32,7 @@ struct SopsFormat {
 // All base formats from format_registry.h
 inline const SopsFormat sops_formats[] = {
     {"OIL1",            1.0,   32.000},
-    {"SPARK_Q0",        2.0,   16.000},
+    {"SPARK_Q0",        1.50,  21.333},
     {"SPARK_SPARSE",    2.0,   16.000},
     {"OIL2",            2.0,   16.000},
     {"OIL4",            4.0,    8.000},
@@ -40,27 +40,27 @@ inline const SopsFormat sops_formats[] = {
     {"OIL16",          16.0,    2.000},
     {"OIL32",          32.0,    1.000},
     {"OIL1_GRP",        1.0,   32.000},
-    {"OIL2_GRP",        2.0,   16.000},
-    {"OIL4_GRP",        4.0,    8.000},
-    {"OIL8_GRP",        8.0,    4.000},
+    {"OIL2_GRP",        2.50,  12.800},
+    {"OIL4_GRP",        4.50,   7.111},
+    {"OIL8_GRP",        8.50,   3.765},
     {"OIL16_GRP",      16.0,    2.000},
-    {"SPARK_Q0_GRP",    2.0,   16.000},
+    {"SPARK_Q0_GRP",    1.50,  21.333},
     {"SPARK_SPARSE_GRP",2.0,   16.000},
 };
 inline constexpr int SOPS_NUM_FORMATS = 15;
 
 // Mix format effective BPW (from format_registry.cpp)
 inline const SopsFormat sops_mix_formats[] = {
-    {"OIL8+OIL2_1_99",      1.08,  29.630},
+    {"OIL8+OIL2_1_99",      2.06,  15.534},
     {"OIL8+OIL4_5_95",      4.20,   7.619},
     {"OIL4+OIL2_5_95",      2.10,  15.238},
-    {"OIL4+OIL2_10_90",     2.30,  13.913},
-    {"OIL8+OIL2_5_95",      1.62,  19.753},
+    {"OIL4+OIL2_10_90",     2.20,  14.545},
+    {"OIL8+OIL2_5_95",      2.30,  13.913},
     {"OIL8+OIL2_10_90",     2.60,  12.308},
-    {"SPARK+OIL8_5_95",     7.62,   4.199},
-    {"OIL16+OIL4_1_99",     4.16,   7.692},
+    {"SPARK+OIL8_5_95",     7.675,  4.169},
+    {"OIL16+OIL4_1_99",     4.12,   7.767},
     {"OIL16+OIL8_5_95",     8.40,   3.810},
-    {"OIL32+OIL8_1_99",     8.31,   3.852},
+    {"OIL32+OIL8_1_99",     8.24,   3.883},
 };
 inline constexpr int SOPS_NUM_MIXES = 10;
 

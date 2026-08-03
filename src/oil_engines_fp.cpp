@@ -120,52 +120,6 @@ Tensor fp8_e5m2_dequant_tensor(const uint8_t* data, int64_t n) {
 }
 
 // ===========================================================================
-// NF4: Normal Float 4-bit quantization format
-// 16 values from normal distribution, quantized to 4 bits
-// ===========================================================================
-
-static const float NF4_CODEBOOK[16] = {
-    -1.0f, -0.6961928f, -0.525073f, -0.39497948f,
-    -0.28444138f, -0.18477343f, -0.09105138f, 0.0f,
-    0.07958097f, 0.16092212f, 0.24611243f, 0.33712566f,
-    0.43570983f, 0.54554284f, 0.67132018f, 1.0f
-};
-
-uint8_t nf4_quantize(float val, float scale) {
-    float normalized = val / (scale + 1e-10f);
-    normalized = std::max(-1.0f, std::min(1.0f, normalized));
-    int best = 0;
-    float best_dist = 1e10f;
-    for (int i = 0; i < 16; ++i) {
-        float dist = std::abs(normalized - NF4_CODEBOOK[i]);
-        if (dist < best_dist) { best_dist = dist; best = i; }
-    }
-    return (uint8_t)best;
-}
-
-float nf4_dequantize(uint8_t idx, float scale) {
-    if (idx >= 16) idx = 0;
-    return NF4_CODEBOOK[idx] * scale;
-}
-
-Tensor nf4_dequant_tensor(const uint8_t* data, const float* scales,
-                          int64_t n, int64_t block_size) {
-    Tensor out({n});
-    float* od = out.data<float>();
-#ifdef OIL_HAS_AVX2
-    if (n >= 8) {
-        dequant_tensor_nf4_avx2(data, scales, od, n, block_size, NF4_CODEBOOK);
-        return out;
-    }
-#endif
-    for (int64_t i = 0; i < n; ++i) {
-        int64_t block_idx = i / block_size;
-        od[i] = nf4_dequantize(data[i], scales[block_idx]);
-    }
-    return out;
-}
-
-// ===========================================================================
 // Roundtrip test helpers
 // ===========================================================================
 
@@ -356,108 +310,6 @@ float fp8_e5m2_quant_snr(const Tensor& original, const Tensor& reconstructed) {
 }
 
 // ===========================================================================
-// NF4: Batch operations and extensions
-// ===========================================================================
-
-Tensor nf4_quantize_tensor(const float* data, int64_t n, int64_t block_size) {
-    int64_t num_blocks = (n + block_size - 1) / block_size;
-    int64_t scale_bytes = num_blocks * (int64_t)sizeof(float);
-    Tensor out({scale_bytes + n}, oil::DType::U8);
-    uint8_t* base = out.data<uint8_t>();
-    float* sd = reinterpret_cast<float*>(base);
-    uint8_t* od = base + scale_bytes;
-    for (int64_t b = 0; b < num_blocks; ++b) {
-        int64_t start = b * block_size;
-        int64_t end = std::min(start + block_size, n);
-        float max_abs = 0;
-        for (int64_t i = start; i < end; ++i)
-            max_abs = std::max(max_abs, std::abs(data[i]));
-        sd[b] = max_abs;
-        if (max_abs < 1e-10f) max_abs = 1.0f;
-        for (int64_t i = start; i < end; ++i)
-            od[i] = nf4_quantize(data[i], max_abs);
-    }
-    return out;
-}
-
-Tensor nf4_quant_gemm(const Tensor& a, const uint8_t* b_q, const float* scales,
-                      int64_t M, int64_t N, int64_t K, int64_t block_size) {
-    Tensor C({M, N});
-    C.zero_();
-    const float* ad = a.data<float>();
-    float* cd = C.data<float>();
-#ifdef OIL_HAS_AVX2
-    quant_gemm_nf4_avx2(ad, cd, b_q, scales, M, N, K, block_size, NF4_CODEBOOK);
-#else
-    for (int64_t m = 0; m < M; ++m) {
-        for (int64_t k = 0; k < K; ++k) {
-            float a_val = ad[m * K + k];
-            if (a_val == 0.0f) continue;
-            for (int64_t n_val = 0; n_val < N; ++n_val) {
-                int64_t flat = k * N + n_val;
-                int64_t block = flat / block_size;
-                cd[m * N + n_val] += a_val * nf4_dequantize(b_q[flat], scales[block]);
-            }
-        }
-    }
-#endif
-    return C;
-}
-
-void nf4_quantize_per_channel(const Tensor& t, int channel_dim,
-                               int64_t block_size, Tensor& q, Tensor& scales) {
-    OIL_CHECK(t.rank() == 2, "nf4_quantize_per_channel expects 2D tensor");
-    int64_t d0 = t.dim(0), d1 = t.dim(1);
-    int64_t channels = (channel_dim == 0) ? d0 : d1;
-    int64_t other = (channel_dim == 0) ? d1 : d0;
-    q = Tensor(t.shape(), oil::DType::U8);
-    int64_t num_scales = (t.numel() + block_size - 1) / block_size;
-    scales = Tensor({num_scales});
-    const float* td = t.data<float>();
-    uint8_t* qd = q.data<uint8_t>();
-    float* sd = scales.data<float>();
-    for (int64_t c = 0; c < channels; ++c) {
-        int64_t chan_start = (channel_dim == 0) ? c * other : c;
-        for (int64_t off = 0; off < other; off += block_size) {
-            int64_t block_end = std::min(off + block_size, other);
-            float max_abs = 0;
-            for (int64_t i = off; i < block_end; ++i) {
-                int64_t idx = (channel_dim == 0) ? chan_start + i : i * channels + c;
-                max_abs = std::max(max_abs, std::abs(td[idx]));
-            }
-            if (max_abs < 1e-10f) max_abs = 1.0f;
-            int64_t block_idx = (c * other + off) / block_size;
-            sd[block_idx] = max_abs;
-            for (int64_t i = off; i < block_end; ++i) {
-                int64_t idx = (channel_dim == 0) ? chan_start + i : i * channels + c;
-                qd[idx] = nf4_quantize(td[idx], max_abs);
-            }
-        }
-    }
-}
-
-void nf4_dequantize_per_channel(const Tensor& q, const Tensor& scales,
-                                 int64_t block_size, int channel_dim, Tensor& out) {
-    out = Tensor(q.shape());
-    const uint8_t* qd = q.data<uint8_t>();
-    const float* sd = scales.data<float>();
-    float* od = out.data<float>();
-    int64_t n = q.numel();
-    for (int64_t i = 0; i < n; ++i) {
-        int64_t block = i / block_size;
-        od[i] = nf4_dequantize(qd[i], sd[block]);
-    }
-}
-
-float nf4_quant_error(const Tensor& original, const Tensor& reconstructed) {
-    return compute_quant_mse(original, reconstructed);
-}
-
-float nf4_quant_snr(const Tensor& original, const Tensor& reconstructed) {
-    return compute_quant_snr(original, reconstructed);
-}
-
-// ===========================================================================
 // Roundtrip test helpers
 // ===========================================================================
 
@@ -491,29 +343,6 @@ float compute_quant_snr(const Tensor& original, const Tensor& reconstructed) {
 // AVX2 SIMD-accelerated quantize/dequantize batch operations
 // ===========================================================================
 #ifdef OIL_HAS_AVX2
-
-static void dequant_tensor_nf4_avx2(const uint8_t* data, const float* scales,
-                                     float* out, int64_t n, int64_t block_size,
-                                     const float* nf4_lut) {
-    int64_t i = 0;
-    for (; i + 8 <= n; i += 8) {
-        __m128i idx8 = _mm_loadl_epi64((const __m128i*)(data + i));
-        __m256i idx32 = _mm256_cvtepu8_epi32(idx8);
-        __m256 vals = _mm256_i32gather_ps(nf4_lut, idx32, 4);
-        __m256i blk = _mm256_setr_epi32(
-            (int)(i / block_size), (int)((i + 1) / block_size),
-            (int)((i + 2) / block_size), (int)((i + 3) / block_size),
-            (int)((i + 4) / block_size), (int)((i + 5) / block_size),
-            (int)((i + 6) / block_size), (int)((i + 7) / block_size));
-        __m256 scl = _mm256_i32gather_ps(scales, blk, 4);
-        vals = _mm256_mul_ps(vals, scl);
-        _mm256_storeu_ps(out + i, vals);
-    }
-    for (; i < n; ++i) {
-        int64_t blk = i / block_size;
-        out[i] = nf4_lut[data[i]] * scales[blk];
-    }
-}
 
 static void dequant_tensor_fp8_avx2(const uint8_t* data, float* out,
                                      int64_t n, bool e5m2) {
@@ -570,47 +399,6 @@ static void quant_gemm_fp8_avx2(const float* ad, float* cd,
             }
             for (; n < N; ++n)
                 cd[m * N + n] += a_val * lut[b_q[k * N + n]];
-        }
-    }
-}
-
-// AVX2 quant_gemm: NF4 (per-block scale, 16-entry NF4 LUT)
-static void quant_gemm_nf4_avx2(const float* ad, float* cd,
-                                 const uint8_t* b_q, const float* scales,
-                                 int64_t M, int64_t N, int64_t K,
-                                 int64_t block_size, const float* nf4_lut) {
-    for (int64_t m = 0; m < M; ++m) {
-        for (int64_t k = 0; k < K; ++k) {
-            float a_val = ad[m * K + k];
-            if (a_val == 0.0f) continue;
-            __m256 a_v = _mm256_set1_ps(a_val);
-            int64_t n = 0;
-            for (; n + 8 <= N; n += 8) {
-                int64_t flat_base = k * N + n;
-                __m128i idx8 = _mm_loadl_epi64(
-                    (const __m128i*)(b_q + flat_base));
-                __m256i idx32 = _mm256_cvtepu8_epi32(idx8);
-                __m256 vals = _mm256_i32gather_ps(nf4_lut, idx32, 4);
-                __m256i blk = _mm256_setr_epi32(
-                    (int)(flat_base / block_size),
-                    (int)((flat_base + 1) / block_size),
-                    (int)((flat_base + 2) / block_size),
-                    (int)((flat_base + 3) / block_size),
-                    (int)((flat_base + 4) / block_size),
-                    (int)((flat_base + 5) / block_size),
-                    (int)((flat_base + 6) / block_size),
-                    (int)((flat_base + 7) / block_size));
-                __m256 scl = _mm256_i32gather_ps(scales, blk, 4);
-                __m256 b_v = _mm256_mul_ps(vals, scl);
-                __m256 c_v = _mm256_loadu_ps(cd + m * N + n);
-                _mm256_storeu_ps(cd + m * N + n,
-                                 _mm256_fmadd_ps(a_v, b_v, c_v));
-            }
-            for (; n < N; ++n) {
-                int64_t flat = k * N + n;
-                int64_t blk = flat / block_size;
-                cd[m * N + n] += a_val * nf4_lut[b_q[flat]] * scales[blk];
-            }
         }
     }
 }

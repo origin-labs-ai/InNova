@@ -108,8 +108,16 @@ void test_grp_better_than_base() {
         float ratio = (base_mse > 0.0f) ? (grp_mse / base_mse) : 1.0f;
 
         char msg[256];
-        snprintf(msg, sizeof(msg), "%s (%.6e) < %s (%.6e)? ratio=%.3f",
-                 PAIRS[p].grp_name, grp_mse, PAIRS[p].base_name, base_mse, ratio);
+        if (std::string(PAIRS[p].grp_name) == "OIL16_GRP") {
+            // OIL16_GRP stores plain FP16 (identical to OIL16 — grouping adds
+            // nothing at full precision), so it must match, not beat, the base.
+            better = (std::fabs(ratio - 1.0f) < 1e-4f);
+            snprintf(msg, sizeof(msg), "%s (%.6e) == %s (%.6e)? ratio=%.3f (FP16-native)",
+                     PAIRS[p].grp_name, grp_mse, PAIRS[p].base_name, base_mse, ratio);
+        } else {
+            snprintf(msg, sizeof(msg), "%s (%.6e) < %s (%.6e)? ratio=%.3f",
+                     PAIRS[p].grp_name, grp_mse, PAIRS[p].base_name, base_mse, ratio);
+        }
         TEST_CHECK(better, msg);
 
         if (better) pass_count++;
@@ -306,6 +314,5 @@ int main() {
     printf("  GRP Quality Proof complete.\n");
     printf("═══════════════════════════════════════════════════════════\n");
 
-    TEST_REPORT();
-    return 0;
+    return TEST_REPORT() == 0 ? 0 : 1;
 }
