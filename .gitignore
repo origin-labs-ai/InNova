@@ -1,0 +1,115 @@
+# Build
+build/
+build_wsl/
+build_windows/
+build_linux/
+build_linux2/
+build_check/
+build2/
+build*/
+*.exe
+*.o
+*.obj
+*.pdb
+*.ilk
+*.dll
+*.lib
+*.exp
+
+# IDE
+.vs/
+.idea/
+.claude/
+.cache/
+
+# Temp & OS
+__pycache__/
+*.pyc
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# WDAC / signing artifacts
+tools/wdac/*.bin
+tools/wdac/*.cer
+*.pfx
+
+# Temp build dirs
+build_windows_temp/
+
+# LaTeX build artifacts
+publication/whitepaper/main.aux
+publication/whitepaper/main.bbl
+publication/whitepaper/main.bcf
+publication/whitepaper/main.blg
+publication/whitepaper/main.loa
+publication/whitepaper/main.lof
+publication/whitepaper/main.lot
+publication/whitepaper/main.out
+publication/whitepaper/main.pdf
+publication/whitepaper/main.run.xml
+publication/whitepaper/main.toc
+
+# Duplicate source trees
+dist/source/
+
+# Generated graphs
+graphify-out/
+Testing/
+_test_checkpoint.quant.opt
+
+# External model formats — must use adapters::import_xxx
+*.bin
+*.gguf
+*.ggml
+*.safetensors
+*.lora
+*.pt
+*.ckpt
+# Dist (binary release)
+dist/
+
+# Lumina (separate project, not part of InNova)
+Lumina/
+
+# Checkpoints
+checkpoints/
+
+*_out.txt
+*_err.txt
+reg_out.txt
+grp_*.txt
+
+# Excluded files
+FRAUD_REPORT.md
+TASKS.md
+DIFFUSION.txt
+build_linux.sh
+FLYWHEEL_LOG.md
+PEER_REVIEW_LOG.md
+RELEASE_NOTES.md
+THEOREM.md
+SHA256_TEST_LOG.md
+REPORT.md
+SANDBOX_TEST_LOG.md
+
+# Generated web & script artifacts
+*.html
+*.js
+*.ps1
+*.py
+
+# Dist (binary release)
+dist/
+
+# Linux binaries
+dist/linux/
+
+# Excluded directories
+.llama/
+.kilo/
+.bitnet/
+publication/
+dist/windows/x64/

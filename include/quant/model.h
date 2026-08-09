@@ -1,0 +1,53 @@
+#pragma once
+#include "quant/types.h"
+#include "quant/tensor.h"
+#include "quant/transformer.h"
+#include "quant/kv_cache.h"
+#include "quant/quant_format.h"
+#include "quant/codebook.h"
+#include <vector>
+#include <memory>
+#include <string>
+
+namespace quant {
+
+class Model {
+public:
+    virtual ~Model() = default;
+    
+    virtual Tensor forward(const Tensor& input_ids, const Tensor& positions,
+                           KVCache* cache = nullptr) = 0;
+    virtual void load(const std::string& quant_path);
+    virtual void save(const std::string& quant_path) const;
+    virtual int64_t param_count() const = 0;
+    virtual int64_t vocab_size() const = 0;
+    
+    TransformerConfig config;
+};
+
+class DenseModel : public Model {
+public:
+    DenseModel() = default;
+    explicit DenseModel(const TransformerConfig& cfg);
+    
+    Tensor forward(const Tensor& input_ids, const Tensor& positions,
+                   KVCache* cache = nullptr) override;
+    void load(const std::string& quant_path) override;
+    void save(const std::string& quant_path) const override;
+    void save_quantized(const std::string& quant_path, Format fmt) const;
+    int64_t param_count() const override;
+    int64_t vocab_size() const override;
+
+    void init_weights();
+    void get_parameters(std::vector<Tensor*>& params);
+    
+    std::unique_ptr<Embedding> tok_embeddings;
+    std::vector<std::unique_ptr<TransformerBlock>> layers;
+    std::unique_ptr<RMSNorm> norm;
+    std::unique_ptr<Linear> lm_head;
+    
+private:
+    void build_layers();
+};
+
+} // namespace quant

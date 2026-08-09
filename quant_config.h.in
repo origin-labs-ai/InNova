@@ -1,0 +1,12 @@
+#pragma once
+
+#define QUANT_VERSION_MAJOR 0
+#define QUANT_VERSION_MINOR 1
+#define QUANT_VERSION_PATCH 2
+
+#cmakedefine QUANT_AVX2
+#cmakedefine QUANT_AVX512
+#cmakedefine QUANT_NEON
+#cmakedefine QUANT_USE_DIRECTX
+#cmakedefine QUANT_USE_VULKAN
+#cmakedefine QUANT_DEBUG
