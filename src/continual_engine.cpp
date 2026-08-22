@@ -79,20 +79,6 @@ void CompressedReplayBuffer::insert(
         const float* input, const float* target,
         std::size_t elem_count, std::uint32_t task_id,
         float fisher_importance) {
-    if (entries_.size() >= capacity_) {
-        std::size_t min_idx = 0;
-        float min_imp = entries_[0].fisher_importance;
-        for (std::size_t i = 1; i < entries_.size(); ++i) {
-            if (entries_[i].fisher_importance < min_imp) {
-                min_imp = entries_[i].fisher_importance;
-                min_idx = i;
-            }
-        }
-        entries_[min_idx].quantized_input.clear();
-        entries_[min_idx].quantized_target.clear();
-        entries_[min_idx].codebook.clear();
-    }
-
     CompressedReplayEntry entry;
     entry.task_id = task_id;
     entry.fisher_importance = fisher_importance;
@@ -102,7 +88,19 @@ void CompressedReplayBuffer::insert(
     quantize_entry(input, elem_count, entry.quantized_input, entry.codebook, entry.input_scale);
     quantize_entry(target, elem_count, entry.quantized_target, entry.codebook, entry.target_scale);
 
-    entries_.push_back(std::move(entry));
+    if (entries_.size() >= capacity_) {
+        std::size_t min_idx = 0;
+        float min_imp = entries_[0].fisher_importance;
+        for (std::size_t i = 1; i < entries_.size(); ++i) {
+            if (entries_[i].fisher_importance < min_imp) {
+                min_imp = entries_[i].fisher_importance;
+                min_idx = i;
+            }
+        }
+        entries_[min_idx] = std::move(entry);
+    } else {
+        entries_.push_back(std::move(entry));
+    }
 }
 
 bool CompressedReplayBuffer::sample_batch(
@@ -531,7 +529,7 @@ void apply_entropy_floor(float output_entropy, float* weights, const float* impo
         std::nth_element(imp_copy.begin(), imp_copy.begin() + k, imp_copy.end());
         float thresh = imp_copy[k];
         
-        static std::mt19937 gen(42);
+        thread_local std::mt19937 gen(42);
         std::normal_distribution<float> dist(0.0f, noise_scale);
         
         for (std::size_t i = 0; i < n; ++i) {

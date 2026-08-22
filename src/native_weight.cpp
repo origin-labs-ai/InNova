@@ -347,9 +347,13 @@ void NativeQUANTWeightStore::reallocate_by_sensitivity(const float* sensitivity,
         for (size_t i = start; i < end; i++) max_s = std::max(max_s, sensitivity[i]);
         block_sens[b] = {max_s, b};
     }
-    // Sort blocks by sensitivity descending
+    // Sort blocks by sensitivity descending; tie-break by ascending block index so
+    // equal-sensitivity blocks keep a deterministic, test-stable assignment order.
     std::sort(block_sens.begin(), block_sens.end(),
-              [](auto& a, auto& b) { return a.first > b.first; });
+              [](auto& a, auto& b) {
+                  if (a.first != b.first) return a.first > b.first;
+                  return a.second < b.second;
+              });
     
     // Assign formats: top frac_quant8 → QUANT8, next frac_quant → QUANT1, rest → QUANT4
     size_t quant8_blocks = (size_t)(num_blocks_ * frac_quant8);

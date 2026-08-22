@@ -10,6 +10,16 @@
 #if defined(QUANT_USE_CUDA)
 #include "quant/gpu_compute_cuda.h"
 #endif
+#if defined(__APPLE__)
+#include "quant/gpu_compute_metal.h"
+#endif
+#include "quant/gpu_compute_sycl.h"
+#include "quant/gpu_compute_cann.h"
+#include "quant/gpu_compute_rpc.h"
+#include "quant/gpu_compute_openvino.h"
+#include "quant/gpu_compute_virtgpu.h"
+#include "quant/gpu_compute_webgpu.h"
+#include "quant/gpu_compute_zendnn.h"
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -418,6 +428,238 @@ public:
 #endif // QUANT_USE_CUDA
 
 // ========================================================================
+// GPU METAL BACKEND (macOS / iOS)
+// ========================================================================
+
+#if defined(__APPLE__)
+class GPUMetalBackend : public ComputeBackend {
+    gpu::GPUComputeMetal* metal_ = nullptr;
+public:
+    GPUMetalBackend() {
+        try {
+            metal_ = &gpu::get_metal_compute();
+            metal_->init(0);
+        } catch (...) {
+            metal_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::GPU_METAL; }
+    const char* name() const override { return "GPU_METAL"; }
+
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!metal_ || !metal_->is_initialized()) {
+            math::gemm(alpha, A, B, beta, C);
+            return;
+        }
+        void* dA = metal_->alloc(A.numel() * sizeof(float));
+        void* dB = metal_->alloc(B.numel() * sizeof(float));
+        void* dC = metal_->alloc(C.numel() * sizeof(float));
+        metal_->upload(A, dA);
+        metal_->upload(B, dB);
+        if (beta != 0.0f) metal_->upload(C, dC);
+        
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        
+        metal_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        metal_->download(dC, C);
+        metal_->free_buf(dA);
+        metal_->free_buf(dB);
+        metal_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override {
+        if (!metal_ || !metal_->is_initialized()) { math::gemv(alpha, A, x, beta, y); return; }
+        math::gemv(alpha, A, x, beta, y);
+    }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+
+    bool is_available() const override { return metal_ && metal_->is_initialized(); }
+    int64_t memory_free() const override { return metal_ ? metal_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return metal_ ? metal_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (metal_) metal_->synchronize(); }
+};
+#endif // __APPLE__
+
+// ========================================================================
+// GPU SYCL BACKEND (dynamically loaded)
+// ========================================================================
+
+class GPUSYCLBackend : public ComputeBackend {
+    gpu::GPUComputeSycl* sycl_ = nullptr;
+public:
+    GPUSYCLBackend() {
+        try {
+            sycl_ = &gpu::get_sycl_compute();
+            sycl_->init(0);
+        } catch (...) {
+            sycl_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::GPU_SYCL; }
+    const char* name() const override { return "GPU_SYCL"; }
+
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!sycl_ || !sycl_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        void* dA = sycl_->alloc(A.numel() * sizeof(float));
+        void* dB = sycl_->alloc(B.numel() * sizeof(float));
+        void* dC = sycl_->alloc(C.numel() * sizeof(float));
+        sycl_->upload(A, dA); sycl_->upload(B, dB); if (beta != 0.0f) sycl_->upload(C, dC);
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        sycl_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        sycl_->download(dC, C);
+        sycl_->free_buf(dA); sycl_->free_buf(dB); sycl_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override {
+        math::gemv(alpha, A, x, beta, y);
+    }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+
+    bool is_available() const override { return sycl_ && sycl_->is_initialized(); }
+    int64_t memory_free() const override { return sycl_ ? sycl_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return sycl_ ? sycl_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (sycl_) sycl_->synchronize(); }
+};
+
+// ========================================================================
+// GPU CANN BACKEND (dynamically loaded)
+// ========================================================================
+
+class GPUCANNBackend : public ComputeBackend {
+    gpu::GPUComputeCann* cann_ = nullptr;
+public:
+    GPUCANNBackend() {
+        try {
+            cann_ = &gpu::get_cann_compute();
+            cann_->init(0);
+        } catch (...) {
+            cann_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::GPU_CANN; }
+    const char* name() const override { return "GPU_CANN"; }
+
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!cann_ || !cann_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        void* dA = cann_->alloc(A.numel() * sizeof(float));
+        void* dB = cann_->alloc(B.numel() * sizeof(float));
+        void* dC = cann_->alloc(C.numel() * sizeof(float));
+        cann_->upload(A, dA); cann_->upload(B, dB); if (beta != 0.0f) cann_->upload(C, dC);
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        cann_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        cann_->download(dC, C);
+        cann_->free_buf(dA); cann_->free_buf(dB); cann_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override { math::gemv(alpha, A, x, beta, y); }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+
+    bool is_available() const override { return cann_ && cann_->is_initialized(); }
+    int64_t memory_free() const override { return cann_ ? cann_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return cann_ ? cann_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (cann_) cann_->synchronize(); }
+};
+
+// ========================================================================
+// RPC BACKEND (remote compute)
+// ========================================================================
+
+class GPURPCBackend : public ComputeBackend {
+    gpu::GPUComputeRpc* rpc_ = nullptr;
+public:
+    GPURPCBackend() {
+        try {
+            rpc_ = &gpu::get_rpc_compute();
+            rpc_->init();
+        } catch (...) {
+            rpc_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::RPC; }
+    const char* name() const override { return "RPC"; }
+
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        rpc_->gemm(alpha, A, B, beta, C);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override { math::gemv(alpha, A, x, beta, y); }
+    void softmax(const Tensor& x, Tensor& y, int axis) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::softmax(x, y, axis); return; }
+        rpc_->softmax(x, y, axis);
+    }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::rms_norm(x, g, e, y); return; }
+        rpc_->rms_norm(x, g, e, y);
+    }
+    void relu(const Tensor& x, Tensor& y) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::relu(x, y); return; }
+        rpc_->relu(x, y);
+    }
+    void gelu(const Tensor& x, Tensor& y) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::gelu(x, y); return; }
+        rpc_->gelu(x, y);
+    }
+    void silu(const Tensor& x, Tensor& y) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::silu(x, y); return; }
+        rpc_->silu(x, y);
+    }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::add(a, b, c); return; }
+        rpc_->add(a, b, c);
+    }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override {
+        if (!rpc_ || !rpc_->is_initialized()) { math::mul(a, b, c); return; }
+        rpc_->mul(a, b, c);
+    }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+
+    bool is_available() const override { return true; /* fallback handles failure */ }
+    int64_t memory_free() const override { return rpc_ ? rpc_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return rpc_ ? rpc_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (rpc_) rpc_->synchronize(); }
+};
+
+// ========================================================================
 // RAM SWAP BACKEND (memory-efficient, CPU, disk swap)
 // ========================================================================
 
@@ -509,6 +751,210 @@ public:
 };
 
 // ========================================================================
+// OPENVINO BACKEND
+// ========================================================================
+
+class GPUOpenVINOBackend : public ComputeBackend {
+    gpu::GPUComputeOpenVINO* ov_ = nullptr;
+public:
+    GPUOpenVINOBackend() {
+        try {
+            ov_ = &gpu::get_openvino_compute();
+            ov_->init(0);
+        } catch (...) {
+            ov_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::NPU_OPENVINO; }
+    const char* name() const override { return "NPU_OPENVINO"; }
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!ov_ || !ov_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        void* dA = ov_->alloc(A.numel() * sizeof(float));
+        void* dB = ov_->alloc(B.numel() * sizeof(float));
+        void* dC = ov_->alloc(C.numel() * sizeof(float));
+        ov_->upload(A.data(), dA, A.numel() * sizeof(float));
+        ov_->upload(B.data(), dB, B.numel() * sizeof(float));
+        if (beta != 0.0f) ov_->upload(C.data(), dC, C.numel() * sizeof(float));
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        ov_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        ov_->download(dC, C.data(), C.numel() * sizeof(float));
+        ov_->free_buf(dA); ov_->free_buf(dB); ov_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override { math::gemv(alpha, A, x, beta, y); }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+    bool is_available() const override { return ov_ && ov_->is_initialized(); }
+    int64_t memory_free() const override { return ov_ ? ov_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return ov_ ? ov_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (ov_) ov_->synchronize(); }
+};
+
+// ========================================================================
+// VIRTGPU BACKEND
+// ========================================================================
+
+class GPUVirtGPUBackend : public ComputeBackend {
+    gpu::GPUComputeVirtGPU* vg_ = nullptr;
+public:
+    GPUVirtGPUBackend() {
+        try {
+            vg_ = &gpu::get_virtgpu_compute();
+            vg_->init(0);
+        } catch (...) {
+            vg_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::GPU_VIRTGPU; }
+    const char* name() const override { return "GPU_VIRTGPU"; }
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!vg_ || !vg_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        void* dA = vg_->alloc(A.numel() * sizeof(float));
+        void* dB = vg_->alloc(B.numel() * sizeof(float));
+        void* dC = vg_->alloc(C.numel() * sizeof(float));
+        vg_->upload(A.data(), dA, A.numel() * sizeof(float));
+        vg_->upload(B.data(), dB, B.numel() * sizeof(float));
+        if (beta != 0.0f) vg_->upload(C.data(), dC, C.numel() * sizeof(float));
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        vg_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        vg_->download(dC, C.data(), C.numel() * sizeof(float));
+        vg_->free_buf(dA); vg_->free_buf(dB); vg_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override { math::gemv(alpha, A, x, beta, y); }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+    bool is_available() const override { return vg_ && vg_->is_initialized(); }
+    int64_t memory_free() const override { return vg_ ? vg_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return vg_ ? vg_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (vg_) vg_->synchronize(); }
+};
+
+// ========================================================================
+// WEBGPU BACKEND
+// ========================================================================
+
+class GPUWebGPUBackend : public ComputeBackend {
+    gpu::GPUComputeWebGPU* wg_ = nullptr;
+public:
+    GPUWebGPUBackend() {
+        try {
+            wg_ = &gpu::get_webgpu_compute();
+            wg_->init(0);
+        } catch (...) {
+            wg_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::GPU_WEBGPU; }
+    const char* name() const override { return "GPU_WEBGPU"; }
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!wg_ || !wg_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        void* dA = wg_->alloc(A.numel() * sizeof(float));
+        void* dB = wg_->alloc(B.numel() * sizeof(float));
+        void* dC = wg_->alloc(C.numel() * sizeof(float));
+        wg_->upload(A.data(), dA, A.numel() * sizeof(float));
+        wg_->upload(B.data(), dB, B.numel() * sizeof(float));
+        if (beta != 0.0f) wg_->upload(C.data(), dC, C.numel() * sizeof(float));
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        wg_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        wg_->download(dC, C.data(), C.numel() * sizeof(float));
+        wg_->free_buf(dA); wg_->free_buf(dB); wg_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override { math::gemv(alpha, A, x, beta, y); }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+    bool is_available() const override { return wg_ && wg_->is_initialized(); }
+    int64_t memory_free() const override { return wg_ ? wg_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return wg_ ? wg_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (wg_) wg_->synchronize(); }
+};
+
+// ========================================================================
+// ZENDNN BACKEND
+// ========================================================================
+
+class GPUZenDNNBackend : public ComputeBackend {
+    gpu::GPUComputeZenDNN* zd_ = nullptr;
+public:
+    GPUZenDNNBackend() {
+        try {
+            zd_ = &gpu::get_zendnn_compute();
+            zd_->init(0);
+        } catch (...) {
+            zd_ = nullptr;
+        }
+    }
+    BackendType type() const override { return BackendType::CPU_ZENDNN; }
+    const char* name() const override { return "CPU_ZENDNN"; }
+    void gemm(float alpha, const Tensor& A, const Tensor& B, float beta, Tensor& C) override {
+        if (!zd_ || !zd_->is_initialized()) { math::gemm(alpha, A, B, beta, C); return; }
+        void* dA = zd_->alloc(A.numel() * sizeof(float));
+        void* dB = zd_->alloc(B.numel() * sizeof(float));
+        void* dC = zd_->alloc(C.numel() * sizeof(float));
+        zd_->upload(A.data(), dA, A.numel() * sizeof(float));
+        zd_->upload(B.data(), dB, B.numel() * sizeof(float));
+        if (beta != 0.0f) zd_->upload(C.data(), dC, C.numel() * sizeof(float));
+        int64_t M = A.numel() / A.dim(A.rank() - 1);
+        int64_t N = B.dim(B.rank() - 1);
+        int64_t K = A.dim(A.rank() - 1);
+        zd_->gemm(alpha, dA, dB, beta, dC, M, N, K);
+        zd_->download(dC, C.data(), C.numel() * sizeof(float));
+        zd_->free_buf(dA); zd_->free_buf(dB); zd_->free_buf(dC);
+    }
+    void gemv(float alpha, const Tensor& A, const Tensor& x, float beta, Tensor& y) override { math::gemv(alpha, A, x, beta, y); }
+    void softmax(const Tensor& x, Tensor& y, int axis) override { math::softmax(x, y, axis); }
+    void layer_norm(const Tensor& x, const Tensor& g, const Tensor& bt, float e, Tensor& y) override { math::layer_norm(x, g, bt, e, y); }
+    void rms_norm(const Tensor& x, const Tensor& g, float e, Tensor& y) override { math::rms_norm(x, g, e, y); }
+    void relu(const Tensor& x, Tensor& y) override { math::relu(x, y); }
+    void gelu(const Tensor& x, Tensor& y) override { math::gelu(x, y); }
+    void silu(const Tensor& x, Tensor& y) override { math::silu(x, y); }
+    void add(const Tensor& a, const Tensor& b, Tensor& c) override { math::add(a, b, c); }
+    void mul(const Tensor& a, const Tensor& b, Tensor& c) override { math::mul(a, b, c); }
+    void scale(float s, const Tensor& x, Tensor& y) override { math::scale(s, x, y); }
+    void copy(const Tensor& src, Tensor& dst) override { dst.copy_from(src); }
+    void fill(Tensor& t, float val) override { t.fill(val); }
+    void zero(Tensor& t) override { t.zero_(); }
+    bool is_available() const override { return zd_ && zd_->is_initialized(); }
+    int64_t memory_free() const override { return zd_ ? zd_->memory_free() : cpu_memory_free(); }
+    int64_t memory_total() const override { return zd_ ? zd_->memory_total() : cpu_memory_total(); }
+    void synchronize() override { if (zd_) zd_->synchronize(); }
+};
+
+// ========================================================================
 // Backend factory
 // ========================================================================
 
@@ -528,8 +974,18 @@ ComputeBackend* ComputeBackend::create(const BackendConfig& cfg) {
 #if defined(QUANT_USE_CUDA)
         case BackendType::GPU_CUDA: return new GPUCUDABackend();
 #endif
+#if defined(__APPLE__)
+        case BackendType::GPU_METAL: return new GPUMetalBackend();
+#endif
+        case BackendType::GPU_SYCL: return new GPUSYCLBackend();
+        case BackendType::GPU_CANN: return new GPUCANNBackend();
+        case BackendType::RPC: return new GPURPCBackend();
         case BackendType::RAM_SWAP: return new RAMSwapBackend();
         case BackendType::DISTRIBUTED: return new DistributedBackend();
+        case BackendType::NPU_OPENVINO: return new GPUOpenVINOBackend();
+        case BackendType::GPU_VIRTGPU: return new GPUVirtGPUBackend();
+        case BackendType::GPU_WEBGPU: return new GPUWebGPUBackend();
+        case BackendType::CPU_ZENDNN: return new GPUZenDNNBackend();
         default: return new CPUScalarBackend();
     }
 }
@@ -600,6 +1056,20 @@ bool is_neon_available() {
 #endif
 }
 
+bool is_metal_available() {
+#if defined(__APPLE__)
+    try {
+        auto& metal = gpu::get_metal_compute();
+        metal.init(0);
+        return metal.is_initialized();
+    } catch (...) {
+        return false;
+    }
+#else
+    return false;
+#endif
+}
+
 bool is_cuda_available() {
 #if defined(QUANT_USE_CUDA)
     try {
@@ -642,6 +1112,68 @@ bool is_vulkan_available() {
 #else
     return false;
 #endif
+}
+
+bool is_sycl_available() {
+    try {
+        auto& sycl = gpu::get_sycl_compute();
+        sycl.init(0);
+        return sycl.is_initialized();
+    } catch (...) {
+        return false;
+    }
+}
+
+bool is_cann_available() {
+    try {
+        auto& cann = gpu::get_cann_compute();
+        cann.init(0);
+        return cann.is_initialized();
+    } catch (...) {
+        return false;
+    }
+}
+
+bool is_rpc_available() {
+    return true;
+}
+
+bool is_hip_available() { return false; }
+bool is_hexagon_available() { return false; }
+bool is_zdnn_available() { return false; }
+bool is_musa_available() { return false; }
+bool is_opencl_available() { return false; }
+
+bool is_openvino_available() {
+    try {
+        auto& ov = gpu::get_openvino_compute();
+        ov.init(0);
+        return ov.is_initialized();
+    } catch (...) { return false; }
+}
+
+bool is_virtgpu_available() {
+    try {
+        auto& vg = gpu::get_virtgpu_compute();
+        vg.init(0);
+        return vg.is_initialized();
+    } catch (...) { return false; }
+}
+
+bool is_webgpu_available() {
+    try {
+        auto& wg = gpu::get_webgpu_compute();
+        wg.init(0);
+        return wg.is_initialized();
+    } catch (...) { return false; }
+}
+
+bool is_zendnn_available() {
+    try {
+        auto& zd = gpu::get_zendnn_compute();
+        zd.init(0);
+        return zd.is_initialized();
+    } catch (...) { return false; }
 }
 
 int64_t cpu_memory_free() {
@@ -704,7 +1236,26 @@ int64_t gpu_memory_free(int64_t device_id) {
         }
     }
 #endif
+#if defined(__APPLE__)
+    if (is_metal_available()) {
+        try {
+            auto& metal = gpu::get_metal_compute();
+            if (metal.is_initialized())
+                return metal.memory_free();
+        } catch (...) {
+            return cpu_memory_free();
+        }
+    }
+#endif
     return cpu_memory_free();
+}
+
+int64_t metal_memory_free() {
+#if defined(__APPLE__)
+    return gpu_memory_free(0);
+#else
+    return 0;
+#endif
 }
 
 int64_t igpu_memory_free() {
@@ -759,6 +1310,14 @@ HardwareProfile probe_hardware() {
     hw.has_cuda = is_cuda_available();
     hw.has_directx = is_directx_available();
     hw.has_vulkan = is_vulkan_available();
+    hw.has_metal = is_metal_available();
+    hw.has_sycl = is_sycl_available();
+    hw.has_cann = is_cann_available();
+    hw.has_rpc = is_rpc_available();
+    hw.has_openvino = is_openvino_available();
+    hw.has_virtgpu = is_virtgpu_available();
+    hw.has_webgpu = is_webgpu_available();
+    hw.has_zendnn = is_zendnn_available();
 
     // RAM
     hw.ram_total = cpu_memory_total();
@@ -812,24 +1371,72 @@ BackendConfig select_optimal_backend(const HardwareProfile& hw,
     BackendConfig cfg;
     cfg.threads = hw.cpu_threads > 0 ? hw.cpu_threads : 4;
 
-    // Try GPU first for large models when enough VRAM
+    // Priority: CUDA > Metal > Vulkan > DX12 > SYCL > CANN > RPC > CPU
+    
+    if (hw.has_cuda) {
+        cfg.type = BackendType::GPU_CUDA;
+        cfg.device_name = "GPU_CUDA";
+        return cfg;
+    }
+    
+    if (hw.has_metal) {
+        cfg.type = BackendType::GPU_METAL;
+        cfg.device_name = "GPU_METAL";
+        return cfg;
+    }
+    
+    if (hw.has_vulkan) {
+        cfg.type = BackendType::GPU_VULKAN;
+        cfg.device_name = "GPU_VULKAN";
+        return cfg;
+    }
+    
     if (hw.has_directx && hw.vram_total > 0) {
-        // Use GPU for models that fit in VRAM (leave 20% headroom)
-        if (model_size_bytes == 0 || model_size_bytes <= (int64_t)(hw.vram_free * 0.8)) {
-            cfg.type = BackendType::GPU_DIRECTX;
-            cfg.device_name = "GPU_DIRECTX";
-            cfg.memory_fraction = 0.9f;
-            return cfg;
-        }
+        cfg.type = BackendType::GPU_DIRECTX;
+        cfg.device_name = "GPU_DIRECTX";
+        return cfg;
     }
 
-    if (hw.has_cuda && hw.vram_total > 0) {
-        if (model_size_bytes == 0 || model_size_bytes <= (int64_t)(hw.vram_free * 0.8)) {
-            cfg.type = BackendType::GPU_CUDA;
-            cfg.device_name = "GPU_CUDA";
-            cfg.memory_fraction = 0.9f;
-            return cfg;
-        }
+    if (hw.has_sycl) {
+        cfg.type = BackendType::GPU_SYCL;
+        cfg.device_name = "GPU_SYCL";
+        return cfg;
+    }
+
+    if (hw.has_cann) {
+        cfg.type = BackendType::GPU_CANN;
+        cfg.device_name = "GPU_CANN";
+        return cfg;
+    }
+
+    if (hw.has_rpc) {
+        cfg.type = BackendType::RPC;
+        cfg.device_name = "RPC";
+        return cfg;
+    }
+
+    if (hw.has_openvino) {
+        cfg.type = BackendType::NPU_OPENVINO;
+        cfg.device_name = "NPU_OPENVINO";
+        return cfg;
+    }
+
+    if (hw.has_virtgpu) {
+        cfg.type = BackendType::GPU_VIRTGPU;
+        cfg.device_name = "GPU_VIRTGPU";
+        return cfg;
+    }
+
+    if (hw.has_webgpu) {
+        cfg.type = BackendType::GPU_WEBGPU;
+        cfg.device_name = "GPU_WEBGPU";
+        return cfg;
+    }
+
+    if (hw.has_zendnn) {
+        cfg.type = BackendType::CPU_ZENDNN;
+        cfg.device_name = "CPU_ZENDNN";
+        return cfg;
     }
 
     // CPU with AVX2 for medium models that fit in RAM

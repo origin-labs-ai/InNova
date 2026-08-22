@@ -122,6 +122,7 @@ add_library(quant_tokenizer
   src/bpe_tokenizer_advanced.cpp
   src/bpe_tokenizer_bpe.cpp
   src/bpe_tokenizer_unicode.cpp
+  src/qwen35_tokenizer.cpp
   src/dataset.cpp
 )
 target_include_directories(quant_tokenizer PUBLIC include)
@@ -132,6 +133,7 @@ add_library(quant_trainer
   src/scheduler.cpp
   src/eval.cpp
   src/ste_quantizer.cpp
+  src/qat.cpp
   src/finetune.cpp
   src/fine_tuning.cpp
   src/log_writer.cpp
@@ -144,6 +146,7 @@ add_library(quant_trainer
   src/ddp.cpp
   src/pipeline.cpp
   src/reward.cpp
+  src/continual_engine.cpp
   src/trainer_core.cpp
   src/trainer_data.cpp
   src/trainer_rl.cpp
@@ -154,7 +157,7 @@ add_library(quant_trainer
   src/zero_optimizer_mem.cpp
 )
 target_include_directories(quant_trainer PUBLIC include)
-target_link_libraries(quant_trainer PUBLIC quant_model quant_inference quant_tokenizer)
+target_link_libraries(quant_trainer PUBLIC quant_model quant_inference quant_tokenizer quant_continual)
 
 add_library(quant_engine
   engines/inference/inference.cpp
@@ -174,7 +177,7 @@ add_library(quant_dense
   engines/trainer/dense/checkpoint.cpp
 )
 target_include_directories(quant_dense PUBLIC include engines/trainer/dense)
-target_link_libraries(quant_dense PUBLIC quant_trainer)
+target_link_libraries(quant_dense PUBLIC quant_trainer quant_continual)
 
 add_library(quant_moe
   engines/trainer/moe/moe.cpp
@@ -198,16 +201,16 @@ target_include_directories(quant_moe PUBLIC include
 )
 target_link_libraries(quant_moe PUBLIC quant_model)
 
-# DirectX GPU compute library (Windows-only, needs D3D12)
+# GPU compute library (Cross-platform, all 18 backends registered)
 if(WIN32)
-  add_library(quant_gpu src/gpu_compute.cpp src/gpu_compute_full.cpp src/gpu_compute_vulkan.cpp src/gpu_compute_cuda.cpp src/igpu_zero_copy.cpp)
+  add_library(quant_gpu src/gpu_compute.cpp src/gpu_compute_full.cpp src/gpu_compute_vulkan.cpp src/gpu_compute_cuda.cpp src/igpu_zero_copy.cpp src/gpu_compute_sycl.cpp src/gpu_compute_cann.cpp src/gpu_compute_rpc.cpp src/gpu_compute_metal.cpp src/gpu_compute_openvino.cpp src/gpu_compute_virtgpu.cpp src/gpu_compute_webgpu.cpp src/gpu_compute_zendnn.cpp src/gpu_compute_hexagon.cpp src/gpu_compute_hip.cpp src/gpu_compute_musa.cpp src/gpu_compute_opencl.cpp src/gpu_compute_zdnn.cpp)
   target_include_directories(quant_gpu PUBLIC include)
   target_link_libraries(quant_gpu PUBLIC quant_core)
   target_link_libraries(quant_gpu PUBLIC d3d12 dxgi d3dcompiler)
   target_compile_definitions(quant_gpu PRIVATE QUANT_USE_DIRECTX)
   target_sources(quant_gpu PRIVATE src/gpu_extras.cpp)
 else()
-  add_library(quant_gpu src/gpu_compute_cuda.cpp)
+  add_library(quant_gpu src/gpu_compute.cpp src/gpu_compute_full.cpp src/gpu_compute_vulkan.cpp src/gpu_compute_cuda.cpp src/igpu_zero_copy.cpp src/gpu_compute_sycl.cpp src/gpu_compute_cann.cpp src/gpu_compute_rpc.cpp src/gpu_compute_metal.cpp src/gpu_compute_openvino.cpp src/gpu_compute_virtgpu.cpp src/gpu_compute_webgpu.cpp src/gpu_compute_zendnn.cpp src/gpu_compute_hexagon.cpp src/gpu_compute_hip.cpp src/gpu_compute_musa.cpp src/gpu_compute_opencl.cpp src/gpu_compute_zdnn.cpp)
   target_include_directories(quant_gpu PUBLIC include)
 endif()
 
@@ -216,11 +219,7 @@ add_library(quant_backend
   src/backend.cpp
 )
 target_include_directories(quant_backend PUBLIC include)
-if(WIN32)
-  target_link_libraries(quant_backend PUBLIC quant_math quant_gpu)
-else()
-  target_link_libraries(quant_backend PUBLIC quant_math)
-endif()
+target_link_libraries(quant_backend PUBLIC quant_math quant_gpu)
 
 # All MoE variants
 add_library(quant_moe_variants
@@ -235,7 +234,7 @@ add_library(quant_moe_variants
   src/native_quant_moe.cpp
 )
 target_include_directories(quant_moe_variants PUBLIC include)
-target_link_libraries(quant_moe_variants PUBLIC quant_model quant_backend)
+target_link_libraries(quant_moe_variants PUBLIC quant_model quant_backend quant_trainer)
 
 # Distributed training (tensor parallelism, FSDP)
 add_library(quant_distributed
@@ -373,6 +372,9 @@ if(QUANT_BUILD_TOOLS)
     src/json_parser.cpp
   )
   target_link_libraries(quant_evaluate PRIVATE quant_model quant_inference quant_tokenizer quant_trainer)
+
+  add_executable(generate_comparison_visuals tools/generate_comparison_visuals.cpp)
+  target_link_libraries(generate_comparison_visuals PRIVATE quant_format quant_core quant_math)
 endif()
 
 if(QUANT_BUILD_TESTS)
@@ -421,7 +423,7 @@ if(QUANT_BUILD_BENCHMARKS)
   macro(add_quant_bench name src deps)
     add_executable(${name} ${src})
     target_include_directories(${name} PRIVATE include)
-    target_link_libraries(${name} PRIVATE ${deps})
+    target_link_libraries(${name} PRIVATE ${deps} ${ARGN})
   endmacro()
   add_quant_bench(bench_kernels   bench/bench_kernels.cpp   quant_kernel quant_math)
   add_quant_bench(bench_inference bench/bench_inference.cpp quant_inference quant_model quant_math quant_core)
@@ -450,7 +452,9 @@ if(QUANT_BUILD_BENCHMARKS)
 
   # PoC Benchmark: all in-house QUANT/QUANT formats + QUANT_MIX routing
   add_quant_bench(bench_poc bench/bench_poc_benchmark.cpp quant_format quant_core quant_math)
-  add_quant_bench(bench_format_comparison bench/bench_format_comparison.cpp quant_format quant_core quant_math)
+  add_executable(bench_format_comparison bench/bench_format_comparison.cpp)
+  target_include_directories(bench_format_comparison PRIVATE include)
+  target_link_libraries(bench_format_comparison PRIVATE quant_trainer quant_continual quant_format quant_core quant_math quant_model quant_engine)
 endif()
 
 # SOPS tools + integration

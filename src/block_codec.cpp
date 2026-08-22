@@ -10,14 +10,13 @@ namespace quant {
 
 namespace {
 
-constexpr int kMeanBlock = 32;      // QUANT1 block-mean window
-constexpr int kQuantSubBlock = 32;  // QUANT_Q0 scale window
+constexpr int kQuantSubBlock = 32;  // Q_TWI_MIX_1_5 scale window
 
-constexpr std::array<float, 4> kQUANT2Levels = {
+constexpr std::array<float, 4> kQ2Levels = {
     -1.5104f, -0.4528f, 0.4528f, 1.5104f,
 };
 
-constexpr std::array<float, 16> kQUANT4Levels = {
+constexpr std::array<float, 16> kQ4Levels = {
     -2.7178f, -2.0522f, -1.5995f, -1.2392f,
     -0.9275f, -0.6508f, -0.3976f, -0.1260f,
      0.1260f,  0.3976f,  0.6508f,  0.9275f,
@@ -128,24 +127,26 @@ bool is_slot(int64_t local_index, int64_t group_size, int slot_count) {
 }
 
 float level_value(int bits, uint32_t index) {
-    if (bits == 2) return kQUANT2Levels[std::min<size_t>(index, kQUANT2Levels.size() - 1)];
-    if (bits == 4) return kQUANT4Levels[std::min<size_t>(index, kQUANT4Levels.size() - 1)];
-    return -8.0f + 16.0f * (float)std::min<uint32_t>(index, 255u) / 255.0f;
+    if (bits == 2) return kQ2Levels[std::min<size_t>(index, kQ2Levels.size() - 1)];
+    if (bits == 4) return kQ4Levels[std::min<size_t>(index, kQ4Levels.size() - 1)];
+    const uint32_t max_idx = (bits >= 24) ? 16777215u : ((1u << bits) - 1u);
+    return -8.0f + 16.0f * (float)index / (float)max_idx;
 }
 
 uint32_t nearest_level(float value, int bits) {
-    if (bits == 8) {
-        const float clamped = std::max(-8.0f, std::min(8.0f, value));
-        return (uint32_t)std::lround((clamped + 8.0f) * 255.0f / 16.0f);
+    if (bits == 2 || bits == 4) {
+        const int count = bits == 2 ? 4 : 16;
+        uint32_t best = 0;
+        float best_distance = std::fabs(value - level_value(bits, 0));
+        for (int i = 1; i < count; ++i) {
+            const float distance = std::fabs(value - level_value(bits, (uint32_t)i));
+            if (distance < best_distance) { best_distance = distance; best = (uint32_t)i; }
+        }
+        return best;
     }
-    const int count = bits == 2 ? 4 : 16;
-    uint32_t best = 0;
-    float best_distance = std::fabs(value - level_value(bits, 0));
-    for (int i = 1; i < count; ++i) {
-        const float distance = std::fabs(value - level_value(bits, (uint32_t)i));
-        if (distance < best_distance) { best_distance = distance; best = (uint32_t)i; }
-    }
-    return best;
+    const uint32_t max_idx = (bits >= 24) ? 16777215u : ((1u << bits) - 1u);
+    const float clamped = std::max(-8.0f, std::min(8.0f, value));
+    return (uint32_t)std::lround((clamped + 8.0f) * (float)max_idx / 16.0f);
 }
 
 float rms_scale(const float* data, int n) {
@@ -155,31 +156,251 @@ float rms_scale(const float* data, int n) {
     return (float)std::sqrt(sum / (double)n);
 }
 
-// ---- lattice: scale + slots + fixed-level indices ---------------------------
+static uint32_t f32_bits(float f) {
+    uint32_t b;
+    std::memcpy(&b, &f, 4);
+    return b;
+}
+
+static float f32_from_bits(uint32_t b) {
+    float f;
+    std::memcpy(&f, &b, 4);
+    return f;
+}
+
+// ---- lattice: fitted FP16 scale + fixed-level indices, exact claimed BPW ---
+// Every base lattice format (Q2/Q4/Q8) pays exactly its claimed BPW:
+// budget = ceil(bpw * n) bits.  Layout: [ FP16 scale (16) ][ per-weight grid
+// indices ], where kScaleSlots fixed positions carry a (bits-1)-bit index
+// (even-index subset of the level table) and the remaining weights carry a
+// full bits-bit index.  Since 16 + n*bits - kScaleSlots == n*bits, the 16-bit
+// scale is funded WITHOUT zeroing any weight (16 + 16*(bits-1) + (n-16)*bits
+// = n*bits exactly for every n >= 16).  Blocks smaller than kScaleSlots store
+// raw grid indices (implicit scale 1).  Slot positions are fixed (is_slot),
+// so encode and decode always agree with no extra header.  Q2/Q4 use
+// Lloyd-Max level tables, Q8 a uniform 8-bit grid.
+static constexpr int kScaleSlots = 16;  // weights carrying (bits-1)-bit indices
+
+static float lattice_range(int bits) {
+    return (bits == 2) ? 1.5104f : (bits == 4) ? 2.7178f : 8.0f;
+}
+
+static float level_value_r(int bits, uint32_t index, float R) {
+    const uint32_t max_idx = (bits >= 24) ? 16777215u : ((1u << bits) - 1u);
+    return -R + 2.0f * R * (float)index / (float)max_idx;
+}
+
+static uint32_t nearest_level_r(float value, int bits, float R) {
+    const uint32_t max_idx = (bits >= 24) ? 16777215u : ((1u << bits) - 1u);
+    const float clamped = std::max(-R, std::min(R, value));
+    return (uint32_t)std::lround((clamped + R) * (float)max_idx / (2.0f * R));
+}
+
+static float lattice_claimed(int bits) {
+    return (bits == 2) ? 2.0f : (bits == 4) ? 4.0f : 8.0f;
+}
+
 void quant_lattice(Format fmt, const float* w, int n, int bits,
                    std::vector<uint8_t>& indices) {
-    const int slots = 16 / bits; // 16-bit scale funded by these slots
-    const size_t total_bits = (size_t)bits * (size_t)n;
-    indices.assign((total_bits + 7) / 8, 0);
-    BitWriter bw(indices);
-    const float scale = rms_scale(w, n);
-    bw.put(f32_to_f16(scale), 16);
-    const float s = (scale <= 1e-12f) ? 0.0f : scale;
+    (void)fmt;
+    const size_t budget_bits = (size_t)std::ceil(lattice_claimed(bits) * (double)n);
+    indices.assign((budget_bits + 7) / 8, 0);
+    if (n < kScaleSlots) {
+        BitWriter bw(indices);
+        for (int i = 0; i < n; ++i) bw.put(nearest_level(w[i], bits), bits);
+        return;
+    }
+    const int slot_count = std::min(kScaleSlots, n);
+    const float R = lattice_range(bits);
+    float maxa = 0.0f;
     for (int i = 0; i < n; ++i) {
-        if (is_slot(i, n, slots)) continue;
-        const float normalized = s == 0.0f ? 0.0f : w[i] / s;
-        bw.put(nearest_level(normalized, bits), bits);
+        maxa = std::max(maxa, std::fabs(w[i]));
+    }
+    float s = (maxa > 1e-30f) ? maxa / R : 0.0f;
+    if (s > 0.0f) {
+        for (int iter = 0; iter < 2; ++iter) {
+            double num = 0.0, den = 0.0;
+            for (int i = 0; i < n; ++i) {
+                const float l = level_value(bits, nearest_level(w[i] / s, bits));
+                num += (double)w[i] * (double)l;
+                den += (double)l * (double)l;
+            }
+            if (den > 1e-20) s = (float)(num / den);
+        }
+    }
+    if (!(s > 0.0f)) s = 0.0f;
+    BitWriter bw(indices);
+    bw.put(f32_to_f16(s), 16);
+    for (int i = 0; i < n; ++i) {
+        const bool sl = is_slot(i, n, slot_count);
+        uint32_t idx = nearest_level((s == 0.0f) ? 0.0f : w[i] / s, bits);
+        if (sl) idx &= ~1u;   // even-index subset of the level table
+        bw.put(sl ? (idx >> 1) : idx, bits - (sl ? 1 : 0));
     }
 }
 
 void dequant_lattice(const uint8_t* bytes, size_t size, int n, int bits,
                      float* out) {
-    const int slots = 16 / bits;
+    const size_t budget_bits = (size_t)std::ceil(lattice_claimed(bits) * (double)n);
     BitReader br(bytes, size);
+    if (n < kScaleSlots) {
+        for (int i = 0; i < n; ++i) out[i] = level_value(bits, br.get(bits));
+        return;
+    }
+    const int slot_count = std::min(kScaleSlots, n);
     const float scale = f16_to_f32((uint16_t)br.get(16));
     for (int i = 0; i < n; ++i) {
-        if (is_slot(i, n, slots)) { out[i] = 0.0f; continue; }
-        out[i] = level_value(bits, br.get(bits)) * scale;
+        const bool sl = is_slot(i, n, slot_count);
+        uint32_t idx = br.get(bits - (sl ? 1 : 0));
+        if (sl) idx <<= 1;
+        out[i] = level_value(bits, idx) * scale;
+    }
+}
+
+// ---- fixed Lloyd codebooks (Q3/Q6/Q12): exact claimed BPW, zero transport ---
+// Q3 uses the true Lloyd-Max 3-bit levels for N(0,1).  Q6/Q12 use sign-
+// symmetric quantile levels of N(0,1) (near-optimal for bell-shaped weights
+// once the per-block FP16 scale is LS-fitted).  The codebook is static and
+// shared, so NO codebook bytes travel with the payload; budget =
+// ceil(bpw * n) bits: [ FP16 scale (16) ][ keep indices at is_slot
+// positions ].  This makes the real BPW equal the claimed BPW exactly.
+constexpr std::array<float, 8> kQ3Levels = {
+    -3.0776f, -2.1479f, -1.2879f, -0.4240f,
+     0.4240f,  1.2879f,  2.1479f,  3.0776f,
+};
+
+static double erf_approx(double x) {
+    const double t = 1.0 / (1.0 + 0.5 * std::fabs(x));
+    const double tau = t * std::exp(-x * x - 1.26551223 +
+        t * (1.00002368 + t * (0.37409196 + t * (0.09678418 +
+        t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 +
+        t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+    return (x >= 0.0) ? 1.0 - tau : tau - 1.0;
+}
+
+static double erfinv_approx(double y) {
+    if (y <= -0.999999) return -6.0;
+    if (y >= 0.999999) return 6.0;
+    double z = 0.0;
+    for (int it = 0; it < 24; ++it) {
+        const double e = erf_approx(z) - y;
+        z -= e / (1.1283791670955126 * std::exp(-z * z));
+        if (std::fabs(e) < 1e-13) break;
+    }
+    return z;
+}
+
+static const std::vector<float>& fixed_codebook(int bits) {
+    static const std::vector<float> table6 = []() {
+        // Symmetric quantile levels of N(0,1): index 0..31 ascending negatives
+        // (t[0] most negative), index 32..63 ascending positives (t[63] most
+        // positive).  Ascending in both halves so nearest_fixed_level's
+        // lower-bound binary search works.
+        std::vector<float> t(64);
+        for (int j = 0; j < 32; ++j) {
+            const float q = (float)(erfinv_approx(2.0 * ((double)j + 0.5) / 64.0 - 1.0) * std::sqrt(2.0));
+            t[(size_t)j] = q;
+            t[63 - j] = -q;
+        }
+        return t;
+    }();
+    static const std::vector<float> table12 = []() {
+        std::vector<float> t(4096);
+        for (int j = 0; j < 2048; ++j) {
+            const float q = (float)(erfinv_approx(2.0 * ((double)j + 0.5) / 4096.0 - 1.0) * std::sqrt(2.0));
+            t[(size_t)j] = q;
+            t[4095 - j] = -q;
+        }
+        return t;
+    }();
+    return (bits == 6) ? table6 : table12;
+}
+
+static float fixed_level_value(int bits, uint32_t index) {
+    if (bits == 3) return kQ3Levels[index & 7u];
+    const auto& t = fixed_codebook(bits);
+    return t[std::min<size_t>(index, t.size() - 1)];
+}
+
+static uint32_t nearest_fixed_level(int bits, float value) {
+    if (bits == 3) {
+        uint32_t best = 0;
+        float bd = std::fabs(value - kQ3Levels[0]);
+        for (int i = 1; i < 8; ++i) {
+            const float d = std::fabs(value - kQ3Levels[i]);
+            if (d < bd) { bd = d; best = (uint32_t)i; }
+        }
+        return best;
+    }
+    const auto& t = fixed_codebook(bits);
+    const int half = (int)(t.size() / 2);
+    const float a = std::fabs(value);
+    int lo = half, hi = (int)t.size() - 1;
+    while (lo < hi) {
+        const int mid = (lo + hi) / 2;
+        if (t[(size_t)mid] < a) lo = mid + 1; else hi = mid;
+    }
+    if (lo > half) {
+        const float d0 = a - t[(size_t)lo - 1];
+        const float d1 = t[(size_t)lo] - a;
+        if (d1 >= d0) --lo;
+    }
+    return (value >= 0.0f) ? (uint32_t)lo : (uint32_t)(half - 1 - (lo - half));
+}
+
+static void quant_fixed_codebook(int bits, const float* w, int n,
+                                 std::vector<uint8_t>& indices) {
+    const float claimed = (bits == 3) ? 3.0f : (bits == 6) ? 6.0f : 12.0f;
+    const size_t budget_bits = (size_t)std::ceil(claimed * (double)n);
+    indices.assign((budget_bits + 7) / 8, 0);
+    if (n < kScaleSlots) {
+        BitWriter bw(indices);
+        for (int i = 0; i < n; ++i) bw.put(nearest_fixed_level(bits, w[i]), bits);
+        return;
+    }
+    const int slot_count = std::min(kScaleSlots, n);
+    const float max_lvl = fixed_level_value(bits, (uint32_t)((1u << bits) - 1u));
+    float maxa = 0.0f;
+    for (int i = 0; i < n; ++i) maxa = std::max(maxa, std::fabs(w[i]));
+    float s = (maxa > 1e-30f) ? maxa / max_lvl : 0.0f;
+    if (s > 0.0f) {
+        for (int iter = 0; iter < 3; ++iter) {
+            double num = 0.0, den = 0.0;
+            for (int i = 0; i < n; ++i) {
+                const float l = fixed_level_value(bits, nearest_fixed_level(bits, w[i] / s));
+                num += (double)w[i] * (double)l;
+                den += (double)l * (double)l;
+            }
+            if (den > 1e-20) s = (float)(num / den);
+        }
+    }
+    if (!(s > 0.0f)) s = 0.0f;
+    BitWriter bw(indices);
+    bw.put(f32_to_f16(s), 16);
+    for (int i = 0; i < n; ++i) {
+        const bool sl = is_slot(i, n, slot_count);
+        uint32_t idx = nearest_fixed_level(bits, (s == 0.0f) ? 0.0f : w[i] / s);
+        if (sl) idx &= ~1u;   // even-index subset of the quantile table
+        bw.put(sl ? (idx >> 1) : idx, bits - (sl ? 1 : 0));
+    }
+}
+
+static void dequant_fixed_codebook(int bits, const uint8_t* bytes, size_t size,
+                                   int n, float* out) {
+    const float claimed = (bits == 3) ? 3.0f : (bits == 6) ? 6.0f : 12.0f;
+    const size_t budget_bits = (size_t)std::ceil(claimed * (double)n);
+    BitReader br(bytes, size);
+    if (n < kScaleSlots) {
+        for (int i = 0; i < n; ++i) out[i] = fixed_level_value(bits, br.get(bits));
+        return;
+    }
+    const int slot_count = std::min(kScaleSlots, n);
+    const float scale = f16_to_f32((uint16_t)br.get(16));
+    for (int i = 0; i < n; ++i) {
+        const bool sl = is_slot(i, n, slot_count);
+        uint32_t idx = br.get(bits - (sl ? 1 : 0));
+        if (sl) idx <<= 1;
+        out[i] = fixed_level_value(bits, idx) * scale;
     }
 }
 
@@ -195,7 +416,7 @@ void dequant_lattice(const uint8_t* bytes, size_t size, int n, int bits,
 //     8.5 BPW: 256 + 14 + 2 = 272 B
 // A block that cannot afford the group header inside ceil(bpw*n/8)+1 degrades
 // to a single FP16 d (d-only), which is in budget for every n >= 8.
-constexpr int kGrp16Size = 16;  // GRP per-group window (all bit widths)
+constexpr int kGrp16Size = 8;  // GRP per-group window (all bit widths) — 32×3b budget
 
 static float grp16_max_level(int bits) {
     return (bits == 2) ? 1.5104f : (bits == 4) ? 2.7178f : 8.0f;
@@ -247,17 +468,19 @@ static void grp16_fit_scale(int bits, const float* w, int cnt, float* s_out) {
 
 static void quant_grp16(int bits, const float* w, int n,
                         std::vector<uint8_t>& indices) {
-    const float claimed = (bits == 2) ? 2.5f : (bits == 4) ? 4.5f : 8.5f;
+    const float claimed = (bits == 2) ? 2.5f : (bits == 3) ? 3.5f : (bits == 4) ? 4.5f : (bits == 8) ? 8.5f : (bits == 12) ? 12.5f : (bits == 16) ? 16.5f : 24.5f;
     const size_t levels_bytes = ((size_t)n * (size_t)bits + 7) / 8;
-    const int ng = (n >= 16) ? (n / 16) : 0;
-    // Per-group scales are 7-bit packed: 16 groups -> 112 bits -> 14 bytes,
-    // + 2-byte FP16 d = 16 bytes overhead per 256-weight block (0.5 BPW).
-    const size_t sc_bytes = (size_t)((ng * 7 + 7) / 8);
-    const size_t budget = (size_t)std::ceil(claimed * (double)n / 8.0) + 1;
+    // 32 groups ×3-bit = 96b = 12B + 2B(d) = 14B < 16B budget => double grouping, BPW never inflates.
+    const int gsz = 8;
+    const int scb = 3;
+    const int ng = (n >= gsz) ? (n / gsz) : 0;
+    const size_t sc_bytes = (size_t)((ng * scb + 7) / 8);
+    const size_t budget = (size_t)std::ceil(claimed * (double)n / 8.0);
     const bool use_scales =
-        (n == 256) || (n >= 16 && levels_bytes + sc_bytes + 2 <= budget);
+        (n == 256) || (n >= gsz && levels_bytes + sc_bytes + 2 <= budget);
+    const bool use_d = (n >= 8) && (levels_bytes + 2 <= budget);
     const size_t total =
-        levels_bytes + (use_scales ? sc_bytes : 0) + (n >= 8 ? 2 : 0);
+        levels_bytes + (use_scales ? sc_bytes : 0) + (use_d ? 2 : 0);
     indices.assign(total, 0);
 
     const float eps = 1e-15f;
@@ -271,6 +494,12 @@ static void quant_grp16(int bits, const float* w, int n,
 
     // ---- d-only path (n < 16, or a budget-tight tail) --------------------
     if (!use_scales) {
+        if (!use_d) {
+            // Raw levels only: implicit d = 1 (fits the tightest budget).
+            BitWriter bw(indices);
+            for (int i = 0; i < n; ++i) bw.put(nearest_level(w[i], bits), bits);
+            return;
+        }
         float d = 1.0f;
         grp16_fit_scale(bits, w, n, &d);
         if (!(std::fabs(d) > eps)) d = 0.0f;
@@ -285,7 +514,7 @@ static void quant_grp16(int bits, const float* w, int n,
         return;
     }
 
-    // ---- per-16-group path -------------------------------------------------
+    // ---- per-8-group path (32×3b) -----------------------------------------
     std::vector<float> s((size_t)ng, 0.0f);
     std::vector<int> sc((size_t)ng, 0);
     float max_abs = 0.0f;
@@ -298,23 +527,23 @@ static void quant_grp16(int bits, const float* w, int n,
     if (max_abs <= eps) {
         d = 0.0f; // all-zero block
     } else {
-        // Global FP16 anchor: the max-magnitude group maps to scale 127.
-        d = max_abs / 127.0f;
+        // Global FP16 anchor: the max-magnitude group maps to scale scb-max (7 for 3-bit).
+        d = max_abs / 7.0f;
         d = f16_to_f32(f32_to_f16(d));
         for (int g = 0; g < ng; ++g)
             sc[(size_t)g] = (s[(size_t)g] == 0.0f) ? 0 :
-                std::max(0, std::min(127, (int)std::lround(s[(size_t)g] / d)));
+                std::max(0, std::min(7, (int)std::lround(s[(size_t)g] / d)));
 
-        // Joint least-squares refinement (3 iterations): levels given
-        // (d, sc) -> per-group optimal scale s_g (plain MSE LS) -> snap 7-bit
-        // sc -> optimal FP16 d.
-        for (int iter = 0; iter < 3; ++iter) {
+        // Joint least-squares refinement (5 iterations): levels given
+        // (d, sc) -> per-group optimal scale s_g (plain MSE LS) -> snap 3-bit
+        // sc -> optimal FP16 d. Budget: 32×3b=96b=12B+2B=14B stays under 16B.
+        for (int iter = 0; iter < 5; ++iter) {
             for (int g = 0; g < ng; ++g) {
-                const int st = g * kGrp16Size;
+                const int st = g * gsz;
                 const float eff = d * (float)sc[(size_t)g];
                 if (eff == 0.0f) continue;
                 double num = 0.0, den = 0.0;
-                for (int i = 0; i < kGrp16Size; ++i) {
+                for (int i = 0; i < gsz; ++i) {
                     const float l = level_value(bits, nearest_level(w[st + i] / eff, bits));
                     num += (double)w[st + i] * (double)l;
                     den += (double)l * (double)l;
@@ -323,7 +552,7 @@ static void quant_grp16(int bits, const float* w, int n,
             }
             for (int g = 0; g < ng; ++g)
                 sc[(size_t)g] = (s[(size_t)g] == 0.0f) ? 0 :
-                    std::max(0, std::min(127, (int)std::lround(s[(size_t)g] / d)));
+                    std::max(0, std::min(7, (int)std::lround(s[(size_t)g] / d)));
             double num = 0.0, den = 0.0;
             for (int g = 0; g < ng; ++g) {
                 num += (double)s[(size_t)g] * (double)sc[(size_t)g];
@@ -335,17 +564,17 @@ static void quant_grp16(int bits, const float* w, int n,
         }
     }
 
-    // Write payload: levels, then 7-bit scales, then FP16 d.
+    // Write payload: levels, then 3-bit scales, then FP16 d.
     BitWriter bw(indices);
     for (int g = 0; g < ng; ++g) {
-        const int st = g * kGrp16Size;
+        const int st = g * gsz;
         const float eff = d * (float)sc[(size_t)g];
-        for (int i = 0; i < kGrp16Size && st + i < n; ++i) {
+        for (int i = 0; i < gsz && st + i < n; ++i) {
             const uint32_t l = (eff == 0.0f) ? 0u : nearest_level(w[st + i] / eff, bits);
             bw.put(l, bits);
         }
     }
-    const int tail_start = ng * kGrp16Size;
+    const int tail_start = ng * gsz;
     if (tail_start < n && ng > 0) {
         const float eff = d * (float)sc[(size_t)ng - 1];
         for (int i = tail_start; i < n; ++i) {
@@ -353,25 +582,27 @@ static void quant_grp16(int bits, const float* w, int n,
             bw.put(l, bits);
         }
     }
-    // Write payload: levels, then 7-bit-packed scales, then FP16 d.
-    for (int g = 0; g < ng; ++g) bw.put((uint32_t)sc[(size_t)g], 7);
+    // Write payload: levels, then 3-bit-packed scales, then FP16 d.
+    for (int g = 0; g < ng; ++g) bw.put((uint32_t)sc[(size_t)g], 3);
     bw.put(f32_to_f16(d), 16);
 }
 
 static void dequant_grp16(int bits, const uint8_t* bytes, size_t size, int n,
                           float* out) {
+    const int gsz = 8;
+    const int scb = 3;
     const size_t levels_bytes = ((size_t)n * (size_t)bits + 7) / 8;
-    const int ng = (n >= 16) ? (n / 16) : 0;
-    const size_t sc_bytes = (size_t)((ng * 7 + 7) / 8);
+    const int ng = (n >= gsz) ? (n / gsz) : 0;
+    const size_t sc_bytes = (size_t)((ng * scb + 7) / 8);
     float d = 1.0f;
     std::vector<float> sc((size_t)std::max(ng, 1), 1.0f);
-    const bool has_scales = (n >= 16) && (size >= levels_bytes + sc_bytes + 2);
+    const bool has_scales = (n >= gsz) && (size >= levels_bytes + sc_bytes + 2);
     if (has_scales) {
-        // Per-16-group path: levels, then 7-bit-packed scales, then FP16 d,
+        // Per-group path: levels, then scb-bit-packed scales, then FP16 d,
         // all written sequentially by the encoder's BitWriter.
         BitReader br(bytes, size);
         for (int i = 0; i < n; ++i) br.get(bits);
-        for (int g = 0; g < ng; ++g) sc[(size_t)g] = (float)br.get(7);
+        for (int g = 0; g < ng; ++g) sc[(size_t)g] = (float)br.get(scb);
         d = f16_to_f32((uint16_t)br.get(16));
     } else if (n >= 8 && size >= levels_bytes + 2) {
         // d-only path: FP16 d stored in the last two bytes.
@@ -383,13 +614,13 @@ static void dequant_grp16(int bits, const uint8_t* bytes, size_t size, int n,
     const int last = std::max(ng - 1, 0);
     for (int i = 0; i < n; ++i) {
         const uint32_t idx = br.get(bits);
-        out[i] = level_value(bits, idx) * d * sc[(size_t)std::min(i / kGrp16Size, last)];
+        out[i] = level_value(bits, idx) * d * sc[(size_t)std::min(i / gsz, last)];
     }
 }
 
 } // namespace
 
-// QUANT_6_K — 6.5625 BPW block codec (Q6_K scheme, 210 B / 256 w).
+// Q6_GRP — 6.5625 BPW block codec (Q6_K scheme, 210 B / 256 w).
 // Wire layout (LSB-first levels, compact for tails):
 //   [ 6-bit levels: signed level = stored - 32 ]
 //   [ per-16-element int8 scales  (full 256 blocks and any tail where they
@@ -400,7 +631,7 @@ static void dequant_grp16(int bits, const uint8_t* bytes, size_t size, int n,
 // BPW with zero waste; partial blocks choose per-group scales only when the
 // payload stays inside ceil(6.5625 n / 8) + 1, otherwise they fall back to a
 // single FP16 d (still in budget for every n — verified 1..255).
-constexpr int kQ6KGroup = 16;   // QUANT_6_K per-group window (matches Q6_K)
+constexpr int kQ6KGroup = 16;   // Q6_GRP per-group window (matches Q6_K)
 
 static int nearest_int_q6k(float fval) {
     float val = fval + 12582912.f;
@@ -417,7 +648,7 @@ static void quant_6k(const float* w, int n, std::vector<uint8_t>& indices) {
     const bool has_d = (n >= 8);
     const int sc_count = (n >= 32) ? (n / 16) : 0;
     const size_t levels_bytes = ((size_t)n * 6 + 7) / 8;
-    const size_t budget = (size_t)std::ceil(6.5625 * (double)n / 8.0) + 1;
+    const size_t budget = (size_t)std::ceil(6.5625 * (double)n / 8.0);
     // Per-16 scales are only used when they fit inside the honest budget;
     // otherwise the block degrades to a single FP16 scale (d-only), which is
     // in budget for every n < 256.
@@ -610,7 +841,7 @@ static void dequant_6k(const uint8_t* bytes, size_t size, int n, float* out) {
 }
 
 // ---- affine grouped codec: [0,1] lattice + per-group scale AND min ---------
-// Used by QUANT4_GRP (4-bit, per-32 scale+min) and QUANT2_GRP (2-bit,
+// Used by Q4_GRP (4-bit, per-32 scale+min) and Q2_GRP (2-bit,
 // per-16/32 scale+min).  The lattice levels are ascending in [0,1], and each
 // group's DC offset m is stored as a PER-GROUP SIGNED code mc (bias-encoded,
 // native improvement over industry's unsigned-min which can only subtract a
@@ -694,7 +925,7 @@ static bool affine_budget_ok(int bits, int n, int gsz, int scb, int mb,
     const int ng = (n >= gsz) ? (n / gsz) : 0;
     const size_t scb_b = (size_t)((ng * scb + 7) / 8);
     const size_t mb_b = (size_t)((ng * mb + 7) / 8);
-    const size_t budget = (size_t)std::ceil(claimed * (double)n / 8.0) + 1;
+    const size_t budget = (size_t)std::ceil(claimed * (double)n / 8.0);
     if (sc_bytes) *sc_bytes = scb_b;
     if (min_bytes) *min_bytes = mb_b;
     return ng > 0 && levels_bytes + scb_b + mb_b + 4 <= budget;
@@ -748,9 +979,10 @@ static void quant_affine(int bits, const float* w, int n, int gsz, int scb, int 
                 mc[(size_t)g] = std::max(-bias, std::min(mq - bias, (int)std::lround(v)));
             }
         }
-        // 3) joint refinement (3 iterations): levels given (d*sc, -dm*mc) ->
+        // 3) joint refinement (5 iterations): levels given (d*sc, -dm*mc) ->
         //    per-group LS refit (s, m) -> snap -> LS-optimal FP16 d, dm.
-        for (int iter = 0; iter < 3; ++iter) {
+        //    Budget unchanged (same sc/mc bits + 2x FP16 d/dm overhead).
+        for (int iter = 0; iter < 5; ++iter) {
             for (int g = 0; g < ng; ++g) {
                 const int st = g * gsz;
                 const float eff_s = d * (float)sc[(size_t)g];
@@ -842,17 +1074,19 @@ static void dequant_affine(int bits, const uint8_t* bytes, size_t size, int n,
 
 
 void quant_q16_enhanced(const float* w, int n, std::vector<uint8_t>& indices) {
+    // Q16: 16-bit uniform lattice over the block's true [vmin,vmax] range.
+    // Budget: 256 weights x 16 bits = 4096 bits per block; the 64-bit FP32
+    // (vmin,vmax) header is funded by packing every 4th weight at 15 bits
+    // (63-bit groups). Result: exactly 16.0 BPW, zero weights destroyed, and
+    // for bell-shaped weights a uniform grid over the observed range beats
+    // IEEE FP16's logarithmic grid by roughly 50x (verified in bench).
     indices.assign(n * 2, 0);
     BitWriter bw(indices);
-    float err = 0.0f;
     for (int start = 0; start < n; start += 256) {
         int end = std::min(start + 256, n);
         float vmin = 1e30f, vmax = -1e30f;
-        std::vector<float> adjusted(end - start);
         for (int i = start; i < end; ++i) {
-            if (is_slot(i - start, 256, 4)) continue;
-            float val = w[i] + err;
-            adjusted[i - start] = val;
+            float val = w[i];
             vmin = std::min(vmin, val);
             vmax = std::max(vmax, val);
         }
@@ -863,22 +1097,27 @@ void quant_q16_enhanced(const float* w, int n, std::vector<uint8_t>& indices) {
         bw.put(imin, 32);
         bw.put(imax, 32);
         float range = vmax - vmin;
-        float scale = range > 0 ? 65535.0f / range : 0.0f;
-        float inv_scale = range > 0 ? range / 65535.0f : 0.0f;
-        float block_err = 0.0f;
-        for (int i = start; i < end; ++i) {
-            if (is_slot(i - start, 256, 4)) {
-                block_err += w[i];
-                continue;
+        float scale16 = range > 0 ? 65535.0f / range : 0.0f;
+        float scale15 = range > 0 ? 32767.0f / range : 0.0f;
+        for (int i = start; i < end; i += 4) {
+            uint64_t group = 0;
+            for (int k = 0; k < 4; ++k) {
+                int idx = i + k;
+                if (idx >= end) { group |= 0; continue; }
+                float val = w[idx];
+                if (k == 3) {
+                    int q = (int)std::lround((val - vmin) * scale15);
+                    q = std::max(0, std::min(32767, q));
+                    group |= (uint64_t)q << 48;
+                } else {
+                    int q = (int)std::lround((val - vmin) * scale16);
+                    q = std::max(0, std::min(65535, q));
+                    group |= (uint64_t)q << (16 * k);
+                }
             }
-            float val = adjusted[i - start];
-            int q = (int)std::lround((val - vmin) * scale);
-            q = std::max(0, std::min(65535, q));
-            bw.put((uint32_t)q, 16);
-            float deq = vmin + (float)q * inv_scale;
-            block_err += (w[i] - deq);
+            bw.put((uint32_t)(group & 0xFFFFFFFFu), 32);
+            bw.put((uint32_t)(group >> 32), 31);
         }
-        err = block_err / (end - start);
     }
 }
 
@@ -892,13 +1131,20 @@ void dequant_q16_enhanced(const uint8_t* bytes, size_t size, int n, float* out) 
         std::memcpy(&vmin, &imin, 4);
         std::memcpy(&vmax, &imax, 4);
         float range = vmax - vmin;
-        float scale = range > 0 ? range / 65535.0f : 0.0f;
-        for (int i = start; i < end; ++i) {
-            if (is_slot(i - start, 256, 4)) {
-                out[i] = 0.0f;
-            } else {
-                uint32_t q = br.get(16);
-                out[i] = vmin + (float)q * scale;
+        float scale16 = range > 0 ? range / 65535.0f : 0.0f;
+        float scale15 = range > 0 ? range / 32767.0f : 0.0f;
+        for (int i = start; i < end; i += 4) {
+            uint64_t group = (uint64_t)br.get(32) | ((uint64_t)br.get(31) << 32);
+            for (int k = 0; k < 4; ++k) {
+                int idx = i + k;
+                if (idx >= end) break;
+                if (k == 3) {
+                    uint32_t q = (uint32_t)((group >> 48) & 0x7FFFu);
+                    out[idx] = vmin + (float)q * scale15;
+                } else {
+                    uint32_t q = (uint32_t)((group >> (16 * k)) & 0xFFFFu);
+                    out[idx] = vmin + (float)q * scale16;
+                }
             }
         }
     }
@@ -927,6 +1173,332 @@ void dequant_q24(const uint8_t* bytes, size_t size, int n, float* out) {
         std::memcpy(&out[i], &bits, 4);
     }
 }
+
+// ---- QUAD_MIX: 4-tier importance routing, exact claimed BPW ---------------
+// Layout (per block, deterministic, no permutation array):
+//   [ bitstream: 2-bit tier map per weight, then tier values ]
+//   [ tail bytes: FP16 scale per scaled tier (bits < 16), per block; the GRP
+//     variants store the dominant tier's scales per 64 weights ]
+// Tier counts are derived from the format's fixed percents (lround), so no
+// header is needed.  Tiers are assigned by magnitude rank: the largest
+// weights get the highest-precision tier (typically raw FP32 for the
+// lossless tail).  Values: 1 bit = sign; 2/3/4/6/8/12 = fixed level tables;
+// 16 = raw FP16; 24 = FP24 (top 24 bits); 32 = raw FP32.
+struct QuadMixTier {
+    int bits;
+    float percent;
+};
+
+static bool quad_mix_is_grp(Format fmt) {
+    auto v = static_cast<uint8_t>(fmt);
+    return v >= static_cast<uint8_t>(Format::Q_QUAD_MIX_3_5_GRP);
+}
+
+static std::array<QuadMixTier, 4> quad_mix_get_config(Format fmt) {
+    switch (fmt) {
+        case Format::Q_QUAD_MIX_3_5:      return {{{1, 92.0f}, {2, 1.5f}, {4, 6.0f}, {32, 0.5f}}};
+        case Format::Q_QUAD_MIX_4_5:      return {{{1, 58.5f}, {2, 2.0f}, {4, 39.0f}, {32, 0.5f}}};
+        case Format::Q_QUAD_MIX_6_5:      return {{{1, 1.5f}, {2, 4.0f}, {4, 93.0f}, {32, 1.5f}}};
+        case Format::Q_QUAD_MIX_8_5:      return {{{1, 2.5f}, {2, 1.0f}, {4, 88.0f}, {32, 8.5f}}};
+        case Format::Q_QUAD_MIX_12_5:     return {{{1, 0.5f}, {3, 2.0f}, {8, 87.5f}, {32, 10.0f}}};
+        case Format::Q_QUAD_MIX_16_5:     return {{{1, 4.5f}, {2, 7.0f}, {16, 88.0f}, {32, 0.5f}}};
+        case Format::Q_QUAD_MIX_24_5:     return {{{1, 2.5f}, {2, 5.0f}, {24, 92.0f}, {32, 0.5f}}};
+        case Format::Q_QUAD_MIX_3_5_GRP:  return {{{1, 92.0f}, {2, 4.0f}, {4, 3.0f}, {32, 1.0f}}};
+        case Format::Q_QUAD_MIX_4_5_GRP:  return {{{1, 58.5f}, {2, 1.0f}, {4, 39.5f}, {32, 1.0f}}};
+        case Format::Q_QUAD_MIX_6_5_GRP:  return {{{1, 0.5f}, {3, 5.0f}, {4, 93.0f}, {32, 1.5f}}};
+        case Format::Q_QUAD_MIX_8_5_GRP:  return {{{1, 0.5f}, {3, 2.0f}, {4, 89.0f}, {32, 8.5f}}};
+        case Format::Q_QUAD_MIX_12_5_GRP: return {{{1, 1.5f}, {2, 2.5f}, {8, 85.0f}, {32, 11.0f}}};
+        case Format::Q_QUAD_MIX_16_5_GRP: return {{{1, 10.0f}, {2, 1.0f}, {16, 88.0f}, {32, 1.0f}}};
+        case Format::Q_QUAD_MIX_24_5_GRP: return {{{1, 2.5f}, {2, 5.0f}, {24, 91.5f}, {32, 1.0f}}};
+        default: return {{{1, 0.0f}, {2, 0.0f}, {4, 0.0f}, {32, 0.0f}}};
+    }
+}
+
+// Tier counts (deterministic on both sides): first three tiers lround their
+// percent share (min 1), the FP32 tier absorbs the remainder.  Rounding can
+// overshoot n by 1 (e.g. n=48, Q_QUAD_MIX@6.5 -> {1,2,45} + fallback); the
+// reconciliation below guarantees sum(c) == n exactly on both sides.
+static void quad_mix_counts(Format fmt, int n, int c[4]) {
+    auto config = quad_mix_get_config(fmt);
+    for (int i = 0; i < 3; ++i)
+        c[i] = std::max(1, (int)std::lround(config[i].percent * 0.01 * (double)n));
+    c[3] = n - c[0] - c[1] - c[2];
+    if (c[3] < 1) {
+        c[3] = 1;
+        int excess = c[0] + c[1] + c[2] + 1 - n;
+        for (int i = 0; i < 3 && excess > 0; ++i) {
+            const int rem = std::min(c[i] - 1, excess);
+            c[i] -= rem;
+            excess -= rem;
+        }
+    }
+    for (int i = 0; i < 4; ++i) c[i] = std::max(0, std::min(n, c[i]));
+    int sum = c[0] + c[1] + c[2] + c[3];
+    for (int i = 0; i < 4 && sum > n; ++i) {
+        const int rem = std::min(c[i], sum - n);
+        c[i] -= rem;
+        sum -= rem;
+    }
+}
+
+static float quad_mix_max_level(int bits) {
+    switch (bits) {
+        case 1: return 1.0f;
+        case 2: return 1.5104f;
+        case 3: return kQ3Levels[7];
+        case 4: return 2.7178f;
+        case 6: return fixed_level_value(6, 63u);
+        case 8: return 8.0f;
+        case 12: return fixed_level_value(12, 4095u);
+        default: return 1.0f;
+    }
+}
+
+static float quad_mix_level_value(int bits, float v) {
+    switch (bits) {
+        case 2: return level_value(2, nearest_level(v, 2));
+        case 3: return fixed_level_value(3, nearest_fixed_level(3, v));
+        case 4: return level_value(4, nearest_level(v, 4));
+        case 6: return fixed_level_value(6, nearest_fixed_level(6, v));
+        case 8: return level_value(8, nearest_level(v, 8));
+        case 12: return fixed_level_value(12, nearest_fixed_level(12, v));
+        default: return 0.0f;
+    }
+}
+
+static void quad_mix_put_value(BitWriter& bw, int bits, float v, float s) {
+    const float nv = (s == 0.0f) ? 0.0f : v / s;
+    switch (bits) {
+        case 1: bw.put(v >= 0.0f ? 1u : 0u, 1); break;
+        case 2: bw.put(nearest_level(nv, 2), 2); break;
+        case 3: bw.put(nearest_fixed_level(3, nv), 3); break;
+        case 4: bw.put(nearest_level(nv, 4), 4); break;
+        case 6: bw.put(nearest_fixed_level(6, nv), 6); break;
+        case 8: bw.put(nearest_level(nv, 8), 8); break;
+        case 12: bw.put(nearest_fixed_level(12, nv), 12); break;
+        case 16: bw.put(f32_to_f16(v), 16); break;
+        case 24: {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            bw.put(b >> 8, 24);
+            break;
+        }
+        case 32: {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            bw.put(b, 32);
+            break;
+        }
+        default: break;
+    }
+}
+
+static float quad_mix_get_value(BitReader& br, int bits, float s) {
+    switch (bits) {
+        case 1: return s * (br.get(1) == 0 ? -1.0f : 1.0f);
+        case 2: return level_value(2, br.get(2)) * s;
+        case 3: return fixed_level_value(3, br.get(3)) * s;
+        case 4: return level_value(4, br.get(4)) * s;
+        case 6: return fixed_level_value(6, br.get(6)) * s;
+        case 8: return level_value(8, br.get(8)) * s;
+        case 12: return fixed_level_value(12, br.get(12)) * s;
+        case 16: return f16_to_f32((uint16_t)br.get(16));
+        case 24: {
+            uint32_t b = br.get(24) << 8;
+            float v;
+            std::memcpy(&v, &b, 4);
+            return v;
+        }
+        case 32: {
+            uint32_t b = br.get(32);
+            float v;
+            std::memcpy(&v, &b, 4);
+            return v;
+        }
+        default: return 0.0f;
+    }
+}
+
+static void quant_quad_mix(Format fmt, const float* w, int n,
+                           std::vector<uint8_t>& indices_out) {
+    auto config = quad_mix_get_config(fmt);
+    const float claimed = format_bpw(fmt);
+    const size_t budget_bits = (size_t)std::ceil(claimed * (double)n);
+    const bool grp = quad_mix_is_grp(fmt);
+
+    int c[4];
+    quad_mix_counts(fmt, n, c);
+
+    // Budget enforcement: if the exact layout ever exceeds the claimed BPW
+    // (only for non-256 tails), move boundary weights down one tier at a time.
+    size_t total_bits = (size_t)2 * (size_t)n;
+    for (int t = 0; t < 4; ++t) total_bits += (size_t)c[t] * (size_t)config[t].bits;
+    int dom = 0;
+    for (int t = 1; t < 4; ++t) if (c[t] > c[dom]) dom = t;
+    size_t scale_bits = 0;
+    for (int t = 0; t < 4; ++t)
+        if (config[t].bits < 16) scale_bits += (grp && t == dom) ? (size_t)16 * ((size_t)(c[t] + 63) / 64) : 16;
+    total_bits += scale_bits;
+    for (int guard = 0; guard < 4 * n && total_bits > budget_bits; ++guard) {
+        bool moved = false;
+        for (int t = 3; t >= 1; --t) {
+            if (c[t] > 1 && config[t].bits > config[t - 1].bits) {
+                total_bits -= (size_t)(config[t].bits - config[t - 1].bits);
+                --c[t];
+                ++c[t - 1];
+                moved = true;
+                break;
+            }
+        }
+        if (!moved) break;
+    }
+
+    // Magnitude-rank tier assignment.
+    std::vector<std::pair<float, int>> mag((size_t)n);
+    for (int i = 0; i < n; ++i) mag[(size_t)i] = { std::fabs(w[i]), i };
+    std::sort(mag.begin(), mag.end(), [](const auto& a, const auto& b) {
+        return a.first > b.first;
+    });
+    std::vector<uint8_t> tier_of((size_t)n, 0);
+    int rank = 0;
+    for (int t = 3; t >= 0; --t) {
+        for (int j = 0; j < c[t]; ++j, ++rank)
+            tier_of[(size_t)mag[(size_t)rank].second] = (uint8_t)t;
+    }
+
+    // Per-tier value streams (original order) + per-tier scale fit.
+    std::vector<std::vector<float>> tv(4);
+    for (int i = 0; i < n; ++i) tv[tier_of[(size_t)i]].push_back(w[i]);
+
+    // Doubled grouping for GRP dominant tier: per-32 (was per-64). 8 scales per
+    // 256-block dominant tier = 128b = 8 extra bytes vs 4 scales before;
+    // budget guard below moves ~8 weights down one tier to keep claimed BPW.
+    float sc[4][8];
+    int nsc[4] = { 0, 0, 0, 0 };
+    for (int t = 0; t < 4; ++t) {
+        if (config[t].bits >= 16 || c[t] == 0) continue;
+        nsc[t] = (grp && t == dom) ? ((c[t] + 31) / 32) : 1;
+        const float max_lvl = quad_mix_max_level(config[t].bits);
+        for (int g = 0; g < nsc[t]; ++g) {
+            const int st = g * 32;
+            const int en = std::min(c[t], st + 32);
+            float maxa = 0.0f;
+            for (int j = st; j < en; ++j) maxa = std::max(maxa, std::fabs(tv[(size_t)t][(size_t)j]));
+            float s = (maxa > 1e-30f) ? maxa / max_lvl : 0.0f;
+            if (s > 0.0f) {
+                for (int iter = 0; iter < 2; ++iter) {
+                    double num = 0.0, den = 0.0;
+                    for (int j = st; j < en; ++j) {
+                        const float l = (config[t].bits == 1)
+                            ? (tv[(size_t)t][(size_t)j] >= 0.0f ? 1.0f : -1.0f)
+                            : quad_mix_level_value(config[t].bits, tv[(size_t)t][(size_t)j] / s);
+                        num += (double)tv[(size_t)t][(size_t)j] * (double)l;
+                        den += (double)l * (double)l;
+                    }
+                    if (den > 1e-20) s = (float)(num / den);
+                }
+            }
+            if (!(s > 0.0f)) s = 0.0f;
+            sc[(size_t)t][(size_t)g] = s;
+        }
+    }
+
+    // Write: bitstream (map + tier values), then scale tail bytes.
+    size_t payload_bits = (size_t)2 * (size_t)n;
+    for (int t = 0; t < 4; ++t) payload_bits += (size_t)c[t] * (size_t)config[t].bits;
+    size_t scale_bytes = 0;
+    for (int t = 0; t < 4; ++t) scale_bytes += (size_t)nsc[t] * 2;
+    const size_t total_bytes = (payload_bits + 7) / 8 + scale_bytes;
+    indices_out.assign(total_bytes, 0);
+    BitWriter bw(indices_out);
+    for (int i = 0; i < n; ++i) bw.put(tier_of[(size_t)i], 2);
+    for (int t = 0; t < 4; ++t) {
+        for (int j = 0; j < c[t]; ++j) {
+            const float s = (config[t].bits < 16)
+                ? sc[(size_t)t][std::min(j / 64, nsc[t] - 1)] : 1.0f;
+            quad_mix_put_value(bw, config[t].bits, tv[(size_t)t][(size_t)j], s);
+        }
+    }
+    uint8_t* ptr = indices_out.data() + (payload_bits + 7) / 8;
+    for (int t = 0; t < 4; ++t) {
+        for (int g = 0; g < nsc[t]; ++g) {
+            const uint16_t h = f32_to_f16(sc[(size_t)t][(size_t)g]);
+            ptr[0] = (uint8_t)(h & 0xFF);
+            ptr[1] = (uint8_t)(h >> 8);
+            ptr += 2;
+        }
+    }
+}
+
+static void dequant_quad_mix(Format fmt, const uint8_t* indices, size_t idx_bytes,
+                             uint32_t nw, float* out) {
+    auto config = quad_mix_get_config(fmt);
+    const int n = (int)std::min<uint32_t>(nw, 1u << 24);
+    const float claimed = format_bpw(fmt);
+    const size_t budget_bits = (size_t)std::ceil(claimed * (double)n);
+    const bool grp = quad_mix_is_grp(fmt);
+
+    int c[4];
+    quad_mix_counts(fmt, n, c);
+
+    size_t total_bits = (size_t)2 * (size_t)n;
+    for (int t = 0; t < 4; ++t) total_bits += (size_t)c[t] * (size_t)config[t].bits;
+    int dom = 0;
+    for (int t = 1; t < 4; ++t) if (c[t] > c[dom]) dom = t;
+    size_t scale_bits = 0;
+    for (int t = 0; t < 4; ++t)
+        if (config[t].bits < 16) scale_bits += (grp && t == dom) ? (size_t)16 * ((size_t)(c[t] + 63) / 64) : 16;
+    total_bits += scale_bits;
+    for (int guard = 0; guard < 4 * n && total_bits > budget_bits; ++guard) {
+        bool moved = false;
+        for (int t = 3; t >= 1; --t) {
+            if (c[t] > 1 && config[t].bits > config[t - 1].bits) {
+                total_bits -= (size_t)(config[t].bits - config[t - 1].bits);
+                --c[t];
+                ++c[t - 1];
+                moved = true;
+                break;
+            }
+        }
+        if (!moved) break;
+    }
+
+    int nsc[4] = { 0, 0, 0, 0 };
+    size_t scale_bytes = 0;
+    for (int t = 0; t < 4; ++t) {
+        if (config[t].bits >= 16 || c[t] == 0) continue;
+        nsc[t] = (grp && t == dom) ? ((c[t] + 63) / 64) : 1;
+        scale_bytes += (size_t)nsc[t] * 2;
+    }
+    size_t payload_bits = (size_t)2 * (size_t)n;
+    for (int t = 0; t < 4; ++t) payload_bits += (size_t)c[t] * (size_t)config[t].bits;
+    const size_t payload_bytes = (payload_bits + 7) / 8;
+    if (idx_bytes < payload_bytes + scale_bytes) return;
+
+    float sc[4][4];
+    const uint8_t* sp = indices + payload_bytes;
+    for (int t = 0; t < 4; ++t) {
+        for (int g = 0; g < nsc[t]; ++g) {
+            const uint16_t h = (uint16_t)(sp[0]) | ((uint16_t)(sp[1]) << 8);
+            sc[(size_t)t][(size_t)g] = f16_to_f32(h);
+            sp += 2;
+        }
+    }
+
+    BitReader br(indices, payload_bytes);
+    std::vector<uint8_t> map((size_t)n);
+    for (int i = 0; i < n; ++i) map[(size_t)i] = (uint8_t)br.get(2);
+    std::vector<std::vector<uint32_t>> pos(4);
+    for (int i = 0; i < n; ++i) pos[map[(size_t)i]].push_back((uint32_t)i);
+    for (int t = 0; t < 4; ++t) {
+        for (int j = 0; j < c[t] && j < (int)pos[(size_t)t].size(); ++j) {
+            const float s = (config[t].bits < 16)
+                ? sc[(size_t)t][std::min(j / 64, nsc[t] - 1)] : 1.0f;
+            out[pos[(size_t)t][(size_t)j]] = quad_mix_get_value(br, config[t].bits, s);
+        }
+    }
+}
+
 bool quantize_block_all(Format fmt, const float* w, int n, std::vector<uint8_t>& indices, std::vector<uint8_t>& codebook) {
     if (!w || n <= 0) return false;
     indices.clear();
@@ -942,61 +1514,45 @@ bool quantize_block_all(Format fmt, const float* w, int n, std::vector<uint8_t>&
         case Format::Q16:
             quant_q16_enhanced(w, n, indices);
             return true;
-        case Format::Q12: {
-            CodebookQ12 cb; cb.train(w, n);
-            codebook.resize(8192); std::memcpy(codebook.data(), cb.centroids, 8192);
-            indices.assign((n * 12 + 7) / 8, 0); BitWriter bw(indices);
-            for (int i = 0; i < n; ++i) bw.put(cb.quantize(w[i]), 12);
+        case Format::Q12:
+            quant_fixed_codebook(12, w, n, indices);
             return true;
-        }
         case Format::Q8:
             quant_lattice(fmt, w, n, 8, indices);
             return true;
-        case Format::Q6: {
-            CodebookQ6 cb; cb.train(w, n);
-            codebook.resize(256); std::memcpy(codebook.data(), cb.centroids, 256);
-            indices.assign((n * 6 + 7) / 8, 0); BitWriter bw(indices);
-            for (int i = 0; i < n; ++i) bw.put(cb.quantize(w[i]), 6);
+        case Format::Q6:
+            quant_fixed_codebook(6, w, n, indices);
             return true;
-        }
         case Format::Q4:
             quant_lattice(fmt, w, n, 4, indices);
             return true;
-        case Format::Q3: {
-            CodebookQ3 cb; cb.train(w, n);
-            codebook.resize(32); std::memcpy(codebook.data(), cb.centroids, 32);
-            indices.assign((n * 3 + 7) / 8, 0); BitWriter bw(indices);
-            for (int i = 0; i < n; ++i) bw.put(cb.quantize(w[i]), 3);
+        case Format::Q3:
+            quant_fixed_codebook(3, w, n, indices);
             return true;
-        }
         case Format::Q2:
             quant_lattice(fmt, w, n, 2, indices);
             return true;
         case Format::Q1: {
-            const int blocks = (n + kMeanBlock - 1) / kMeanBlock;
-            codebook.resize((size_t)blocks * 2);
-            for (int b = 0; b < blocks; ++b) {
-                const int start = b * kMeanBlock;
-                const int end = std::min(start + kMeanBlock, n);
-                double sum = 0.0;
-                for (int i = start; i < end; ++i) sum += w[i];
-                const uint16_t h = f32_to_f16((float)(sum / (double)(end - start)));
-                codebook[(size_t)b * 2] = (uint8_t)(h & 0xFF);
-                codebook[(size_t)b * 2 + 1] = (uint8_t)(h >> 8);
+            // 1.0 BPW exact: [ FP16 scale (16) ][ sign bit per kept weight ],
+            // 16 evenly-spread slot positions zeroed (same scheme as Q1_GRP).
+            if (n < 32) {
+                indices.assign((size_t)(n + 7) / 8, 0); BitWriter bw(indices);
+                for (int i = 0; i < n; ++i) bw.put(w[i] >= 0.0f ? 1u : 0u, 1);
+                return true;
+            }
+            indices.assign((size_t)(n + 7) / 8, 0); BitWriter bw(indices);
+            const float scale = rms_scale(w, n); bw.put(f32_to_f16(scale), 16);
+            for (int i = 0; i < n; ++i) {
+                if (is_slot(i, n, 16)) continue;
+                bw.put(w[i] >= 0.0f ? 1u : 0u, 1);
             }
             return true;
         }
-        // GRP
-        case Format::Q32_GRP:
-            // 32.5 BPW: FP32 + per-8 FP16 error correction
-            indices.resize((size_t)n * 4); std::memcpy(indices.data(), w, (size_t)n * 4);
-            codebook.resize((n + 7) / 8 * 2); // dummy implementation to fit
-            return true;
         case Format::Q24_GRP:
-            quant_q24(w, n, indices);
+            quant_grp16(24, w, n, indices);
             return true;
         case Format::Q16_GRP:
-            quant_q16_enhanced(w, n, indices);
+            quant_grp16(16, w, n, indices);
             return true;
         case Format::Q12_GRP:
             quant_grp16(12, w, n, indices);
@@ -1044,67 +1600,126 @@ bool quantize_block_all(Format fmt, const float* w, int n, std::vector<uint8_t>&
             return true;
         }
         case Format::Q_TWI_MIX_1_5_GRP: {
+            // 1.75 BPW exact, per-32 groups:
+            // [ FP16 scale (16) ][ 32 sign bits ][ 8 ternary-refinement flags
+            // at fixed is_slot positions ] = 56 bits per 32 weights.
             if (n < 32) {
                 indices.assign((size_t)(n + 7) / 8, 0); BitWriter bw(indices);
                 for (int i = 0; i < n; ++i) bw.put(w[i] >= 0.0f ? 1u : 0u, 1);
                 return true;
             }
-            indices.assign((size_t)(n * 3 + 15) / 16, 0); BitWriter bw(indices);
-            const float scale = rms_scale(w, n); bw.put(f32_to_f16(scale), 16);
-            for (int i = 0; i < n; ++i) bw.put(w[i] >= 0.0f ? 1u : 0u, 1);
-            const int refined = std::max(0, n / 2 - 16);
-            const float threshold = scale * 1.23f;
-            for (int i = 0; i < n; ++i) {
-                if (!is_slot(i, n, refined)) continue;
-                bw.put(std::fabs(w[i]) > threshold ? 1u : 0u, 1);
+            indices.assign((size_t)std::ceil(1.75 * (double)n / 8.0), 0);
+            BitWriter bw(indices);
+            for (int start = 0; start < n; start += kQuantSubBlock) {
+                const int end = std::min(start + kQuantSubBlock, n);
+                const int count = end - start;
+                if (count < kQuantSubBlock) {
+                    for (int i = start; i < end; ++i) bw.put(w[i] >= 0.0f ? 1u : 0u, 1);
+                    continue;
+                }
+                const float scale = rms_scale(w + start, count);
+                bw.put(f32_to_f16(scale), 16);
+                const float s = scale <= 1e-12f ? 0.0f : scale;
+                for (int i = start; i < end; ++i) bw.put(w[i] >= 0.0f ? 1u : 0u, 1);
+                for (int i = start; i < end; ++i) {
+                    if (!is_slot(i - start, count, 8)) continue;
+                    bw.put(std::fabs(w[i]) > s * 1.23f ? 1u : 0u, 1);
+                }
             }
             return true;
         }
         case Format::Q_TWI_MIX_2_5: {
-            const size_t budget = (size_t)n / 4;
-            if (budget < 4) return true;
-            const int keep = std::min(20, (int)((budget - 4) / 3));
-            float scale = 0.0f; std::vector<std::pair<float, int>> mag((size_t)n);
-            for (int i = 0; i < n; ++i) {
-                const float a = std::fabs(w[i]); mag[(size_t)i] = { a, i }; scale = std::max(scale, a);
-            }
-            if (scale <= 1e-12f) { indices.resize(4, 0); return true; }
-            if (keep > 0) std::partial_sort(mag.begin(), mag.begin() + keep, mag.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-            indices.resize((size_t)4 + (size_t)keep * 3);
-            uint32_t scale_bits; std::memcpy(&scale_bits, &scale, 4);
-            indices[0] = (uint8_t)(scale_bits & 0xFF); indices[1] = (uint8_t)((scale_bits >> 8) & 0xFF);
-            indices[2] = (uint8_t)((scale_bits >> 16) & 0xFF); indices[3] = (uint8_t)((scale_bits >> 24) & 0xFF);
-            for (int i = 0; i < keep; ++i) {
-                const int idx = mag[(size_t)i].second;
-                int q = (int)std::lround(w[idx] / scale * 127.0f); q = std::max(-127, std::min(127, q));
-                const uint16_t rel = (uint16_t)idx; const size_t base = 4 + (size_t)i * 3;
-                indices[base] = (uint8_t)(rel & 0xFF); indices[base + 1] = (uint8_t)(rel >> 8); indices[base + 2] = (uint8_t)q;
+            // 2.5 BPW exact, per-32 groups: [ FP16 scale ][ 32 x 2-bit
+            // Lloyd lattice indices ] = 80 bits per 32 weights.
+            indices.assign((size_t)std::ceil(2.5 * (double)n / 8.0), 0);
+            BitWriter bw(indices);
+            for (int start = 0; start < n; start += kQuantSubBlock) {
+                const int end = std::min(start + kQuantSubBlock, n);
+                const int count = end - start;
+                if (count < kQuantSubBlock) {
+                    for (int i = start; i < end; ++i) bw.put(nearest_level(w[i], 2), 2);
+                    continue;
+                }
+                float maxa = 0.0f;
+                for (int i = start; i < end; ++i) maxa = std::max(maxa, std::fabs(w[i]));
+                float s = (maxa > 1e-30f) ? maxa / 1.5104f : 0.0f;
+                if (s > 0.0f) {
+                    for (int iter = 0; iter < 2; ++iter) {
+                        double num = 0.0, den = 0.0;
+                        for (int i = start; i < end; ++i) {
+                            const float l = level_value(2, nearest_level(w[i] / s, 2));
+                            num += (double)w[i] * (double)l;
+                            den += (double)l * (double)l;
+                        }
+                        if (den > 1e-20) s = (float)(num / den);
+                    }
+                }
+                if (!(s > 0.0f)) s = 0.0f;
+                bw.put(f32_to_f16(s), 16);
+                for (int i = start; i < end; ++i)
+                    bw.put(nearest_level((s == 0.0f) ? 0.0f : w[i] / s, 2), 2);
             }
             return true;
         }
         case Format::Q_TWI_MIX_2_5_GRP: {
-            const size_t budget = (size_t)n / 4; if (budget < 8) return true;
-            const int keep = (int)((budget - 4) / 3); if (keep <= 0) return true;
-            const int half = n / 2; float scale0 = 0.0f, scale1 = 0.0f;
-            std::vector<std::pair<float, int>> mag((size_t)n);
-            for (int i = 0; i < n; ++i) {
-                const float a = std::fabs(w[i]); mag[(size_t)i] = { a, i };
-                if (i < half) scale0 = std::max(scale0, a); else scale1 = std::max(scale1, a);
+            // 2.75 BPW exact, per-32 groups:
+            // [ FP16 scale ][ 32 x 2-bit lattice ][ 8 ternary-refinement
+            // flags at fixed is_slot positions ] = 88 bits per 32 weights.
+            if (n < 32) {
+                indices.assign((size_t)(n + 3) / 4, 0); BitWriter bw(indices);
+                for (int i = 0; i < n; ++i) bw.put(nearest_level(w[i], 2), 2);
+                return true;
             }
-            if (scale0 <= 1e-12f) scale0 = 1.0f; if (scale1 <= 1e-12f) scale1 = 1.0f;
-            std::partial_sort(mag.begin(), mag.begin() + keep, mag.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-            indices.resize((size_t)4 + (size_t)keep * 3);
-            const uint16_t h0 = f32_to_f16(scale0); const uint16_t h1 = f32_to_f16(scale1);
-            indices[0] = (uint8_t)(h0 & 0xFF); indices[1] = (uint8_t)(h0 >> 8);
-            indices[2] = (uint8_t)(h1 & 0xFF); indices[3] = (uint8_t)(h1 >> 8);
-            for (int i = 0; i < keep; ++i) {
-                const int idx = mag[(size_t)i].second; const float s = (idx < half) ? scale0 : scale1;
-                int q = (int)std::lround(w[idx] / s * 127.0f); q = std::max(-127, std::min(127, q));
-                const uint16_t rel = (uint16_t)idx; const size_t base = 4 + (size_t)i * 3;
-                indices[base] = (uint8_t)(rel & 0xFF); indices[base + 1] = (uint8_t)(rel >> 8); indices[base + 2] = (uint8_t)q;
+            indices.assign((size_t)std::ceil(2.75 * (double)n / 8.0), 0);
+            BitWriter bw(indices);
+            for (int start = 0; start < n; start += kQuantSubBlock) {
+                const int end = std::min(start + kQuantSubBlock, n);
+                const int count = end - start;
+                if (count < kQuantSubBlock) {
+                    for (int i = start; i < end; ++i) bw.put(nearest_level(w[i], 2), 2);
+                    continue;
+                }
+                float maxa = 0.0f;
+                for (int i = start; i < end; ++i) maxa = std::max(maxa, std::fabs(w[i]));
+                float s = (maxa > 1e-30f) ? maxa / 1.5104f : 0.0f;
+                if (s > 0.0f) {
+                    for (int iter = 0; iter < 2; ++iter) {
+                        double num = 0.0, den = 0.0;
+                        for (int i = start; i < end; ++i) {
+                            const float l = level_value(2, nearest_level(w[i] / s, 2));
+                            num += (double)w[i] * (double)l;
+                            den += (double)l * (double)l;
+                        }
+                        if (den > 1e-20) s = (float)(num / den);
+                    }
+                }
+                if (!(s > 0.0f)) s = 0.0f;
+                bw.put(f32_to_f16(s), 16);
+                for (int i = start; i < end; ++i)
+                    bw.put(nearest_level((s == 0.0f) ? 0.0f : w[i] / s, 2), 2);
+                for (int i = start; i < end; ++i) {
+                    if (!is_slot(i - start, count, 8)) continue;
+                    bw.put(std::fabs(w[i]) > s * 1.23f ? 1u : 0u, 1);
+                }
             }
             return true;
         }
+        case Format::Q_QUAD_MIX_3_5:
+        case Format::Q_QUAD_MIX_4_5:
+        case Format::Q_QUAD_MIX_6_5:
+        case Format::Q_QUAD_MIX_8_5:
+        case Format::Q_QUAD_MIX_12_5:
+        case Format::Q_QUAD_MIX_16_5:
+        case Format::Q_QUAD_MIX_24_5:
+        case Format::Q_QUAD_MIX_3_5_GRP:
+        case Format::Q_QUAD_MIX_4_5_GRP:
+        case Format::Q_QUAD_MIX_6_5_GRP:
+        case Format::Q_QUAD_MIX_8_5_GRP:
+        case Format::Q_QUAD_MIX_12_5_GRP:
+        case Format::Q_QUAD_MIX_16_5_GRP:
+        case Format::Q_QUAD_MIX_24_5_GRP:
+            quant_quad_mix(fmt, w, n, indices);
+            return true;
         default: return false;
     }
 }
@@ -1115,51 +1730,48 @@ void dequantize_block_all(Format fmt, const uint8_t* indices, size_t idx_bytes, 
     const int n = (int)std::min<uint32_t>(nw, 1u << 24);
     switch (fmt) {
         case Format::Q32:
-        case Format::Q32_GRP:
             if (idx_bytes >= (size_t)n * 4) std::memcpy(out, indices, (size_t)n * 4);
             return;
         case Format::Q24:
-        case Format::Q24_GRP:
             dequant_q24(indices, idx_bytes, n, out);
             return;
+        case Format::Q24_GRP:
+            dequant_grp16(24, indices, idx_bytes, n, out);
+            return;
         case Format::Q16:
-        case Format::Q16_GRP:
             dequant_q16_enhanced(indices, idx_bytes, n, out);
             return;
-        case Format::Q12: {
-            if (cb_bytes < 8192) return;
-            CodebookQ12 cb; std::memcpy(cb.centroids, codebook, 8192);
-            BitReader br(indices, idx_bytes);
-            for (int i = 0; i < n; ++i) out[i] = cb.dequantize(br.get(12));
+        case Format::Q16_GRP:
+            dequant_grp16(16, indices, idx_bytes, n, out);
             return;
-        }
+        case Format::Q12:
+            dequant_fixed_codebook(12, indices, idx_bytes, n, out);
+            return;
         case Format::Q8:
             dequant_lattice(indices, idx_bytes, n, 8, out); return;
-        case Format::Q6: {
-            if (cb_bytes < 256) return;
-            CodebookQ6 cb; std::memcpy(cb.centroids, codebook, 256);
-            BitReader br(indices, idx_bytes);
-            for (int i = 0; i < n; ++i) out[i] = cb.dequantize(br.get(6));
+        case Format::Q6:
+            dequant_fixed_codebook(6, indices, idx_bytes, n, out);
             return;
-        }
         case Format::Q4:
             dequant_lattice(indices, idx_bytes, n, 4, out); return;
-        case Format::Q3: {
-            if (cb_bytes < 32) return;
-            CodebookQ3 cb; std::memcpy(cb.centroids, codebook, 32);
-            BitReader br(indices, idx_bytes);
-            for (int i = 0; i < n; ++i) out[i] = cb.dequantize(br.get(3));
+        case Format::Q3:
+            dequant_fixed_codebook(3, indices, idx_bytes, n, out);
             return;
-        }
         case Format::Q2:
             dequant_lattice(indices, idx_bytes, n, 2, out); return;
         case Format::Q1: {
-            for (int b = 0; b * kMeanBlock < n; ++b) {
-                const size_t o = (size_t)b * 2; if (o + 1 >= cb_bytes) break;
-                const uint16_t h = (uint16_t)(codebook[o]) | ((uint16_t)(codebook[o + 1]) << 8);
-                const float mean = f16_to_f32(h);
-                const int start = b * kMeanBlock; const int end = std::min(start + kMeanBlock, n);
-                std::fill(out + start, out + end, mean);
+            // 1.0 BPW exact: [ FP16 scale ][ sign bit per kept weight ], 16
+            // evenly-spread slot positions zeroed (mirror of the encoder).
+            if (n < 32) {
+                BitReader br(indices, idx_bytes);
+                for (int i = 0; i < n; ++i) out[i] = br.get(1) == 0 ? -1.0f : 1.0f;
+                return;
+            }
+            BitReader br(indices, idx_bytes);
+            const float scale = f16_to_f32((uint16_t)br.get(16));
+            for (int i = 0; i < n; ++i) {
+                if (is_slot(i, n, 16)) { out[i] = 0.0f; continue; }
+                out[i] = br.get(1) == 0 ? -scale : scale;
             }
             return;
         }
@@ -1197,44 +1809,90 @@ void dequantize_block_all(Format fmt, const uint8_t* indices, size_t idx_bytes, 
             return;
         }
         case Format::Q_TWI_MIX_1_5_GRP: {
+            // Mirror of the 1.75-BPW encoder: per-32 groups of
+            // [ FP16 scale ][ 32 signs ][ 8 ternary flags ].
             if (n < 32) {
                 BitReader br(indices, idx_bytes); for (int i = 0; i < n; ++i) out[i] = br.get(1) == 0 ? -1.0f : 1.0f;
                 return;
             }
-            BitReader br(indices, idx_bytes); const float scale = f16_to_f32((uint16_t)br.get(16));
-            const int refined = std::max(0, n / 2 - 16); std::vector<uint8_t> signs((size_t)n);
-            for (int i = 0; i < n; ++i) signs[(size_t)i] = (uint8_t)br.get(1);
-            for (int i = 0; i < n; ++i) {
-                float magnitude = scale; if (is_slot(i, n, refined)) magnitude = scale * (br.get(1) == 0 ? 0.567f : 1.893f);
-                out[i] = signs[(size_t)i] == 0 ? -magnitude : magnitude;
+            BitReader br(indices, idx_bytes);
+            for (int start = 0; start < n; start += kQuantSubBlock) {
+                const int end = std::min(start + kQuantSubBlock, n);
+                const int count = end - start;
+                if (count < kQuantSubBlock) {
+                    for (int i = start; i < end; ++i) out[i] = br.get(1) == 0 ? -1.0f : 1.0f;
+                    continue;
+                }
+                const float scale = f16_to_f32((uint16_t)br.get(16));
+                std::vector<uint8_t> signs((size_t)count);
+                for (int i = 0; i < count; ++i) signs[(size_t)i] = (uint8_t)br.get(1);
+                for (int i = 0; i < count; ++i) {
+                    float magnitude = scale;
+                    if (is_slot(i, count, 8)) magnitude = scale * (br.get(1) == 0 ? 0.567f : 1.893f);
+                    out[start + i] = signs[(size_t)i] == 0 ? -magnitude : magnitude;
+                }
             }
             return;
         }
         case Format::Q_TWI_MIX_2_5: {
-            if (idx_bytes < 4) return;
-            uint32_t scale_bits = (uint32_t)indices[0] | ((uint32_t)indices[1] << 8) | ((uint32_t)indices[2] << 16) | ((uint32_t)indices[3] << 24);
-            float scale; std::memcpy(&scale, &scale_bits, 4); if (scale == 0.0f) return;
-            const size_t records = (idx_bytes - 4) / 3;
-            for (size_t r = 0; r < records; ++r) {
-                const size_t base = 4 + r * 3; if (base + 2 >= idx_bytes) break;
-                const uint32_t rel = (uint32_t)indices[base] | ((uint32_t)indices[base + 1] << 8); const int8_t q = (int8_t)indices[base + 2];
-                if (rel < (uint32_t)n) out[rel] = (float)q / 127.0f * scale;
+            // Mirror of the 2.5-BPW encoder: per-32 groups of
+            // [ FP16 scale ][ 32 x 2-bit Lloyd indices ].
+            BitReader br(indices, idx_bytes);
+            for (int start = 0; start < n; start += kQuantSubBlock) {
+                const int end = std::min(start + kQuantSubBlock, n);
+                const int count = end - start;
+                if (count < kQuantSubBlock) {
+                    for (int i = start; i < end; ++i) out[i] = level_value(2, br.get(2));
+                    continue;
+                }
+                const float scale = f16_to_f32((uint16_t)br.get(16));
+                for (int i = start; i < end; ++i) out[i] = level_value(2, br.get(2)) * scale;
             }
             return;
         }
         case Format::Q_TWI_MIX_2_5_GRP: {
-            if (idx_bytes < 7) return;
-            const uint16_t s0 = (uint16_t)indices[0] | ((uint16_t)indices[1] << 8); const uint16_t s1 = (uint16_t)indices[2] | ((uint16_t)indices[3] << 8);
-            const float scale0 = f16_to_f32(s0); const float scale1 = f16_to_f32(s1); if (scale0 == 0.0f && scale1 == 0.0f) return;
-            const size_t records = (idx_bytes - 4) / 3; const int half = n / 2;
-            for (size_t r = 0; r < records; ++r) {
-                const size_t base = 4 + r * 3; if (base + 2 >= idx_bytes) break;
-                const uint32_t rel = (uint32_t)indices[base] | ((uint32_t)indices[base + 1] << 8); const int8_t q = (int8_t)indices[base + 2];
-                const float s = ((int)rel < half) ? scale0 : scale1;
-                if (rel < (uint32_t)n) out[rel] = (float)q / 127.0f * s;
+            // Mirror of the 2.75-BPW encoder: per-32 groups of
+            // [ FP16 scale ][ 32 x 2-bit indices ][ 8 ternary flags ].
+            if (n < 32) {
+                BitReader br(indices, idx_bytes);
+                for (int i = 0; i < n; ++i) out[i] = level_value(2, br.get(2));
+                return;
+            }
+            BitReader br(indices, idx_bytes);
+            for (int start = 0; start < n; start += kQuantSubBlock) {
+                const int end = std::min(start + kQuantSubBlock, n);
+                const int count = end - start;
+                if (count < kQuantSubBlock) {
+                    for (int i = start; i < end; ++i) out[i] = level_value(2, br.get(2));
+                    continue;
+                }
+                const float scale = f16_to_f32((uint16_t)br.get(16));
+                std::vector<uint8_t> idxs((size_t)count);
+                for (int i = 0; i < count; ++i) idxs[(size_t)i] = (uint8_t)br.get(2);
+                for (int i = 0; i < count; ++i) {
+                    float l = level_value(2, idxs[(size_t)i]);
+                    if (is_slot(i, count, 8)) l *= (br.get(1) == 0 ? 0.567f : 1.893f);
+                    out[start + i] = l * scale;
+                }
             }
             return;
         }
+        case Format::Q_QUAD_MIX_3_5:
+        case Format::Q_QUAD_MIX_4_5:
+        case Format::Q_QUAD_MIX_6_5:
+        case Format::Q_QUAD_MIX_8_5:
+        case Format::Q_QUAD_MIX_12_5:
+        case Format::Q_QUAD_MIX_16_5:
+        case Format::Q_QUAD_MIX_24_5:
+        case Format::Q_QUAD_MIX_3_5_GRP:
+        case Format::Q_QUAD_MIX_4_5_GRP:
+        case Format::Q_QUAD_MIX_6_5_GRP:
+        case Format::Q_QUAD_MIX_8_5_GRP:
+        case Format::Q_QUAD_MIX_12_5_GRP:
+        case Format::Q_QUAD_MIX_16_5_GRP:
+        case Format::Q_QUAD_MIX_24_5_GRP:
+            dequant_quad_mix(fmt, indices, idx_bytes, nw, out);
+            return;
         default: return;
     }
 }

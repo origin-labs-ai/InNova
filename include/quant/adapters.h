@@ -1,4 +1,6 @@
-// DEPRECATED — This header is superseded by adapter_edition/include/adapters/.
-// Do NOT use. Included here only for source compatibility; will be removed.
 #pragma once
-#error "quant/adapters.h is deprecated — use adapter_edition/include/adapters/ instead"
+// Forwarding header for adapters
+#include "quant/types.h"
+
+// Adapter functionality provided via src/adapters/include/adapters/adapter_core.h
+

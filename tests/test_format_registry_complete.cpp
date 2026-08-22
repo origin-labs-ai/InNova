@@ -13,7 +13,7 @@ int main() {
     std::cout << "[Test 1] Querying all registered single formats..." << std::endl;
     const auto& singles = quant::FormatRegistry::get_all_singles();
     std::cout << "  -> Total single formats registered: " << singles.size() << std::endl;
-    assert(singles.size() >= 20);
+    assert(singles.size() >= 19);
 
     std::cout << "[Test 2] Querying two-mixes (TWI_MIX) and four-mixes (QUAD_MIX)..." << std::endl;
     const auto& twi_mixes = quant::FormatRegistry::get_all_twi_mixes();

@@ -16,7 +16,7 @@ std::atomic<bool> AutogradEngine::enabled_{false};
 Tensor AutogradEngine::matmul_op(const Tensor& a, const Tensor& b, int64_t M, int64_t N, int64_t K) {
     if (!enabled_) {
         Tensor out({M, N}, DType::F32);
-        kernel::scalar_gemm(
+        kernel::scalar_gemm_bt(
             a.data<float>(), b.data<float>(),
             out.data<float>(), (int)M, (int)N, (int)K
         );
@@ -321,6 +321,10 @@ bool AutogradEngine::is_checkpoint() {
     return instance().next_is_checkpoint_;
 }
 
+long long g_guard_hit = 0;
+long long g_guard_pass = 0;
+long long g_guard_shape_mismatch = 0;
+
 void AutogradEngine::backward(Tensor& loss) {
     if (!loss.has_grad() || loss.grad().numel() == 0) {
         Tensor g(loss.shape());
@@ -376,24 +380,41 @@ void AutogradEngine::backward(Tensor& loss) {
             if (!inp.requires_grad()) continue;
 
             auto pmit = param_map_.find(inp.data());
+            // Stale-entry guard: entries are keyed by the tensor's data()
+            // address and survive model destruction (preserved across
+            // clear()). If the address was reused by a different tensor, the
+            // stored Tensor* aliases it; verify the pointer still refers to
+            // its own data before treating it as the parameter.
             if (pmit != param_map_.end()) {
+                g_guard_hit++;
+                if (pmit->second->data() == inp.data()) {
+                    g_guard_pass++;
+                }
+            }
+            if (pmit != param_map_.end() && pmit->second->data() == inp.data()) {
                 Tensor* orig = pmit->second;
+                bool same_shape = orig->shape() == grad_outputs[i].shape();
+                if (!same_shape) g_guard_shape_mismatch++;
                 if (!orig->has_grad()) {
                     orig->set_grad(grad_outputs[i]);
-                } else {
+                } else if (same_shape) {
                     Tensor acc(orig->shape());
                     math::add(orig->grad(), grad_outputs[i], acc);
                     orig->set_grad(acc);
+                } else {
+                    orig->set_grad(grad_outputs[i]);
                 }
             }
 
             auto aait = accum.find(inp.data());
             if (aait == accum.end()) {
                 accum[inp.data()] = grad_outputs[i];
-            } else {
+            } else if (aait->second.numel() == grad_outputs[i].numel()) {
                 Tensor tmp(grad_outputs[i].shape());
                 math::add(aait->second, grad_outputs[i], tmp);
                 aait->second = tmp;
+            } else {
+                accum[inp.data()] = grad_outputs[i];
             }
 
             if (pushed.insert(inp.data()).second) {
@@ -407,11 +428,11 @@ void AutogradEngine::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     nodes_.clear();
     output_to_node_.clear();
-    // param_map_ is intentionally PRESERVED: parameters are registered once
-    // (register_parameter) and must keep mapping to their gradient tensors
-    // across training steps. Wiping it here silently disables gradient
-    // accumulation in every training loop that calls backward()+clear() per
-    // step — the standard training pattern.
+    next_is_checkpoint_ = false;
+    // param_map_ is intentionally PRESERVED: some callers (e.g.
+    // NativeQUANTTrainer) register parameters once in the constructor and
+    // rely on the mapping surviving backward()+clear() per step. Stale
+    // entries are validated at lookup time (data() == key) in backward().
 }
 
 void AutogradEngine::reset() {

@@ -14,9 +14,23 @@ enum class BackendType {
     GPU_CUDA,
     GPU_DIRECTX,
     GPU_VULKAN,
+    GPU_SYCL,
+    GPU_CANN,
+    GPU_METAL,
+    RPC,
     IGPU_SHARED,
     RAM_SWAP,
-    DISTRIBUTED
+    DISTRIBUTED,
+    CPU,
+    GPU_HIP,
+    DSP_HEXAGON,
+    NPU_ZDNN,
+    GPU_MUSA,
+    GPU_OPENCL,
+    NPU_OPENVINO,
+    GPU_VIRTGPU,
+    GPU_WEBGPU,
+    CPU_ZENDNN
 };
 
 inline const char* backend_name(BackendType t) {
@@ -28,9 +42,23 @@ inline const char* backend_name(BackendType t) {
         case BackendType::GPU_CUDA: return "GPU_CUDA";
         case BackendType::GPU_DIRECTX: return "GPU_DIRECTX";
         case BackendType::GPU_VULKAN: return "GPU_VULKAN";
+        case BackendType::GPU_SYCL: return "GPU_SYCL";
+        case BackendType::GPU_CANN: return "GPU_CANN";
+        case BackendType::GPU_METAL: return "GPU_METAL";
+        case BackendType::RPC: return "RPC";
         case BackendType::IGPU_SHARED: return "IGPU_SHARED";
         case BackendType::RAM_SWAP: return "RAM_SWAP";
         case BackendType::DISTRIBUTED: return "DISTRIBUTED";
+        case BackendType::CPU: return "CPU";
+        case BackendType::GPU_HIP: return "GPU_HIP";
+        case BackendType::DSP_HEXAGON: return "DSP_HEXAGON";
+        case BackendType::NPU_ZDNN: return "NPU_ZDNN";
+        case BackendType::GPU_MUSA: return "GPU_MUSA";
+        case BackendType::GPU_OPENCL: return "GPU_OPENCL";
+        case BackendType::NPU_OPENVINO: return "NPU_OPENVINO";
+        case BackendType::GPU_VIRTGPU: return "GPU_VIRTGPU";
+        case BackendType::GPU_WEBGPU: return "GPU_WEBGPU";
+        case BackendType::CPU_ZENDNN: return "CPU_ZENDNN";
         default: return "UNKNOWN";
     }
 }
@@ -85,10 +113,24 @@ bool is_neon_available();
 bool is_cuda_available();
 bool is_directx_available();
 bool is_vulkan_available();
+bool is_metal_available();
+bool is_sycl_available();
+bool is_cann_available();
+bool is_rpc_available();
+bool is_hip_available();
+bool is_hexagon_available();
+bool is_zdnn_available();
+bool is_musa_available();
+bool is_opencl_available();
+bool is_openvino_available();
+bool is_virtgpu_available();
+bool is_webgpu_available();
+bool is_zendnn_available();
 
 int64_t cpu_memory_free();
 int64_t cpu_memory_total();
 int64_t gpu_memory_free(int64_t device_id);
+int64_t metal_memory_free();
 int64_t igpu_memory_free();
 
 Tensor to_backend(const Tensor& t, BackendType dst);
@@ -105,6 +147,19 @@ struct HardwareProfile {
     bool has_cuda = false;
     bool has_directx = false;
     bool has_vulkan = false;
+    bool has_metal = false;
+    bool has_sycl = false;
+    bool has_cann = false;
+    bool has_rpc = false;
+    bool has_hip = false;
+    bool has_hexagon = false;
+    bool has_zdnn = false;
+    bool has_musa = false;
+    bool has_opencl = false;
+    bool has_openvino = false;
+    bool has_virtgpu = false;
+    bool has_webgpu = false;
+    bool has_zendnn = false;
     int64_t ram_total = 0;   // bytes
     int64_t ram_free = 0;    // bytes
     int64_t vram_total = 0;  // bytes (GPU dedicated)

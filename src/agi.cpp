@@ -59,7 +59,16 @@ float RollingStats::z_score(float value) const {
 
 bool RollingStats::is_anomalous(float value, float threshold) const {
     if (recent_values.size() < 5) return false;
-    return std::abs(z_score(value)) > threshold;
+    float raw_stddev = std::sqrt(variance);
+    if (raw_stddev < 1e-6f) {
+        // Degenerate case: near-zero variance (e.g. a constant series). The tiny
+        // epsilon would blow up any z-score, so fall back to a relative-deviation
+        // rule: flag values that deviate from the mean by more than threshold*|mean|.
+        float scale = std::max(std::abs(mean), 1e-3f);
+        return std::abs(value - mean) > threshold * scale;
+    }
+    float stddev = raw_stddev + 1e-10f;
+    return std::abs((value - mean) / stddev) > threshold;
 }
 
 // ========================================================================
@@ -602,15 +611,30 @@ RecursiveSelfImprover::RecursiveSelfImprover(Model* model, Trainer* trainer)
 
 void RecursiveSelfImprover::improvement_cycle(int iterations) {
     if (!model_) return;
-    int64_t orig_hidden = model_->config.hidden_size;
-    int64_t orig_layers = model_->config.num_layers;
+    // Save the FULL training config before the loop: continual-loop mutation must
+    // never leak out of a single improvement_cycle call. Catastrophic forgetting
+    // happens when rope_theta / norm_eps / learning-rate tweaks compound across
+    // calls, permanently degrading the model. All exit paths restore the snapshot.
+    const int64_t orig_hidden = model_->config.hidden_size;
+    const int64_t orig_layers = model_->config.num_layers;
+    const float orig_rope_theta = model_->config.rope_theta;
+    const float orig_norm_eps = model_->config.norm_eps;
+    const float orig_learning_rate = learning_rate_;
+    const float orig_dropout_rate = dropout_rate_;
+    auto restore_config = [&]() {
+        model_->config.hidden_size = orig_hidden;
+        model_->config.num_layers = orig_layers;
+        model_->config.rope_theta = orig_rope_theta;
+        model_->config.norm_eps = orig_norm_eps;
+        learning_rate_ = orig_learning_rate;
+        dropout_rate_ = orig_dropout_rate;
+    };
     int no_improvement_count = 0;
     float best_perplexity = 1e10f;
 
     for (int i = 0; i < iterations && i < AlignmentSystem::max_loop_iterations; i++) {
         if (no_improvement_count >= 10) {
-            model_->config.hidden_size = orig_hidden;
-            model_->config.num_layers = orig_layers;
+            restore_config();
             break;
         }
 
@@ -683,11 +707,11 @@ void RecursiveSelfImprover::improvement_cycle(int iterations) {
             "|num_layers=" + std::to_string(model_->config.num_layers);
 
         if (!self_modify(analysis)) {
-            model_->config.hidden_size = orig_hidden;
-            model_->config.num_layers = orig_layers;
+            restore_config();
             break;
         }
     }
+    restore_config();
 }
 
 std::vector<std::string> RecursiveSelfImprover::evaluate_weaknesses(const std::string& eval_data) {
@@ -699,7 +723,12 @@ std::vector<std::string> RecursiveSelfImprover::evaluate_weaknesses(const std::s
         auto pend = eval_data.find('|', ppos);
         try {
             perplexity = std::stof(eval_data.substr(ppos, pend - ppos));
-        } catch (...) { perplexity = 20.0f; }
+        } catch (const std::exception& e) {
+            (void)e;
+            perplexity = 20.0f;
+        } catch (...) {
+            perplexity = 20.0f;
+        }
     }
     if (perplexity > 20.0f) {
         weaknesses.push_back("high_perplexity: model struggling with basic predictions");
@@ -914,6 +943,172 @@ void RecursiveSelfImprover::apply_pruning(float threshold) {
         }
     }
 }
+
+class TripleLoopVerifier {
+public:
+    struct VerificationResult {
+        std::string output;
+        float confidence;
+        bool passed_symbolic;
+        bool passed_sandbox;
+        int consistency_votes;
+        int total_paths;
+    };
+    
+    VerificationResult verify(const std::string& prompt, Model* model, Tokenizer* tok, int num_paths = 10, float consistency_threshold = 0.99f) {
+        VerificationResult res;
+        res.total_paths = num_paths;
+        
+        std::vector<std::string> paths = generate_paths(prompt, model, tok, num_paths, 0.8f);
+        if (paths.empty()) {
+            res.output = "";
+            res.confidence = 0.0f;
+            res.passed_symbolic = false;
+            res.passed_sandbox = false;
+            res.consistency_votes = 0;
+            return res;
+        }
+
+        std::string best_output = consistency_vote(paths, consistency_threshold);
+        res.output = best_output;
+        
+        res.passed_symbolic = symbolic_verify(best_output);
+        res.passed_sandbox = sandbox_verify(best_output);
+        
+        int votes = 0;
+        for (const auto& p : paths) {
+            if (p == best_output) votes++;
+        }
+        res.consistency_votes = votes;
+        res.confidence = (float)votes / (float)num_paths;
+        
+        return res;
+    }
+    
+private:
+    std::vector<std::string> generate_paths(const std::string& prompt, Model* model, Tokenizer* tok, int n, float temperature = 0.8f) {
+        std::vector<std::string> paths;
+        if (!model) return paths;
+        int vocab_size = (int)model->config.vocab_size;
+        auto prompt_ids = simple_encode(prompt, vocab_size);
+        for (int i = 0; i < n; i++) {
+            auto gen_ids = generate_new_tokens(model, prompt_ids, vocab_size, 50);
+            paths.push_back(simple_decode(gen_ids));
+        }
+        return paths;
+    }
+
+    bool symbolic_verify(const std::string& output) {
+        int brackets = 0, parens = 0, braces = 0;
+        for (char c : output) {
+            if (c == '[') brackets++; else if (c == ']') brackets--;
+            if (c == '(') parens++;   else if (c == ')') parens--;
+            if (c == '{') braces++;   else if (c == '}') braces--;
+            if (brackets < 0 || parens < 0 || braces < 0) return false;
+        }
+        if (brackets != 0 || parens != 0 || braces != 0) return false;
+
+        std::string lower = output;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower.find("not not") != std::string::npos) return false;
+        if (lower.find("true and false") != std::string::npos) return false;
+        return true;
+    }
+
+    bool sandbox_verify(const std::string& output) {
+        std::string lower = output;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower.find("system(") != std::string::npos) return false;
+        if (lower.find("exec(") != std::string::npos) return false;
+        if (lower.find("rm -rf") != std::string::npos) return false;
+        if (lower.find("drop table") != std::string::npos) return false;
+        return true;
+    }
+
+    std::string consistency_vote(const std::vector<std::string>& outputs, float threshold) {
+        if (outputs.empty()) return "";
+        std::unordered_map<std::string, int> votes;
+        for (const auto& o : outputs) votes[o]++;
+        
+        std::string best = outputs[0];
+        int max_votes = 0;
+        for (const auto& [k, v] : votes) {
+            if (v > max_votes) {
+                max_votes = v;
+                best = k;
+            }
+        }
+        return best;
+    }
+};
+
+class ASTGate {
+public:
+    struct GateResult { bool passed; std::string reason; };
+    GateResult validate(const std::string& output) {
+        if (!check_length_bounds(output)) return {false, "Length bounds exceeded"};
+        if (!check_balanced_delimiters(output)) return {false, "Unbalanced delimiters"};
+        if (!check_no_code_injection(output)) return {false, "Code injection detected"};
+        if (!check_citation_format(output)) return {false, "Invalid citation format"};
+        return {true, "Passed"};
+    }
+private:
+    bool check_balanced_delimiters(const std::string& s) {
+        std::vector<char> stack;
+        for (char c : s) {
+            if (c == '(' || c == '[' || c == '{') stack.push_back(c);
+            else if (c == ')') { if (stack.empty() || stack.back() != '(') return false; stack.pop_back(); }
+            else if (c == ']') { if (stack.empty() || stack.back() != '[') return false; stack.pop_back(); }
+            else if (c == '}') { if (stack.empty() || stack.back() != '{') return false; stack.pop_back(); }
+        }
+        return stack.empty();
+    }
+    bool check_no_code_injection(const std::string& s) {
+        std::string lower = s;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower.find("<script>") != std::string::npos) return false;
+        if (lower.find("eval(") != std::string::npos) return false;
+        if (lower.find("os.system") != std::string::npos) return false;
+        return true;
+    }
+    bool check_citation_format(const std::string& s) {
+        if (s.find("[cite") != std::string::npos && s.find("]") == std::string::npos) return false;
+        return true;
+    }
+    bool check_length_bounds(const std::string& s, size_t min_len = 1, size_t max_len = 100000) {
+        return s.size() >= min_len && s.size() <= max_len;
+    }
+};
+
+class DynamicToolSynthesizer {
+public:
+    struct Tool { std::string name; std::string code; bool verified; };
+    Tool synthesize(const std::string& task_description, Model* model, Tokenizer* tok) {
+        Tool t;
+        t.name = "generated_tool_" + std::to_string(std::hash<std::string>{}(task_description));
+        if (model) {
+            int vocab_size = (int)model->config.vocab_size;
+            auto ids = simple_encode("Write tool code for: " + task_description, vocab_size);
+            auto gen = generate_new_tokens(model, ids, vocab_size, 100);
+            t.code = simple_decode(gen);
+        } else {
+            t.code = "def " + t.name + "(): pass";
+        }
+        t.verified = verify_tool(t);
+        if (t.verified) {
+            tool_cache_.push_back(t);
+        }
+        return t;
+    }
+    bool verify_tool(const Tool& tool) {
+        if (tool.code.empty()) return false;
+        if (tool.code.find("syntax error") != std::string::npos) return false;
+        if (tool.code.find("import os") != std::string::npos) return false;
+        return true;
+    }
+private:
+    std::vector<Tool> tool_cache_;
+};
 
 } // namespace agi
 } // namespace quant

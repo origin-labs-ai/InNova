@@ -3,6 +3,7 @@
 #include "quant/transformer.h"
 #include "quant/moe_variants.h"
 #include "quant/distributed.h"
+#include "quant/expert_prefetch.h"
 #include <vector>
 #include <memory>
 
@@ -58,6 +59,15 @@ public:
     std::unique_ptr<Linear> lm_head;
     
     std::unique_ptr<class ExpertPrefetcher> prefetcher;
+
+    // Create and initialize the expert prefetcher. The prefetcher is wired to the
+    // model's in-memory expert weights so prefetch loads real data, not zeros.
+    void init_prefetcher(int prefetch_ahead = 1, int max_resident = 8);
+
+    // Register (or re-register) the model's current expert weight pointers with
+    // the already-initialized prefetcher. Called after load() and after any
+    // weight update.
+    void wire_prefetcher_sources();
 
     moe::MoEAllConfig moe_config;
 

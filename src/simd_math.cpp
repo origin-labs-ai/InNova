@@ -182,6 +182,38 @@ void swiglu(const float* gate, const float* up, float* output, int64_t n) {
     swiglu_scalar(gate, up, output, n);
 }
 
+void geglu_scalar(const float* gate, const float* up, float* output, int64_t n) {
+    const float s = 0.7071067811865475f;
+    for (int64_t i = 0; i < n; ++i) {
+        float g = gate[i];
+        float gel = 0.5f * g * (1.0f + std::erf(g * s));
+        output[i] = gel * up[i];
+    }
+}
+
+#ifdef QUANT_HAS_AVX2
+void geglu_avx2(const float* gate, const float* up, float* output, int64_t n) {
+    const float s = 0.7071067811865475f;
+    int64_t i = 0;
+    for (; i + 8 <= n; i += 8) {
+        float gv[8], uv[8], rv[8];
+        std::memcpy(gv, gate + i, 8 * sizeof(float));
+        std::memcpy(uv, up + i, 8 * sizeof(float));
+        for (int j = 0; j < 8; j++) rv[j] = 0.5f * gv[j] * (1.0f + std::erf(gv[j] * s)) * uv[j];
+        std::memcpy(output + i, rv, 8 * sizeof(float));
+    }
+    for (; i < n; ++i) { float g = gate[i]; output[i] = 0.5f * g * (1.0f + std::erf(g * 0.7071067811865475f)) * up[i]; }
+}
+#endif
+
+void geglu(const float* gate, const float* up, float* output, int64_t n) {
+    static CpuFeatures feat = detect_cpu_features();
+#ifdef QUANT_HAS_AVX2
+    if (feat.has_avx2) return geglu_avx2(gate, up, output, n);
+#endif
+    geglu_scalar(gate, up, output, n);
+}
+
 // ============================================================================
 // RoPE — Rotary Position Embeddings
 // ============================================================================
@@ -213,10 +245,12 @@ void rope_scalar(float* q, float* k,
             q[pos * head_dim + i] = q0 * c - q1 * s;
             q[pos * head_dim + i + half_dim] = q0 * s + q1 * c;
             // K rotation
-            float k0 = k[pos * head_dim + i];
-            float k1 = k[pos * head_dim + i + half_dim];
-            k[pos * head_dim + i] = k0 * c - k1 * s;
-            k[pos * head_dim + i + half_dim] = k0 * s + k1 * c;
+            if (k) {
+                float k0 = k[pos * head_dim + i];
+                float k1 = k[pos * head_dim + i + half_dim];
+                k[pos * head_dim + i] = k0 * c - k1 * s;
+                k[pos * head_dim + i + half_dim] = k0 * s + k1 * c;
+            }
         }
     }
 }
@@ -236,24 +270,25 @@ void rope_avx2(float* q, float* k,
             // Q rotation (4 complex pairs = 8 floats)
             __m256 q0123 = _mm256_loadu_ps(q + pos * head_dim + i);
             __m256 q4567 = _mm256_loadu_ps(q + pos * head_dim + i + half_dim);
-            // Interleave: [q0,q1,q2,q3,q4,q5,q6,q7]
-            // We need: q0*c - q4*s, q0*s + q4*c for each pair
+            // Rotate: q0' = q0*c - q4*s, q4' = q0*s + q4*c
             __m256 q_rot = _mm256_mul_ps(q0123, c);
-            q_rot = _mm256_fmadd_ps(q4567, s, q_rot);
+            q_rot = _mm256_fmsub_ps(q4567, s, q_rot);
             __m256 q_rot2 = _mm256_mul_ps(q0123, s);
             q_rot2 = _mm256_fmadd_ps(q4567, c, q_rot2);
             _mm256_storeu_ps(q + pos * head_dim + i, q_rot);
             _mm256_storeu_ps(q + pos * head_dim + i + half_dim, q_rot2);
 
             // K rotation (same pattern)
-            __m256 k0123 = _mm256_loadu_ps(k + pos * head_dim + i);
-            __m256 k4567 = _mm256_loadu_ps(k + pos * head_dim + i + half_dim);
-            __m256 k_rot = _mm256_mul_ps(k0123, c);
-            k_rot = _mm256_fmadd_ps(k4567, s, k_rot);
-            __m256 k_rot2 = _mm256_mul_ps(k0123, s);
-            k_rot2 = _mm256_fmadd_ps(k4567, c, k_rot2);
-            _mm256_storeu_ps(k + pos * head_dim + i, k_rot);
-            _mm256_storeu_ps(k + pos * head_dim + i + half_dim, k_rot2);
+            if (k) {
+                __m256 k0123 = _mm256_loadu_ps(k + pos * head_dim + i);
+                __m256 k4567 = _mm256_loadu_ps(k + pos * head_dim + i + half_dim);
+                __m256 k_rot = _mm256_mul_ps(k0123, c);
+                k_rot = _mm256_fmsub_ps(k4567, s, k_rot);
+                __m256 k_rot2 = _mm256_mul_ps(k0123, s);
+                k_rot2 = _mm256_fmadd_ps(k4567, c, k_rot2);
+                _mm256_storeu_ps(k + pos * head_dim + i, k_rot);
+                _mm256_storeu_ps(k + pos * head_dim + i + half_dim, k_rot2);
+            }
         }
         for (; i < half_dim; ++i) {
             float c = cos_cache[cache_idx + i];
@@ -262,10 +297,12 @@ void rope_avx2(float* q, float* k,
             float q1 = q[pos * head_dim + i + half_dim];
             q[pos * head_dim + i] = q0 * c - q1 * s;
             q[pos * head_dim + i + half_dim] = q0 * s + q1 * c;
-            float k0 = k[pos * head_dim + i];
-            float k1 = k[pos * head_dim + i + half_dim];
-            k[pos * head_dim + i] = k0 * c - k1 * s;
-            k[pos * head_dim + i + half_dim] = k0 * s + k1 * c;
+            if (k) {
+                float k0 = k[pos * head_dim + i];
+                float k1 = k[pos * head_dim + i + half_dim];
+                k[pos * head_dim + i] = k0 * c - k1 * s;
+                k[pos * head_dim + i + half_dim] = k0 * s + k1 * c;
+            }
         }
     }
 }

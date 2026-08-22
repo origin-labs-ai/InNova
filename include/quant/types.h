@@ -14,7 +14,9 @@
 
 namespace quant {
 
-enum class Activation : uint8_t { None, ReLU, GELU, SiLU };
+enum class Activation : uint8_t { None, ReLU, GELU, SiLU, SwiGLU, GeGLU };
+
+enum class RoPEScalingMode : uint8_t { None, Linear, NTK, YARN };
 
 // ============================================================
 // Format enum — Q-series quantization formats
@@ -40,12 +42,11 @@ enum class Format : uint8_t {
     Q2_GRP          = 11,  // 2.625 BPW, 2-bit lattice + per-16 4b sc+4b min + FP16 d/dm (must beat Q4)
     Q3_GRP          = 12,  // 3.50 BPW, 3-bit lattice + per-32 6b sc+6b min + FP16 d (must beat Q6)
     Q4_GRP          = 13,  // 4.50 BPW, 4-bit lattice + per-32 6b sc+6b min + FP16 d/dm (must beat Q8)
-    Q6_GRP          = 14,  // 6.50 BPW, 6-bit lattice + per-16 8b sc + FP16 d (must beat Q12)
+    Q6_GRP          = 14,  // 6.5625 BPW, 6-bit lattice + per-16 8b sc + FP16 d (must beat Q12)
     Q8_GRP          = 15,  // 8.50 BPW, 8-bit lattice + per-16 7b sc + FP16 d (must beat Q16)
     Q12_GRP         = 16,  // 12.50 BPW, 12-bit lattice + per-16 FP16 sc + FP16 d (must beat Q24)
     Q16_GRP         = 17,  // 16.50 BPW, 16-bit adaptive + per-16 FP16 sc + FP16 offset (must beat Q32)
     Q24_GRP         = 18,  // 24.50 BPW, FP24 + per-8 FP16 sc + FP16 d (must beat Q32)
-    Q32_GRP         = 19,  // 32.50 BPW, FP32 + per-8 FP16 error correction (≈ lossless+)
 
     // --- TWI_MIX — 2-tier mixed precision (2 base + 2 GRP = 4) ---
     Q_TWI_MIX_1_5       = 20,  // 1.50 BPW: Q1(95%) + Q4(5%)
@@ -71,7 +72,7 @@ enum class Format : uint8_t {
 };
 
 // Total number of unique format IDs (excluding legacy aliases)
-constexpr int FORMAT_COUNT = 38;
+constexpr int FORMAT_COUNT = 37;
 
 inline const char* format_name(Format f) {
     switch (f) {
@@ -94,7 +95,6 @@ inline const char* format_name(Format f) {
         case Format::Q12_GRP:         return "Q12_GRP";
         case Format::Q16_GRP:         return "Q16_GRP";
         case Format::Q24_GRP:         return "Q24_GRP";
-        case Format::Q32_GRP:         return "Q32_GRP";
         case Format::Q_TWI_MIX_1_5:       return "Q_TWI_MIX@1.5";
         case Format::Q_TWI_MIX_2_5:       return "Q_TWI_MIX@2.5";
         case Format::Q_TWI_MIX_1_5_GRP:   return "Q_TWI_MIX@1.5_GRP";
@@ -140,17 +140,15 @@ inline float format_bpw(Format f) {
         // Q12_GRP: per-16 FP16 scale + FP16 d = +0.5 BPW
         // Q16_GRP: per-16 FP16 scale + FP16 offset = +0.5 BPW
         // Q24_GRP: per-8 FP16 scale + FP16 d = +0.5 BPW
-        // Q32_GRP: per-8 FP16 error correction = +0.5 BPW
         case Format::Q1_GRP:   return 1.0f;
         case Format::Q2_GRP:   return 2.625f;
         case Format::Q3_GRP:   return 3.5f;
         case Format::Q4_GRP:   return 4.5f;
-        case Format::Q6_GRP:   return 6.5f;
+        case Format::Q6_GRP:   return 6.5625f;
         case Format::Q8_GRP:   return 8.5f;
         case Format::Q12_GRP:  return 12.5f;
         case Format::Q16_GRP:  return 16.5f;
         case Format::Q24_GRP:  return 24.5f;
-        case Format::Q32_GRP:  return 32.5f;
         // TWI_MIX — 2-tier mixed
         case Format::Q_TWI_MIX_1_5:       return 1.5f;
         case Format::Q_TWI_MIX_2_5:       return 2.5f;
@@ -224,6 +222,7 @@ inline int format_codebook_size(Format f) {
 
 enum class DType : uint8_t {
     I64,     // int64_t
+    I32,     // int32_t
     U8,      // uint8_t
     U4,      // 4-bit packed (2 per byte)
     U16,     // uint16_t (for 12-bit packed)
@@ -234,6 +233,7 @@ enum class DType : uint8_t {
 inline size_t dtype_size(DType dt) {
     switch (dt) {
         case DType::I64: return 8;
+        case DType::I32: return 4;
         case DType::U8:  return 1;
         case DType::U4:  return 1;
         case DType::U16: return 2;
@@ -265,7 +265,6 @@ inline DType format_to_dtype(Format f) {
         case Format::Q12_GRP:  return DType::U16;
         case Format::Q16_GRP:  return DType::F16;
         case Format::Q24_GRP:  return DType::U8;
-        case Format::Q32_GRP:  return DType::F32;
         // MIXED formats store a format table + block data, DType is U8 for the container
         default:               return DType::U8;
     }
@@ -335,7 +334,12 @@ public:
     explicit Error(const std::string& msg) : std::runtime_error(msg) {}
 };
 
+#ifdef QUANT_THROW_ABORT
+#define QUANT_CHECK(cond, msg) \
+    do { if (!(cond)) { fprintf(stderr, "QUANT_CHECK FAIL: %s\n", std::string(msg).c_str()); fflush(stderr); std::abort(); } } while(0)
+#else
 #define QUANT_CHECK(cond, msg) \
     do { if (!(cond)) throw quant::Error(msg); } while(0)
+#endif
 
 } // namespace quant

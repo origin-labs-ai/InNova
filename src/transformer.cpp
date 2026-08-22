@@ -7,6 +7,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
+#include <algorithm>
+#include <utility>
 
 #if defined(QUANT_AVX2) || defined(__AVX2__)
 #include <immintrin.h>
@@ -126,6 +129,60 @@ RotaryEmbedding::RotaryEmbedding(int64_t hd, int64_t max_seq_len, float t)
     }
 }
 
+// YARN / NTK-aware RoPE — long-context extension
+RotaryEmbedding::RotaryEmbedding(int64_t hd, int64_t max_seq_len, float t,
+                                 RoPEScalingMode mode, float factor,
+                                 int64_t original_max_seq_len,
+                                 float yarn_beta_fast,
+                                 float yarn_beta_slow,
+                                 float /*yarn_attn_factor*/)
+    : head_dim(hd), theta(t), scaling_mode(mode), scaling_factor(factor) {
+    cos_cached = Tensor(Shape{max_seq_len, hd / 2}, DType::F32);
+    sin_cached = Tensor(Shape{max_seq_len, hd / 2}, DType::F32);
+    float* cos_d = (float*)cos_cached.data();
+    float* sin_d = (float*)sin_cached.data();
+
+    int64_t orig_len = original_max_seq_len > 0 ? original_max_seq_len : max_seq_len;
+    float inter_len = (mode == RoPEScalingMode::YARN || mode == RoPEScalingMode::Linear)
+                      ? (float)orig_len : (float)max_seq_len;
+
+    for (int64_t i = 0; i < max_seq_len; i++) {
+        for (int64_t j = 0; j < hd / 2; j++) {
+            float inv_freq_base = 1.0f / std::pow(theta, (float)(2 * j) / hd);
+            float freq = inv_freq_base;
+            float v_pos = (float)i;
+
+            if (mode == RoPEScalingMode::Linear) {
+                v_pos /= factor;
+            } else if (mode == RoPEScalingMode::NTK) {
+                float alpha = factor;
+                float base = std::pow(alpha, (float)hd / (hd - 2.0f));
+                float ntK_theta = theta * base;
+                float ntK_inv_freq = 1.0f / std::pow(ntK_theta, (float)(2 * j) / hd);
+                freq = ntK_inv_freq;
+            } else if (mode == RoPEScalingMode::YARN) {
+                float w = j < hd / 2 ? (float)j / (hd / 2) : 1.0f;
+                float ext_f = 1.0f / factor;
+                float mscale = 1.0f;
+                if (w < yarn_beta_slow / yarn_beta_fast) {
+                    freq = inv_freq_base;
+                } else if (w > 1.0f) {
+                    freq = inv_freq_base * ext_f;
+                } else {
+                    float smooth = (w - yarn_beta_slow / yarn_beta_fast) / (1.0f - yarn_beta_slow / yarn_beta_fast);
+                    smooth = 0.5f * (1.0f - std::cos(smooth * 3.14159265f));
+                    freq = inv_freq_base * ((1.0f - smooth) + smooth * ext_f);
+                }
+                (void)mscale; (void)inter_len;
+            }
+
+            float val = v_pos * freq;
+            cos_d[i * hd / 2 + j] = std::cos(val);
+            sin_d[i * hd / 2 + j] = std::sin(val);
+        }
+    }
+}
+
 void RotaryEmbedding::apply(Tensor& x, int64_t seq_start, int64_t seq_len) const {
     int64_t B = x.shape().dims[0];
     int64_t H = x.shape().dims[1];
@@ -174,9 +231,17 @@ void RotaryEmbedding::apply(Tensor& x, int64_t seq_start, int64_t seq_len) const
 Attention::Attention(const TransformerConfig& cfg)
     : num_heads(cfg.num_heads), 
       num_kv_heads(cfg.num_kv_heads > 0 ? cfg.num_kv_heads : cfg.num_heads),
-      head_dim(cfg.head_dim),
-      rope(cfg.head_dim, cfg.max_seq_len, cfg.rope_theta)
+      head_dim(cfg.head_dim)
 {
+    if (cfg.rope_scaling_mode != RoPEScalingMode::None) {
+        rope = RotaryEmbedding(cfg.head_dim, cfg.max_seq_len, cfg.rope_theta,
+                               cfg.rope_scaling_mode, cfg.rope_scaling_factor,
+                               cfg.rope_original_max_seq_len,
+                               cfg.yarn_beta_fast, cfg.yarn_beta_slow,
+                               cfg.yarn_attn_factor);
+    } else {
+        rope = RotaryEmbedding(cfg.head_dim, cfg.max_seq_len, cfg.rope_theta);
+    }
     q_proj = Linear(cfg.hidden_size, cfg.num_heads * cfg.head_dim);
     k_proj = Linear(cfg.hidden_size, num_kv_heads * cfg.head_dim);
     v_proj = Linear(cfg.hidden_size, num_kv_heads * cfg.head_dim);
@@ -364,15 +429,54 @@ Tensor FFN::forward(const Tensor& x) const {
     Tensor gate = gate_proj.forward(x);
     Tensor up = up_proj.forward(x);
     
-    if (activation == Activation::SiLU) {
-        gate = AutogradEngine::silu_op(gate);
-    } else if (activation == Activation::GELU) {
-        math::gelu(gate, gate);
+    Tensor hidden;
+    if (activation == Activation::SwiGLU || activation == Activation::SiLU) {
+        // SwiGLU: silu(gate) * up  — SIMD dispatch
+        if (activation == Activation::SwiGLU) {
+            hidden = Tensor(gate.shape(), DType::F32);
+            const float* gd = gate.data<float>();
+            const float* ud = up.data<float>();
+            float* hd = hidden.data<float>();
+            int64_t n = gate.numel();
+            for (int64_t i = 0; i < n; i++) {
+                float g = gd[i];
+                float sil = g / (1.0f + std::exp(-g));
+                hd[i] = sil * ud[i];
+            }
+        } else {
+            gate = AutogradEngine::silu_op(gate);
+            hidden = AutogradEngine::mul_op(gate, up);
+        }
+    } else if (activation == Activation::GeGLU || activation == Activation::GELU) {
+        if (activation == Activation::GeGLU) {
+            hidden = Tensor(gate.shape(), DType::F32);
+            const float* gd = gate.data<float>();
+            const float* ud = up.data<float>();
+            float* hd = hidden.data<float>();
+            int64_t n = gate.numel();
+            const float s = 0.7071067811865475f;
+            for (int64_t i = 0; i < n; i++) {
+                float g = gd[i];
+                float gel = 0.5f * g * (1.0f + std::erf(g * s));
+                hd[i] = gel * ud[i];
+            }
+        } else {
+            math::gelu(gate, gate);
+            hidden = Tensor(gate.shape(), DType::F32);
+            const float* gd = gate.data<float>();
+            const float* ud = up.data<float>();
+            float* hd = hidden.data<float>();
+            for (int64_t i = 0; i < gate.numel(); i++) hd[i] = gd[i] * ud[i];
+        }
     } else {
         math::relu(gate, gate);
+        hidden = Tensor(gate.shape(), DType::F32);
+        const float* gd = gate.data<float>();
+        const float* ud = up.data<float>();
+        float* hd = hidden.data<float>();
+        for (int64_t i = 0; i < gate.numel(); i++) hd[i] = gd[i] * ud[i];
     }
     
-    Tensor hidden = AutogradEngine::mul_op(gate, up);
     return down_proj.forward(hidden);
 }
 
@@ -406,6 +510,385 @@ Tensor TransformerBlock::forward(const Tensor& x, const Tensor& positions,
         ffn_out = AutogradEngine::add_op(ffn_out, attn_out);
         return ffn_out;
     }
+}
+
+class KimiDeltaAttention {
+public:
+    KimiDeltaAttention(int hidden_size, int num_heads, int head_dim);
+    Tensor forward(const Tensor& x, const Tensor& positions);
+private:
+    Linear q_proj_, k_proj_, v_proj_, o_proj_;
+    Linear delta_q_, delta_k_;
+    int hidden_size_, num_heads_, head_dim_;
+    float delta_ratio_; 
+    
+    Tensor linear_attention(const Tensor& Q, const Tensor& K, const Tensor& V);
+    Tensor delta_correction(const Tensor& Q, const Tensor& K, const Tensor& V, int top_k = 64);
+};
+
+KimiDeltaAttention::KimiDeltaAttention(int hidden_size, int num_heads, int head_dim)
+    : q_proj_(hidden_size, num_heads * head_dim),
+      k_proj_(hidden_size, num_heads * head_dim),
+      v_proj_(hidden_size, num_heads * head_dim),
+      o_proj_(num_heads * head_dim, hidden_size),
+      delta_q_(hidden_size, num_heads * head_dim),
+      delta_k_(hidden_size, num_heads * head_dim),
+      hidden_size_(hidden_size), num_heads_(num_heads), head_dim_(head_dim), delta_ratio_(0.1f) {}
+
+Tensor KimiDeltaAttention::linear_attention(const Tensor& Q, const Tensor& K, const Tensor& V) {
+    int64_t B = Q.dim(0), H = Q.dim(1), S = Q.dim(2), D = Q.dim(3);
+    Tensor KV(Shape{B, H, D, D}, DType::F32);
+    KV.zero_();
+    
+    const float* qd = Q.data<float>();
+    const float* kd = K.data<float>();
+    const float* vd = V.data<float>();
+    float* kvd = KV.data<float>();
+    
+    for (int64_t b = 0; b < B; b++) {
+        for (int64_t h = 0; h < H; h++) {
+            for (int64_t s = 0; s < S; s++) {
+                for (int64_t d1 = 0; d1 < D; d1++) {
+                    float k_val = kd[((b * H + h) * S + s) * D + d1];
+                    for (int64_t d2 = 0; d2 < D; d2++) {
+                        float v_val = vd[((b * H + h) * S + s) * D + d2];
+                        kvd[((b * H + h) * D + d1) * D + d2] += k_val * v_val;
+                    }
+                }
+            }
+        }
+    }
+    
+    Tensor out(Shape{B, H, S, D}, DType::F32);
+    out.zero_();
+    float* od = out.data<float>();
+    
+    for (int64_t b = 0; b < B; b++) {
+        for (int64_t h = 0; h < H; h++) {
+            for (int64_t s = 0; s < S; s++) {
+                for (int64_t d2 = 0; d2 < D; d2++) {
+                    float sum = 0.0f;
+                    for (int64_t d1 = 0; d1 < D; d1++) {
+                        sum += qd[((b * H + h) * S + s) * D + d1] * kvd[((b * H + h) * D + d1) * D + d2];
+                    }
+                    od[((b * H + h) * S + s) * D + d2] = sum;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+Tensor KimiDeltaAttention::delta_correction(const Tensor& Q, const Tensor& K, const Tensor& V, int top_k) {
+    int64_t B = Q.dim(0), H = Q.dim(1), S = Q.dim(2), D = Q.dim(3);
+    Tensor out(Shape{B, H, S, D}, DType::F32);
+    out.zero_();
+    if (S == 0) return out;
+    
+    int actual_top_k = std::min((int)S, top_k);
+    const float* qd = Q.data<float>();
+    const float* kd = K.data<float>();
+    const float* vd = V.data<float>();
+    float* od = out.data<float>();
+    float scale = 1.0f / std::sqrt((float)D);
+    
+    for (int64_t b = 0; b < B; b++) {
+        for (int64_t h = 0; h < H; h++) {
+            for (int64_t s = 0; s < S; s++) {
+                std::vector<std::pair<float, int64_t>> scores;
+                for (int64_t t = 0; t < S; t++) {
+                    float score = 0.0f;
+                    for (int64_t d = 0; d < D; d++) {
+                        score += qd[((b * H + h) * S + s) * D + d] * kd[((b * H + h) * S + t) * D + d];
+                    }
+                    scores.push_back({score * scale, t});
+                }
+                
+                std::partial_sort(scores.begin(), scores.begin() + actual_top_k, scores.end(),
+                                  [](const std::pair<float, int64_t>& a, const std::pair<float, int64_t>& b) {
+                                      return a.first > b.first;
+                                  });
+                
+                float max_score = scores[0].first;
+                float sum_exp = 0.0f;
+                std::vector<float> exps(actual_top_k);
+                for (int k = 0; k < actual_top_k; k++) {
+                    exps[k] = std::exp(scores[k].first - max_score);
+                    sum_exp += exps[k];
+                }
+                
+                for (int k = 0; k < actual_top_k; k++) {
+                    float weight = exps[k] / sum_exp;
+                    int64_t t = scores[k].second;
+                    for (int64_t d = 0; d < D; d++) {
+                        od[((b * H + h) * S + s) * D + d] += weight * vd[((b * H + h) * S + t) * D + d];
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+Tensor KimiDeltaAttention::forward(const Tensor& x, const Tensor& positions) {
+    int64_t B = x.dim(0);
+    int64_t S = x.dim(1);
+    
+    Tensor q = q_proj_.forward(x);
+    Tensor k = k_proj_.forward(x);
+    Tensor v = v_proj_.forward(x);
+    
+    Tensor q_reshaped = q.reshape(Shape{B, S, num_heads_, head_dim_}).transpose(1, 2);
+    Tensor k_reshaped = k.reshape(Shape{B, S, num_heads_, head_dim_}).transpose(1, 2);
+    Tensor v_reshaped = v.reshape(Shape{B, S, num_heads_, head_dim_}).transpose(1, 2);
+    
+    Tensor linear_out = linear_attention(q_reshaped, k_reshaped, v_reshaped);
+    
+    Tensor dq = delta_q_.forward(x);
+    Tensor dk = delta_k_.forward(x);
+    Tensor dq_reshaped = dq.reshape(Shape{B, S, num_heads_, head_dim_}).transpose(1, 2);
+    Tensor dk_reshaped = dk.reshape(Shape{B, S, num_heads_, head_dim_}).transpose(1, 2);
+    
+    Tensor delta_out = delta_correction(dq_reshaped, dk_reshaped, v_reshaped, 64);
+    
+    Tensor combined(Shape{B, num_heads_, S, head_dim_}, DType::F32);
+    const float* l_d = linear_out.data<float>();
+    const float* d_d = delta_out.data<float>();
+    float* c_d = combined.data<float>();
+    int64_t total = combined.numel();
+    for(int64_t i = 0; i < total; i++) {
+        c_d[i] = l_d[i] + delta_ratio_ * d_d[i];
+    }
+    
+    Tensor flat = combined.transpose(1, 2).reshape(Shape{B * S, num_heads_ * head_dim_});
+    Tensor o_out = o_proj_.forward(flat);
+    return o_out.reshape(Shape{B, S, hidden_size_});
+}
+
+class AttentionResidual {
+public:
+    AttentionResidual(int hidden_size);
+    Tensor forward(const Tensor& current_output, const Tensor& earlier_layer_output);
+private:
+    Linear gate_proj_;
+    int hidden_size_;
+};
+
+AttentionResidual::AttentionResidual(int hidden_size) 
+    : gate_proj_(hidden_size * 2, hidden_size), hidden_size_(hidden_size) {}
+
+Tensor AttentionResidual::forward(const Tensor& current_output, const Tensor& earlier_layer_output) {
+    int64_t B = current_output.dim(0);
+    int64_t S = current_output.dim(1);
+    int64_t D = hidden_size_;
+    
+    Tensor concat(Shape{B, S, D * 2}, DType::F32);
+    const float* cd = current_output.data<float>();
+    const float* ed = earlier_layer_output.data<float>();
+    float* ccd = concat.data<float>();
+    
+    for (int64_t b = 0; b < B; b++) {
+        for (int64_t s = 0; s < S; s++) {
+            for (int64_t d = 0; d < D; d++) {
+                ccd[(b * S + s) * (D * 2) + d] = cd[(b * S + s) * D + d];
+                ccd[(b * S + s) * (D * 2) + D + d] = ed[(b * S + s) * D + d];
+            }
+        }
+    }
+    
+    Tensor gate = gate_proj_.forward(concat.reshape(Shape{B * S, D * 2}));
+    Tensor out(Shape{B, S, D}, DType::F32);
+    const float* gd = gate.data<float>();
+    float* od = out.data<float>();
+    
+    for (int64_t i = 0; i < B * S * D; i++) {
+        float g = 1.0f / (1.0f + std::exp(-gd[i]));
+        od[i] = cd[i] * (1.0f - g) + ed[i] * g;
+    }
+    
+    return out;
+}
+
+// Native FP8 (E4M3 / E5M2) Types and Quantized MatMul
+struct FP8_E4M3 {
+    uint8_t val;
+    static float to_float(uint8_t v) {
+        if (v == 0) return 0.0f;
+        int sign = (v & 0x80) ? -1 : 1;
+        int exp = (v & 0x78) >> 3;
+        int mant = v & 0x07;
+        if (exp == 0) return sign * std::pow(2.0f, -6) * (mant / 8.0f);
+        if (exp == 15) return std::nanf(""); // NaN for E4M3
+        return sign * std::pow(2.0f, exp - 7) * (1.0f + mant / 8.0f);
+    }
+    static uint8_t from_float(float f) {
+        if (f == 0.0f) return 0;
+        uint32_t bits;
+        std::memcpy(&bits, &f, sizeof(float));
+        int sign = (bits >> 31) & 1;
+        int exp = ((bits >> 23) & 0xFF) - 127;
+        int mant = bits & 0x7FFFFF;
+        if (exp < -9) return sign << 7;
+        if (exp > 8) return (sign << 7) | 0x7E;
+        int target_exp = exp + 7;
+        int target_mant = mant >> 20;
+        return (sign << 7) | (target_exp << 3) | target_mant;
+    }
+};
+
+struct FP8_E5M2 {
+    uint8_t val;
+    static float to_float(uint8_t v) {
+        if ((v & 0x7F) == 0) return 0.0f;
+        int sign = (v & 0x80) ? -1 : 1;
+        int exp = (v & 0x7C) >> 2;
+        int mant = v & 0x03;
+        if (exp == 0) return sign * std::pow(2.0f, -14) * (mant / 4.0f);
+        if (exp == 31) return (mant == 0) ? (sign * INFINITY) : std::nanf("");
+        return sign * std::pow(2.0f, exp - 15) * (1.0f + mant / 4.0f);
+    }
+    static uint8_t from_float(float f) {
+        if (f == 0.0f) return 0;
+        uint32_t bits;
+        std::memcpy(&bits, &f, sizeof(float));
+        int sign = (bits >> 31) & 1;
+        int exp = ((bits >> 23) & 0xFF) - 127;
+        int mant = bits & 0x7FFFFF;
+        if (exp < -16) return sign << 7;
+        if (exp > 15) return (sign << 7) | 0x7C;
+        int target_exp = exp + 15;
+        int target_mant = mant >> 21;
+        return (sign << 7) | (target_exp << 2) | target_mant;
+    }
+};
+
+Tensor fp8_matmul(const Tensor& A, const Tensor& B, bool use_e4m3 = true) {
+    int64_t B_batch = A.dim(0);
+    int64_t M = A.dim(1);
+    int64_t K = A.dim(2);
+    int64_t N = B.dim(1);
+    Tensor C(Shape{B_batch, M, N}, DType::F32);
+    C.zero_();
+    
+    const float* a_d = A.data<float>();
+    const float* b_d = B.data<float>();
+    float* c_d = C.data<float>();
+    
+    for (int64_t b = 0; b < B_batch; b++) {
+        for (int64_t m = 0; m < M; m++) {
+            for (int64_t k = 0; k < K; k++) {
+                float a_val = a_d[(b * M + m) * K + k];
+                float a_q = use_e4m3 ? FP8_E4M3::to_float(FP8_E4M3::from_float(a_val)) : FP8_E5M2::to_float(FP8_E5M2::from_float(a_val));
+                for (int64_t n = 0; n < N; n++) {
+                    float b_val = b_d[k * N + n]; // B is K x N
+                    float b_q = use_e4m3 ? FP8_E4M3::to_float(FP8_E4M3::from_float(b_val)) : FP8_E5M2::to_float(FP8_E5M2::from_float(b_val));
+                    c_d[(b * M + m) * N + n] += a_q * b_q;
+                }
+            }
+        }
+    }
+    return C;
+}
+
+class MultiHeadLatentAttention {
+public:
+    MultiHeadLatentAttention(int hidden_size, int num_heads, int rope_dim, int q_lora_rank, int kv_lora_rank);
+    Tensor forward(const Tensor& x, const Tensor& positions);
+private:
+    Linear w_dq, w_uq, w_dkv, w_uk, w_uv, o_proj;
+    Linear q_pe_proj, k_pe_proj;
+    int hidden_size_, num_heads_, rope_dim_, head_dim_;
+};
+
+MultiHeadLatentAttention::MultiHeadLatentAttention(int hidden_size, int num_heads, int rope_dim, int q_lora_rank, int kv_lora_rank)
+    : w_dq(hidden_size, q_lora_rank), w_uq(q_lora_rank, num_heads * (hidden_size / num_heads)),
+      w_dkv(hidden_size, kv_lora_rank), w_uk(kv_lora_rank, num_heads * (hidden_size / num_heads)),
+      w_uv(kv_lora_rank, num_heads * (hidden_size / num_heads)), o_proj(num_heads * (hidden_size / num_heads), hidden_size),
+      q_pe_proj(q_lora_rank, rope_dim), k_pe_proj(kv_lora_rank, rope_dim),
+      hidden_size_(hidden_size), num_heads_(num_heads), rope_dim_(rope_dim), head_dim_(hidden_size / num_heads) {}
+
+Tensor MultiHeadLatentAttention::forward(const Tensor& x, const Tensor& positions) {
+    int64_t B = x.dim(0);
+    int64_t S = x.dim(1);
+    
+    // Q Compression
+    Tensor c_q = w_dq.forward(x); // B x S x q_lora_rank
+    Tensor q_c = w_uq.forward(c_q).reshape(Shape{B, S, num_heads_, head_dim_});
+    Tensor q_pe = q_pe_proj.forward(c_q);
+    
+    // KV Compression
+    Tensor c_kv = w_dkv.forward(x); // B x S x kv_lora_rank
+    Tensor k_c = w_uk.forward(c_kv).reshape(Shape{B, S, num_heads_, head_dim_});
+    Tensor v_c = w_uv.forward(c_kv).reshape(Shape{B, S, num_heads_, head_dim_});
+    Tensor k_pe = k_pe_proj.forward(c_kv);
+    
+    // Attention calculation (Simplified for Latent space)
+    Tensor q = q_c.transpose(1, 2); // B, H, S, D
+    Tensor k = k_c.transpose(1, 2);
+    Tensor v = v_c.transpose(1, 2);
+    
+    Tensor out(Shape{B, num_heads_, S, head_dim_}, DType::F32);
+    out.zero_();
+    const float* qd = q.data<float>();
+    const float* kd = k.data<float>();
+    const float* vd = v.data<float>();
+    float* od = out.data<float>();
+    float scale = 1.0f / std::sqrt((float)head_dim_);
+    
+    for (int64_t b = 0; b < B; b++) {
+        for (int64_t h = 0; h < num_heads_; h++) {
+            for (int64_t s = 0; s < S; s++) {
+                std::vector<float> scores(S, 0.0f);
+                float max_score = -1e9f;
+                for (int64_t t = 0; t <= s; t++) {
+                    float score = 0;
+                    for (int64_t d = 0; d < head_dim_; d++) {
+                        score += qd[((b * num_heads_ + h) * S + s) * head_dim_ + d] * kd[((b * num_heads_ + h) * S + t) * head_dim_ + d];
+                    }
+                    score *= scale;
+                    scores[t] = score;
+                    if (score > max_score) max_score = score;
+                }
+                float sum_exp = 0;
+                for (int64_t t = 0; t <= s; t++) {
+                    scores[t] = std::exp(scores[t] - max_score);
+                    sum_exp += scores[t];
+                }
+                for (int64_t t = 0; t <= s; t++) {
+                    float w = scores[t] / sum_exp;
+                    for (int64_t d = 0; d < head_dim_; d++) {
+                        od[((b * num_heads_ + h) * S + s) * head_dim_ + d] += w * vd[((b * num_heads_ + h) * S + t) * head_dim_ + d];
+                    }
+                }
+            }
+        }
+    }
+    
+    Tensor flat_out = out.transpose(1, 2).reshape(Shape{B * S, num_heads_ * head_dim_});
+    return o_proj.forward(flat_out).reshape(Shape{B, S, hidden_size_});
+}
+
+class MultiTokenPredictionHead {
+public:
+    MultiTokenPredictionHead(int hidden_size, int vocab_size, int num_heads);
+    std::vector<Tensor> forward(const Tensor& hidden_states);
+private:
+    std::vector<Linear> heads_;
+    int num_heads_;
+};
+
+MultiTokenPredictionHead::MultiTokenPredictionHead(int hidden_size, int vocab_size, int num_heads) : num_heads_(num_heads) {
+    for (int i = 0; i < num_heads; i++) {
+        heads_.emplace_back(hidden_size, vocab_size);
+    }
+}
+
+std::vector<Tensor> MultiTokenPredictionHead::forward(const Tensor& hidden_states) {
+    std::vector<Tensor> predictions;
+    for (int i = 0; i < num_heads_; i++) {
+        predictions.push_back(heads_[i].forward(hidden_states));
+    }
+    return predictions;
 }
 
 } // namespace quant

@@ -17,13 +17,13 @@ int main() {
 
     // 1. Format Registry Verification
     std::cout << "[Subsystem 1] Q-Series Format System Verification...\n";
-    assert(quant::FORMAT_COUNT == 38);
+    assert(quant::FORMAT_COUNT == 37);
     for (int i = 0; i < quant::FORMAT_COUNT; i++) {
         auto fmt = static_cast<quant::Format>(i);
         assert(quant::format_bpw(fmt) > 0.0f);
         assert(quant::format_name(fmt) != nullptr);
     }
-    std::cout << "  -> PASSED: All 38 Q-series formats (Q1-Q32, GRP, TWI_MIX, QUAD_MIX) verified!\n\n";
+    std::cout << "  -> PASSED: All 37 Q-series formats (Q1-Q32, GRP, TWI_MIX, QUAD_MIX) verified!\n\n";
 
     // 2. Hardware Backend Verification
     std::cout << "[Subsystem 2] Hardware Compute Backend & CUDA Probing...\n";

@@ -1,21 +1,47 @@
-// test_model.cpp — Transformer model tests
 #include "quant/model.h"
 #include <iostream>
 #include <cassert>
+#include <vector>
+
+void test_dense_model() {
+    quant::TransformerConfig cfg;
+    cfg.vocab_size = 100;
+    cfg.hidden_size = 16;
+    cfg.num_layers = 1;
+    cfg.num_heads = 2;
+    cfg.head_dim = 8;
+    cfg.max_seq_len = 10;
+
+    quant::DenseModel model(cfg);
+
+    quant::Tensor input_ids(quant::Shape{1, 2}, quant::DType::I32);
+    int32_t* id_data = input_ids.data<int32_t>();
+    id_data[0] = 0; id_data[1] = 1;
+
+    quant::Tensor positions(quant::Shape{1, 2}, quant::DType::I32);
+    int32_t* pos_data = positions.data<int32_t>();
+    pos_data[0] = 0; pos_data[1] = 1;
+
+    quant::Tensor logits = model.forward(input_ids, positions);
+    assert(logits.shape() == quant::Shape({1, 2, 100}));
+    
+    // Check serialization
+    model.save("test_model.quant");
+    quant::DenseModel model2(cfg);
+    model2.load("test_model.quant");
+
+    // Test parameter iteration
+    int param_count = 0;
+    for (auto& layer : model.layers) {
+        param_count += layer->attention_norm.weight.numel();
+        param_count += layer->ffn_norm.weight.numel();
+    }
+    assert(param_count > 0);
+}
 
 int main() {
     std::cout << "[Test] Running Model test..." << std::endl;
-    quant::TransformerConfig cfg;
-    cfg.vocab_size = 1000;
-    cfg.hidden_size = 128;
-    cfg.num_layers = 2;
-    cfg.num_heads = 4;
-    cfg.head_dim = 32;
-    cfg.max_seq_len = 128;
-
-    quant::DenseModel model(cfg);
-    assert(model.param_count() > 0);
-    std::cout << "  -> Model created with " << model.param_count() << " parameters." << std::endl;
+    test_dense_model();
     std::cout << "Model test passed!" << std::endl;
     return 0;
 }

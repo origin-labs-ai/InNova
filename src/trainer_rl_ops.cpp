@@ -430,6 +430,31 @@ void RLHFPipeline::dpo_finetune(const std::vector<Comparison>& comparisons,
     }
 }
 
+void RLHFPipeline::grpo_finetune(const std::vector<std::string>& prompts, int n_steps, int max_new_tokens) {
+    if (!model_ || prompts.empty()) return;
+    GRPOTrainer grpo(model_, tokenizer_, 4, 0.04f);
+    if (policy_opt_) grpo.set_optimizer(policy_opt_);
+    for (int s = 0; s < n_steps; s++) {
+        const std::string& p = prompts[s % prompts.size()];
+        float loss = grpo.train_step(p);
+        metrics_.dpo_loss = loss;
+        if (verbose_) std::cout << "[GRPO] step " << (s+1) << "/" << n_steps << " loss=" << loss << std::endl;
+        if (log_cb_) log_cb_(metrics_);
+    }
+}
+
+void RLHFPipeline::rlvf_finetune(const std::vector<std::pair<std::string,std::string>>& qa_pairs, int n_steps, int max_new_tokens) {
+    if (!model_ || qa_pairs.empty()) return;
+    RLVRTrainer rlv(model_, tokenizer_, policy_opt_);
+    for (int s = 0; s < n_steps; s++) {
+        auto& pr = qa_pairs[s % qa_pairs.size()];
+        float rew = rlv.train_step(pr.first, pr.second);
+        metrics_.mean_reward = rew;
+        if (verbose_) std::cout << "[RLVR] step " << (s+1) << "/" << n_steps << " reward=" << rew << std::endl;
+        if (log_cb_) log_cb_(metrics_);
+    }
+}
+
 void RLHFPipeline::run(int n_rounds, int n_prompts, int n_ppo_steps) {
     std::vector<std::string> prompts;
     const char* default_prompts[] = {

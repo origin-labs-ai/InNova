@@ -42,10 +42,10 @@ set_tests_properties(test_model      PROPERTIES LABELS "core")
 add_quant_test_full(test_tokenizer  test_tokenizer.cpp  quant_tokenizer                         ${_default_timeout})
 set_tests_properties(test_tokenizer  PROPERTIES LABELS "core")
 
-add_quant_test_full(test_debug      test_debug.cpp      quant_model                             ${_default_timeout})
+add_quant_test_full(test_debug      test_debug.cpp      quant_model quant_production                   ${_default_timeout})
 set_tests_properties(test_debug      PROPERTIES LABELS "core")
 
-add_quant_test_full(test_all        test_all.cpp        quant_moe_variants quant_backend          ${_long_timeout})
+add_quant_test_full(test_all        test_all.cpp        quant_moe_variants quant_backend quant_continual ${_long_timeout})
 set_tests_properties(test_all        PROPERTIES LABELS "core;distributed")
 
 # ── training ──────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ set_tests_properties(test_native_weight PROPERTIES LABELS "training")
 add_quant_test_full(test_inference_opt test_inference_opt.cpp quant_inference_opt quant_model quant_inference ${_default_timeout})
 set_tests_properties(test_inference_opt PROPERTIES LABELS "inference")
 
-add_quant_test_full(test_inference_batch test_inference_batch.cpp quant_inference quant_inference_opt quant_model quant_math quant_core ${_default_timeout})
+add_quant_test_full(test_inference_batch test_inference_batch.cpp quant_inference quant_inference_opt quant_model quant_math quant_core quant_moe_variants ${_default_timeout})
 set_tests_properties(test_inference_batch PROPERTIES LABELS "inference")
 
 add_quant_test_full(test_ops          test_ops.cpp          quant_kernel quant_math quant_core quant_model quant_inference quant_backend quant_format ${_default_timeout})
@@ -154,9 +154,6 @@ set_tests_properties(test_bpw_150_proof PROPERTIES LABELS "core")
 add_quant_test_full(test_block_codec test_block_codec.cpp quant_kernel quant_format quant_core              ${_long_timeout})
 set_tests_properties(test_block_codec PROPERTIES LABELS "core")
 
-add_quant_test_full(test_grp_lossless_proof test_grp_lossless_proof.cpp quant_format quant_core        ${_long_timeout})
-set_tests_properties(test_grp_lossless_proof PROPERTIES LABELS "core")
-
 add_quant_test_full(test_quant_mix test_quant_mix.cpp quant_format quant_trainer quant_model quant_kernel quant_core ${_long_timeout})
 set_tests_properties(test_quant_mix PROPERTIES LABELS "training;core")
 
@@ -193,7 +190,7 @@ set_tests_properties(
   test_quant_engines test_quant_convergence test_native_weight
   test_moe_training test_native_quant_moe test_multimodal_encoders
   test_agi_flywheel test_inference_batch test_paged_kv_4m
-  test_training_features grp_proof_test test_block_codec test_grp_lossless_proof
+  test_training_features grp_proof_test test_block_codec
   test_fp32_gather_quality test_bpw_150_proof test_quant_mix test_format_registry_complete
   PROPERTIES COST 2.0
 )

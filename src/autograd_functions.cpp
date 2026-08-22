@@ -18,6 +18,7 @@ std::vector<Tensor> ScaledDotProductAttentionFunction::forward(const std::vector
     const Tensor& Q = inputs[0];
     const Tensor& K = inputs[1];
     const Tensor& V = inputs[2];
+
     B_ = Q.dim(0); H_ = Q.dim(1); S_ = Q.dim(2); D_ = Q.dim(3);
     KV_H_ = K.dim(1); S_full_ = K.dim(2);
 
@@ -229,9 +230,9 @@ std::vector<Tensor> MatMulFunction::forward(const std::vector<Tensor>& inputs) {
     const Tensor& b = inputs[1];
     int64_t M = a.dim(0);
     int64_t K = a.dim(1);
-    int64_t N = b.dim(0);
+    int64_t N = b.dim(0);  // weights are stored row-major {N, K} = {out, in}
     Tensor out({M, N}, DType::F32);
-    kernel::scalar_gemm(
+    kernel::scalar_gemm_bt(
         a.data<float>(), b.data<float>(),
         out.data<float>(), (int)M, (int)N, (int)K
     );
@@ -243,14 +244,40 @@ std::vector<Tensor> MatMulFunction::backward(const std::vector<Tensor>& grad_out
     const Tensor& a = saved[0];
     const Tensor& b = saved[1];
     int64_t M = a.dim(0);
-    int64_t K = a.dim(1); (void)K;
+    int64_t K = a.dim(1);
     int64_t N = b.dim(0);
     Tensor g = g_orig;
     if (g_orig.rank() > 2) {
         g = g_orig.reshape(Shape{M, N});
     }
-    Tensor ga = matmul_grad_wrt_a(g, b);
-    Tensor gb = weight_grad(g, a, b);
+    // dA[m,k] = sum_n g[m,n] * B[n,k]   (B is {N, K})
+    Tensor ga({M, K});
+    {
+        const float* gd = g.data<float>();
+        const float* bd = b.data<float>();
+        float* ad = ga.data<float>();
+        for (int64_t m = 0; m < M; m++)
+            for (int64_t k = 0; k < K; k++) {
+                float s = 0.0f;
+                for (int64_t n = 0; n < N; n++)
+                    s += gd[m * N + n] * bd[n * K + k];
+                ad[m * K + k] = s;
+            }
+    }
+    // dB[n,k] = sum_m g[m,n] * a[m,k]   (B stays {N, K})
+    Tensor gb({N, K});
+    {
+        const float* gd = g.data<float>();
+        const float* ad = a.data<float>();
+        float* bd = gb.data<float>();
+        for (int64_t n = 0; n < N; n++)
+            for (int64_t k = 0; k < K; k++) {
+                float s = 0.0f;
+                for (int64_t m = 0; m < M; m++)
+                    s += gd[m * N + n] * ad[m * K + k];
+                bd[n * K + k] = s;
+            }
+    }
     return {ga, gb};
 }
 

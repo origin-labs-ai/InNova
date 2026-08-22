@@ -143,6 +143,33 @@ void tanh_(const Tensor& x, Tensor& y) {
     for (int64_t i = 0; i < n; i++) py[i] = std::tanh(px[i]);
 }
 
+void swiglu(const Tensor& gate, const Tensor& up, Tensor& y) {
+    QUANT_CHECK(gate.numel() == up.numel() && up.numel() == y.numel(), "swiglu shape mismatch");
+    const float* pg = rd(gate);
+    const float* pu = rd(up);
+    float* py = wr(y);
+    int64_t n = gate.numel();
+    for (int64_t i = 0; i < n; i++) {
+        float g = pg[i];
+        float silu = g / (1.0f + std::exp(-g));
+        py[i] = silu * pu[i];
+    }
+}
+
+void geglu(const Tensor& gate, const Tensor& up, Tensor& y) {
+    QUANT_CHECK(gate.numel() == up.numel() && up.numel() == y.numel(), "geglu shape mismatch");
+    const float* pg = rd(gate);
+    const float* pu = rd(up);
+    float* py = wr(y);
+    int64_t n = gate.numel();
+    const float s = 0.7071067811865475f;
+    for (int64_t i = 0; i < n; i++) {
+        float g = pg[i];
+        float gel = 0.5f * g * (1.0f + std::erf(g * s));
+        py[i] = gel * pu[i];
+    }
+}
+
 void layer_norm(const Tensor& x, const Tensor& gamma, const Tensor& beta, float eps, Tensor& y) {
     QUANT_CHECK(x.numel() == y.numel(), "layer_norm shape mismatch");
     QUANT_CHECK(gamma.numel() == x.shape().dims[x.shape().rank-1], "layer_norm gamma dim mismatch");
@@ -529,6 +556,105 @@ void vec_fp16_to_fp32(float* dst, const uint16_t* src, int n) {
 void vec_softmax_stable_avx2(float* dst, const float* src, int n) { vec_softmax_stable(dst, src, n); }
 void vec_layer_norm_avx2(float* dst, const float* src, const float* gamma, const float* beta, int n, float eps) { vec_layer_norm(dst, src, gamma, beta, n, eps); }
 void vec_rms_norm_avx2(float* dst, const float* src, const float* gamma, int n, float eps) { vec_rms_norm(dst, src, gamma, n, eps); }
+
+// ===========================================================================
+// FP8 E4M3 / E5M2 — scalar implementations (AVX2 in math_avx2.cpp)
+// ===========================================================================
+
+static float fp8_e4m3_bits_to_f32(uint8_t v) {
+    if (v == 0) return 0.0f;
+    int sign = (v & 0x80) ? -1 : 1;
+    int exp = (v & 0x78) >> 3;
+    int mant = v & 0x07;
+    if (exp == 0) return sign * std::pow(2.0f, -6) * (mant / 8.0f);
+    if (exp == 15) return std::nanf("");
+    return sign * std::pow(2.0f, exp - 7) * (1.0f + mant / 8.0f);
+}
+
+static float fp8_e5m2_bits_to_f32(uint8_t v) {
+    if ((v & 0x7F) == 0) return 0.0f;
+    int sign = (v & 0x80) ? -1 : 1;
+    int exp = (v & 0x7C) >> 2;
+    int mant = v & 0x03;
+    if (exp == 0) return sign * std::pow(2.0f, -14) * (mant / 4.0f);
+    if (exp == 31) return (mant == 0) ? (sign * INFINITY) : std::nanf("");
+    return sign * std::pow(2.0f, exp - 15) * (1.0f + mant / 4.0f);
+}
+
+static uint8_t f32_to_fp8_e4m3_bits(float f) {
+    if (f == 0.0f) return 0;
+    if (std::isnan(f)) return 0x7F;
+    if (std::isinf(f)) return f > 0 ? 0x7E : 0xFE;
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(float));
+    int sign = (int)((bits >> 31) & 1);
+    int exp = ((int)((bits >> 23) & 0xFF)) - 127;
+    int mant = (int)(bits & 0x7FFFFF);
+    if (exp < -9) return (uint8_t)(sign << 7);
+    if (exp > 8) return (uint8_t)((sign << 7) | 0x7E);
+    int target_exp = exp + 7;
+    int target_mant = (mant >> 20) & 0x07;
+    if ((mant >> 19) & 1) {
+        target_mant++;
+        if (target_mant >= 8) { target_mant = 0; target_exp++; if (target_exp >= 15) return (uint8_t)((sign << 7) | 0x7E); }
+    }
+    return (uint8_t)((sign << 7) | (target_exp << 3) | target_mant);
+}
+
+static uint8_t f32_to_fp8_e5m2_bits(float f) {
+    if (f == 0.0f) return 0;
+    if (std::isnan(f)) return 0x7F;
+    if (std::isinf(f)) return f > 0 ? 0x7C : 0xFC;
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(float));
+    int sign = (int)((bits >> 31) & 1);
+    int exp = ((int)((bits >> 23) & 0xFF)) - 127;
+    int mant = (int)(bits & 0x7FFFFF);
+    if (exp < -16) return (uint8_t)(sign << 7);
+    if (exp > 15) return (uint8_t)((sign << 7) | 0x7C);
+    int target_exp = exp + 15;
+    int target_mant = (mant >> 21) & 0x03;
+    if ((mant >> 20) & 1) {
+        target_mant++;
+        if (target_mant >= 4) { target_mant = 0; target_exp++; if (target_exp >= 31) return (uint8_t)((sign << 7) | 0x7C); }
+    }
+    return (uint8_t)((sign << 7) | (target_exp << 2) | target_mant);
+}
+
+float f32_to_fp8_e4m3_scalar(float val) { return (float)f32_to_fp8_e4m3_bits(val); }
+float fp8_e4m3_to_f32_scalar(uint8_t val) { return fp8_e4m3_bits_to_f32(val); }
+void vec_fp32_to_fp8_e4m3(uint8_t* dst, const float* src, int n) { for (int i = 0; i < n; i++) dst[i] = f32_to_fp8_e4m3_bits(src[i]); }
+void vec_fp8_e4m3_to_fp32(float* dst, const uint8_t* src, int n) { for (int i = 0; i < n; i++) dst[i] = fp8_e4m3_bits_to_f32(src[i]); }
+float f32_to_fp8_e5m2_scalar(float val) { return (float)f32_to_fp8_e5m2_bits(val); }
+float fp8_e5m2_to_f32_scalar(uint8_t val) { return fp8_e5m2_bits_to_f32(val); }
+void vec_fp32_to_fp8_e5m2(uint8_t* dst, const float* src, int n) { for (int i = 0; i < n; i++) dst[i] = f32_to_fp8_e5m2_bits(src[i]); }
+void vec_fp8_e5m2_to_fp32(float* dst, const uint8_t* src, int n) { for (int i = 0; i < n; i++) dst[i] = fp8_e5m2_bits_to_f32(src[i]); }
+
+void fp8_gemm(const float* A, const float* B, float* C, int64_t M, int64_t N, int64_t K, bool use_e4m3) {
+    for (int64_t i = 0; i < M * N; i++) C[i] = 0.0f;
+    for (int64_t m = 0; m < M; m++) {
+        for (int64_t k = 0; k < K; k++) {
+            float a_q = use_e4m3 ? fp8_e4m3_bits_to_f32(f32_to_fp8_e4m3_bits(A[m * K + k]))
+                                 : fp8_e5m2_bits_to_f32(f32_to_fp8_e5m2_bits(A[m * K + k]));
+            for (int64_t n_ = 0; n_ < N; n_++) {
+                float b_q = use_e4m3 ? fp8_e4m3_bits_to_f32(f32_to_fp8_e4m3_bits(B[k * N + n_]))
+                                     : fp8_e5m2_bits_to_f32(f32_to_fp8_e5m2_bits(B[k * N + n_]));
+                C[m * N + n_] += a_q * b_q;
+            }
+        }
+    }
+}
+
+void vec_geglu(float* dst, const float* gate, const float* up, int n) {
+    const float s = 0.7071067811865475f;
+    for (int i = 0; i < n; i++) {
+        float g = gate[i];
+        float gel = 0.5f * g * (1.0f + std::erf(g * s));
+        dst[i] = gel * up[i];
+    }
+}
+
+void vec_geglu_avx2(float* dst, const float* gate, const float* up, int n) { vec_geglu(dst, gate, up, n); }
 
 } // namespace math
 } // namespace quant

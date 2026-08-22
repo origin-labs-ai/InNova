@@ -2,6 +2,7 @@
 #include "quant/types.h"
 #include "quant/tensor.h"
 #include "quant/codebook.h"
+#include "quant/qat.h"
 
 namespace quant {
 
@@ -31,12 +32,21 @@ public:
     // Set target format
     void set_target_format(Format fmt);
     Format target_format() const;
+
+    // QAT integration: fake-quant wrapper using this STEQuantizer's format
+    // STE flow: gradient passes unchanged (via qat::FakeQuantizeFunction)
+    Tensor fake_quantize_qat(const Tensor& fp32_weight, float scale_override = 0.0f);
+    // LSQ wrapper: trainable scale
+    Tensor lsq_quantize(const Tensor& fp32_weight, Tensor& scale_param);
+    // Observer-calibrated scale hook
+    Tensor fake_quantize_with_observer(const Tensor& fp32_weight, qat::Observer& obs, int bits = 0);
     
 private:
     Format target_format_ = Format::Q1;
     
     // Find scale factor (max abs)
     float find_scale(const float* data, int64_t n);
+    int bits_for_format(Format f) const;
 };
 
 } // namespace quant

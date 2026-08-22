@@ -35,12 +35,11 @@ static std::vector<FormatDescriptor> build_singles() {
     v.push_back({"Q2_GRP",  RegFormat::Q2_GRP,  2.625f,4,    false, true,  16,   16.0f, 0.0f,  "2-bit lattice + per-16 4b scale/min + FP16 d"});
     v.push_back({"Q3_GRP",  RegFormat::Q3_GRP,  3.5f,  8,    false, true,  32,   16.0f, 0.0f,  "3-bit lattice + per-32 6b scale/min + FP16 d"});
     v.push_back({"Q4_GRP",  RegFormat::Q4_GRP,  4.5f,  16,   false, true,  32,   16.0f, 0.0f,  "4-bit lattice + per-32 6b scale/min + FP16 d"});
-    v.push_back({"Q6_GRP",  RegFormat::Q6_GRP,  6.5f,  64,   false, true,  16,   16.0f, 0.0f,  "6-bit lattice + per-16 8b scale + FP16 d"});
+    v.push_back({"Q6_GRP",  RegFormat::Q6_GRP,  6.5625f, 64,   false, true,  16,   16.0f, 0.0f,  "6-bit lattice + per-16 8b scale + FP16 d"});
     v.push_back({"Q8_GRP",  RegFormat::Q8_GRP,  8.5f,  256,  false, true,  16,   16.0f, 0.0f,  "8-bit lattice + per-16 7b scale + FP16 d"});
     v.push_back({"Q12_GRP", RegFormat::Q12_GRP, 12.5f, 4096, false, true,  16,   16.0f, 0.0f,  "12-bit lattice + per-16 FP16 scale + FP16 d"});
     v.push_back({"Q16_GRP", RegFormat::Q16_GRP, 16.5f, 0,    false, true,  16,   16.0f, 0.0f,  "16-bit adaptive + per-16 FP16 scale/offset"});
     v.push_back({"Q24_GRP", RegFormat::Q24_GRP, 24.5f, 0,    false, true,  8,    8.0f,  0.0f,  "FP24 + per-8 FP16 scale + FP16 d"});
-    v.push_back({"Q32_GRP", RegFormat::Q32_GRP, 32.5f, 0,    false, true,  8,    8.0f,  0.0f,  "FP32 + per-8 FP16 error correction"});
 
     const int64_t n_mse = 16384;
     std::vector<float> g_data((size_t)n_mse), u_data((size_t)n_mse), l_data((size_t)n_mse);
@@ -90,13 +89,13 @@ static std::vector<MixDescriptor> build_four_mixes() {
     v.push_back({"Q_QUAD_MIX_16_5",     RegFormat::Q_QUAD_MIX_16_5,     4, RegFormat::Q8,      0.35f, RegFormat::Q16,     0.40f, RegFormat::Q24,     0.20f, RegFormat::Q32,     0.05f, 16.50f, true});
     v.push_back({"Q_QUAD_MIX_24_5",     RegFormat::Q_QUAD_MIX_24_5,     4, RegFormat::Q12,     0.25f, RegFormat::Q16,     0.30f, RegFormat::Q24,     0.35f, RegFormat::Q32,     0.10f, 24.50f, true});
 
-    v.push_back({"Q_QUAD_MIX_3_5_GRP",  RegFormat::Q_QUAD_MIX_3_5_GRP,  4, RegFormat::Q1_GRP,  0.70f, RegFormat::Q3_GRP,  0.20f, RegFormat::Q8_GRP,  0.08f, RegFormat::Q32_GRP, 0.02f, 3.75f,  true});
-    v.push_back({"Q_QUAD_MIX_4_5_GRP",  RegFormat::Q_QUAD_MIX_4_5_GRP,  4, RegFormat::Q2_GRP,  0.60f, RegFormat::Q4_GRP,  0.25f, RegFormat::Q12_GRP, 0.12f, RegFormat::Q32_GRP, 0.03f, 4.75f,  true});
-    v.push_back({"Q_QUAD_MIX_6_5_GRP",  RegFormat::Q_QUAD_MIX_6_5_GRP,  4, RegFormat::Q3_GRP,  0.50f, RegFormat::Q6_GRP,  0.30f, RegFormat::Q16_GRP, 0.15f, RegFormat::Q32_GRP, 0.05f, 6.75f,  true});
-    v.push_back({"Q_QUAD_MIX_8_5_GRP",  RegFormat::Q_QUAD_MIX_8_5_GRP,  4, RegFormat::Q4_GRP,  0.45f, RegFormat::Q8_GRP,  0.35f, RegFormat::Q16_GRP, 0.15f, RegFormat::Q32_GRP, 0.05f, 8.75f,  true});
-    v.push_back({"Q_QUAD_MIX_12_5_GRP", RegFormat::Q_QUAD_MIX_12_5_GRP, 4, RegFormat::Q6_GRP,  0.40f, RegFormat::Q12_GRP, 0.35f, RegFormat::Q24_GRP, 0.20f, RegFormat::Q32_GRP, 0.05f, 12.75f, true});
-    v.push_back({"Q_QUAD_MIX_16_5_GRP", RegFormat::Q_QUAD_MIX_16_5_GRP, 4, RegFormat::Q8_GRP,  0.35f, RegFormat::Q16_GRP, 0.40f, RegFormat::Q24_GRP, 0.20f, RegFormat::Q32_GRP, 0.05f, 16.75f, true});
-    v.push_back({"Q_QUAD_MIX_24_5_GRP", RegFormat::Q_QUAD_MIX_24_5_GRP, 4, RegFormat::Q12_GRP, 0.25f, RegFormat::Q16_GRP, 0.30f, RegFormat::Q24_GRP, 0.35f, RegFormat::Q32_GRP, 0.10f, 24.75f, true});
+    v.push_back({"Q_QUAD_MIX_3_5_GRP",  RegFormat::Q_QUAD_MIX_3_5_GRP,  4, RegFormat::Q1_GRP,  0.70f, RegFormat::Q3_GRP,  0.20f, RegFormat::Q8_GRP,  0.08f, RegFormat::Q32,     0.02f, 3.75f,  true});
+    v.push_back({"Q_QUAD_MIX_4_5_GRP",  RegFormat::Q_QUAD_MIX_4_5_GRP,  4, RegFormat::Q2_GRP,  0.60f, RegFormat::Q4_GRP,  0.25f, RegFormat::Q12_GRP, 0.12f, RegFormat::Q32,     0.03f, 4.75f,  true});
+    v.push_back({"Q_QUAD_MIX_6_5_GRP",  RegFormat::Q_QUAD_MIX_6_5_GRP,  4, RegFormat::Q3_GRP,  0.50f, RegFormat::Q6_GRP,  0.30f, RegFormat::Q16_GRP, 0.15f, RegFormat::Q32,     0.05f, 6.75f,  true});
+    v.push_back({"Q_QUAD_MIX_8_5_GRP",  RegFormat::Q_QUAD_MIX_8_5_GRP,  4, RegFormat::Q4_GRP,  0.45f, RegFormat::Q8_GRP,  0.35f, RegFormat::Q16_GRP, 0.15f, RegFormat::Q32,     0.05f, 8.75f,  true});
+    v.push_back({"Q_QUAD_MIX_12_5_GRP", RegFormat::Q_QUAD_MIX_12_5_GRP, 4, RegFormat::Q6_GRP,  0.40f, RegFormat::Q12_GRP, 0.35f, RegFormat::Q24_GRP, 0.20f, RegFormat::Q32,     0.05f, 12.75f, true});
+    v.push_back({"Q_QUAD_MIX_16_5_GRP", RegFormat::Q_QUAD_MIX_16_5_GRP, 4, RegFormat::Q8_GRP,  0.35f, RegFormat::Q16_GRP, 0.40f, RegFormat::Q24_GRP, 0.20f, RegFormat::Q32,     0.05f, 16.75f, true});
+    v.push_back({"Q_QUAD_MIX_24_5_GRP", RegFormat::Q_QUAD_MIX_24_5_GRP, 4, RegFormat::Q12_GRP, 0.25f, RegFormat::Q16_GRP, 0.30f, RegFormat::Q24_GRP, 0.35f, RegFormat::Q32,     0.10f, 24.75f, true});
     return v;
 }
 
@@ -204,34 +203,34 @@ QuantResult FormatRegistry::quantize_block(const float* block, size_t block_size
 // All format-specific quantize helpers delegate to the canonical quantize(),
 // guaranteeing byte-identical results to the .quant writer — a single encoding
 // per format ID (registry path == on-disk path).
-QuantResult FormatRegistry::quantize_quant1(const float* data, int64_t n) {
+QuantResult FormatRegistry::quantize_q1(const float* data, int64_t n) {
     return quantize(data, n, parse_format_name("Q1"));
 }
 
-QuantResult FormatRegistry::quantize_quant2(const float* data, int64_t n) {
+QuantResult FormatRegistry::quantize_q2(const float* data, int64_t n) {
     return quantize(data, n, parse_format_name("Q2"));
 }
 
-QuantResult FormatRegistry::quantize_quant4(const float* data, int64_t n) {
+QuantResult FormatRegistry::quantize_q4(const float* data, int64_t n) {
     return quantize(data, n, parse_format_name("Q4"));
 }
 
-QuantResult FormatRegistry::quantize_quant8(const float* data, int64_t n) {
+QuantResult FormatRegistry::quantize_q8(const float* data, int64_t n) {
     return quantize(data, n, parse_format_name("Q8"));
 }
 
-QuantResult FormatRegistry::quantize_quant_q0(const float* data, int64_t n, int) {
+QuantResult FormatRegistry::quantize_q_twi_mix_1_5(const float* data, int64_t n, int) {
     return quantize(data, n, parse_format_name("Q_TWI_MIX_1_5"));
 }
 
-QuantResult FormatRegistry::quantize_quant_sparse(const float* data, int64_t n) {
+QuantResult FormatRegistry::quantize_q_sparse(const float* data, int64_t n) {
     return quantize(data, n, parse_format_name("Q2")); // Map legacy Q1 to Q2
 }
 
 void FormatRegistry::dequantize(const QuantResult& qr, float* output, int64_t n) {
     if (!output || n <= 0 || !qr.success) return;
 
-    // Legacy QUANT32 in-memory copy (saved by older STE adapter stores) takes
+    // Legacy Q32 in-memory copy (saved by older STE adapter stores) takes
     // precedence; otherwise the wire payload (raw FP32 bytes in indices) is
     // decoded, matching the canonical .quant layout.
     if (qr.format.id == RegFormat::Q32) {

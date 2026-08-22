@@ -22,6 +22,50 @@ void scalar_gemm(const float* A, const float* B, float* C,
     }
 }
 
+// C[M,N] = A[M,K] x B[N,K]^T — B is row-major {N, K} (e.g. Linear weights {out, in})
+void scalar_gemm_bt(const float* A, const float* B, float* C,
+                    int M, int N, int K) {
+    for (int m = 0; m < M; m++) {
+        const float* a_row = A + (size_t)m * K;
+        for (int n = 0; n < N; n++) {
+            const float* b_row = B + (size_t)n * K;
+            float acc = 0.0f;
+            for (int k = 0; k < K; k++)
+                acc += a_row[k] * b_row[k];
+            C[(size_t)m * N + n] = acc;
+        }
+    }
+}
+
+#if defined(QUANT_HAS_AVX2)
+// AVX2 variant of scalar_gemm_bt: 8-wide dot products over K
+void avx2_gemm_bt(const float* A, const float* B, float* C,
+                  int M, int N, int K) {
+    for (int m = 0; m < M; m++) {
+        const float* a_row = A + (size_t)m * K;
+        for (int n = 0; n < N; n++) {
+            const float* b_row = B + (size_t)n * K;
+            __m256 acc = _mm256_setzero_ps();
+            int k = 0;
+            for (; k + 8 <= K; k += 8) {
+                __m256 av = _mm256_loadu_ps(a_row + k);
+                __m256 bv = _mm256_loadu_ps(b_row + k);
+                acc = _mm256_fmadd_ps(av, bv, acc);
+            }
+            float sum = 0.0f;
+            for (int r = 0; r < 8; r++) sum += ((float*)&acc)[r];
+            for (; k < K; k++) sum += a_row[k] * b_row[k];
+            C[(size_t)m * N + n] = sum;
+        }
+    }
+}
+#else
+void avx2_gemm_bt(const float* A, const float* B, float* C,
+                  int M, int N, int K) {
+    scalar_gemm_bt(A, B, C, M, N, K);
+}
+#endif
+
 // C[M,N] = A[M,K] x B[K,N] — 64x64 block-tiled GEMM (cache-friendly)
 void tiled_gemm(const float* A, const float* B, float* C,
                 int M, int N, int K) {

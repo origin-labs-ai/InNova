@@ -723,5 +723,116 @@ void MetaCognitionEngine::reset() {
     next_subgoal_id_ = 0;
 }
 
+class MCOS {
+public:
+    void adjust_weights_dynamic(Model* model, const std::string& task_type) {
+        if (!model) return;
+
+        auto it = profiles_.find(task_type);
+        if (it != profiles_.end()) {
+            const auto& weight_deltas = it->second;
+            // Dynamically adjust model hyper-parameters and scaling profiles
+            if (!weight_deltas.empty()) {
+                model->config.norm_eps = std::max(1e-7f, std::min(1e-3f, model->config.norm_eps * (1.0f + weight_deltas[0] * 0.01f)));
+            }
+            if (weight_deltas.size() > 1) {
+                model->config.rope_theta = std::max(100.0f, std::min(500000.0f, model->config.rope_theta * (1.0f + weight_deltas[1] * 0.01f)));
+            }
+        } else {
+            // Register default task profile dynamically
+            if (task_type == "code") {
+                profiles_[task_type] = {0.1f, 0.5f, 0.2f};
+                model->config.norm_eps = 1e-6f;
+            } else if (task_type == "math") {
+                profiles_[task_type] = {0.05f, 1.0f, 0.4f};
+                model->config.rope_theta = 20000.0f;
+            } else {
+                profiles_[task_type] = {0.0f, 0.0f, 0.0f};
+            }
+        }
+    }
+
+    void register_task_profile(const std::string& name, const std::vector<float>& weight_deltas) {
+        profiles_[name] = weight_deltas;
+    }
+
+    std::string detect_task_type(const std::string& prompt) {
+        std::string lower = prompt;
+        for (char& c : lower) c = std::tolower(c);
+        if (lower.find("code") != std::string::npos || lower.find("function") != std::string::npos) return "code";
+        if (lower.find("math") != std::string::npos || lower.find("solve") != std::string::npos) return "math";
+        return "general";
+    }
+
+private:
+    std::map<std::string, std::vector<float>> profiles_;
+};
+
+class MetaGRPO {
+public:
+    struct Strategy { std::string name; float fitness; std::vector<float> params; };
+
+    Strategy evolve(const std::vector<Strategy>& population, int generations = 10) {
+        std::vector<Strategy> pop = population;
+        for (int g = 0; g < generations; ++g) {
+            for (auto& s : pop) s.fitness = evaluate(s);
+            std::sort(pop.begin(), pop.end(), [](const Strategy& a, const Strategy& b) {
+                return a.fitness > b.fitness;
+            });
+            std::vector<Strategy> next_gen;
+            for (size_t i = 0; i < pop.size() / 2; ++i) {
+                next_gen.push_back(pop[i]);
+                Strategy child = crossover(pop[i], pop[(i + 1) % (pop.size() / 2)]);
+                mutate(child);
+                next_gen.push_back(child);
+            }
+            pop = next_gen;
+        }
+        return pop.empty() ? Strategy{"", 0.0f, {}} : pop[0];
+    }
+
+    std::vector<Strategy> initialize_population(int size = 20) {
+        std::vector<Strategy> pop(size);
+        for (int i = 0; i < size; ++i) {
+            pop[i].name = "Strat_" + std::to_string(i);
+            pop[i].fitness = 0.0f;
+            pop[i].params = {1.0f + (float)i * 0.05f, 0.8f + (float)i * 0.02f, 0.1f * (float)(i % 5)};
+        }
+        return pop;
+    }
+
+private:
+    Strategy crossover(const Strategy& a, const Strategy& b) {
+        Strategy c = a;
+        c.name = a.name + "_" + b.name;
+        for (size_t i = 0; i < c.params.size() && i < b.params.size(); ++i) {
+            if (i % 2 == 1) c.params[i] = b.params[i];
+        }
+        return c;
+    }
+
+    void mutate(Strategy& s, float rate = 0.1f) {
+        for (float& p : s.params) {
+            p += rate * ((float)rand() / RAND_MAX - 0.5f);
+        }
+    }
+
+    float evaluate(const Strategy& s) {
+        // Multi-objective fitness function evaluating parameter variance, scaling balance, and stability
+        if (s.params.empty()) return 0.0f;
+        float mean = 0.0f;
+        for (float p : s.params) mean += p;
+        mean /= (float)s.params.size();
+
+        float variance = 0.0f;
+        for (float p : s.params) variance += (p - mean) * (p - mean);
+        variance /= (float)s.params.size();
+
+        // Higher fitness for balanced parameter scaling with controlled variance
+        float stability_score = 1.0f / (1.0f + variance);
+        return mean * 0.6f + stability_score * 0.4f;
+    }
+};
+
 } // namespace agi
 } // namespace quant

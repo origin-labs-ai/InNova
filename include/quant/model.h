@@ -40,11 +40,19 @@ public:
 
     void init_weights();
     void get_parameters(std::vector<Tensor*>& params);
+
+    // MTP: forward returning per-head logits (head 0 = next-token, head 1+ = future tokens)
+    std::vector<Tensor> mtp_forward(const Tensor& input_ids, const Tensor& positions,
+                                    KVCache* cache = nullptr);
+    float mtp_loss(const std::vector<Tensor>& mtp_logits, const Tensor& labels) const;
     
     std::unique_ptr<Embedding> tok_embeddings;
     std::vector<std::unique_ptr<TransformerBlock>> layers;
     std::unique_ptr<RMSNorm> norm;
     std::unique_ptr<Linear> lm_head;
+
+    // MTP prediction heads (one per future token position)
+    std::vector<std::unique_ptr<Linear>> mtp_heads;
     
 private:
     void build_layers();

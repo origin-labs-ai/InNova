@@ -26,7 +26,6 @@ enum class RegFormat : uint32_t {
     Q12_GRP,
     Q16_GRP,
     Q24_GRP,
-    Q32_GRP,
     Q_TWI_MIX_1_5,
     Q_TWI_MIX_2_5,
     Q_TWI_MIX_1_5_GRP,
@@ -73,7 +72,7 @@ struct MixDescriptor {
     RegFormat tier4_fmt;
     float tier4_ratio;
     float effective_bpw;
-    // Adaptive mixes (QUANT_MIX): blocks are assigned to member formats by
+    // Adaptive mixes (Q_MIX): blocks are assigned to member formats by
     // measured reconstruction benefit per byte, under a HARD budget equal to
     // the claimed effective_bpw. Non-adaptive mixes keep the registry ratios.
     bool adaptive = false;
@@ -85,10 +84,10 @@ struct QuantResult {
     // concatenated per 256-weight wire block (block_codec.h). dequantize()
     // walks block_idx_bytes/block_cb_bytes to slice each block's payload.
     std::vector<uint8_t> indices;
-    std::vector<uint8_t> codebook;         // wire codebook channel (QUANT1 block means)
+    std::vector<uint8_t> codebook;         // wire codebook channel (Q1 block means)
     std::vector<uint32_t> block_idx_bytes; // per wire block: indices payload bytes
     std::vector<uint32_t> block_cb_bytes;  // per wire block: codebook payload bytes
-    // In-memory metadata kept for compatibility (QUANT32 FP32 copy and any
+    // In-memory metadata kept for compatibility (Q32 FP32 copy and any
     // caller-visible scales). NOT stored on disk — the wire payload in
     // indices/codebook is the complete serialized form.
     std::vector<float> codebook_fp32;
@@ -142,7 +141,7 @@ public:
 
     static float compute_average_bpw(const std::vector<FormatDescriptor>& assignment);
 
-    // Adaptive mix allocation (QUANT_MIX_Q0 / QUANT_MIX_Q1).
+    // Adaptive mix allocation (Q_TWI_MIX_1_5 / Q2).
     // Per-block member-format assignment that treats the claimed effective
     // BPW as a HARD byte budget: the returned plan NEVER costs more than
     // ceil(effective_bpw * n / 8) bytes, and spends every byte only where it
@@ -157,12 +156,12 @@ public:
                                             int block_size,
                                             const std::vector<int64_t>* shape = nullptr);
 
-    static QuantResult quantize_quant1(const float* data, int64_t n);
-    static QuantResult quantize_quant2(const float* data, int64_t n);
-    static QuantResult quantize_quant4(const float* data, int64_t n);
-    static QuantResult quantize_quant8(const float* data, int64_t n);
-    static QuantResult quantize_quant_q0(const float* data, int64_t n, int block_size);
-    static QuantResult quantize_quant_sparse(const float* data, int64_t n);
+    static QuantResult quantize_q1(const float* data, int64_t n);
+    static QuantResult quantize_q2(const float* data, int64_t n);
+    static QuantResult quantize_q4(const float* data, int64_t n);
+    static QuantResult quantize_q8(const float* data, int64_t n);
+    static QuantResult quantize_q_twi_mix_1_5(const float* data, int64_t n, int block_size);
+    static QuantResult quantize_q_sparse(const float* data, int64_t n);
 
 private:
     static FormatDescriptor find_closest_single(float target_bpw);

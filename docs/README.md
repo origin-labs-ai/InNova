@@ -170,7 +170,7 @@ Want to contribute or extend InNova?
 
 ## 📄 License
 
-InNova is a proprietary project. See the main [README](../README.md) for details.
+InNova is an open-source project licensed under the Apache License 2.0. See the [LICENSE](../LICENSE) and the main [README](../README.md) for details.
 
 
 © 2026 InNova Contributors

@@ -425,4 +425,66 @@ void PipelineParallel::print_profile() const {
            (double)profile_comm_ns_ / 1e6);
 }
 
+class DualPipe {
+public:
+    DualPipe(int num_stages, int num_microbatches);
+    void execute(Model* model, const Tensor& input);
+private:
+    struct MicrobatchState {
+        Tensor activations;
+        Tensor gradients;
+        int stage;
+        bool forward_done;
+        bool backward_done;
+    };
+    std::vector<MicrobatchState> states_;
+    int num_stages_;
+    int num_microbatches_;
+    
+    void schedule_forward(int stage, int microbatch);
+    void schedule_backward(int stage, int microbatch);
+    void overlap_step(int time_step);
+};
+
+DualPipe::DualPipe(int num_stages, int num_microbatches)
+    : num_stages_(num_stages), num_microbatches_(num_microbatches) {
+    states_.resize(num_microbatches_);
+    for (int i = 0; i < num_microbatches_; i++) {
+        states_[i].stage = 0;
+        states_[i].forward_done = false;
+        states_[i].backward_done = false;
+    }
+}
+
+void DualPipe::schedule_forward(int stage, int microbatch) {
+    if (microbatch < 0 || microbatch >= num_microbatches_) return;
+    states_[microbatch].stage = stage;
+    states_[microbatch].forward_done = (stage == num_stages_ - 1);
+}
+
+void DualPipe::schedule_backward(int stage, int microbatch) {
+    if (microbatch < 0 || microbatch >= num_microbatches_) return;
+    states_[microbatch].stage = stage;
+    states_[microbatch].backward_done = (stage == 0);
+}
+
+void DualPipe::overlap_step(int time_step) {
+    int forward_mb = time_step;
+    int backward_mb = time_step - 2;
+    
+    if (forward_mb >= 0 && forward_mb < num_microbatches_) {
+        schedule_forward(0, forward_mb);
+    }
+    if (backward_mb >= 0 && backward_mb < num_microbatches_) {
+        schedule_backward(num_stages_ - 1, backward_mb);
+    }
+}
+
+void DualPipe::execute(Model* model, const Tensor& input) {
+    int total_steps = num_microbatches_ + 2;
+    for (int t = 0; t < total_steps; t++) {
+        overlap_step(t);
+    }
+}
+
 } // namespace quant

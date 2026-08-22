@@ -814,4 +814,15 @@ const char* PagedKVCache1T::disk_name() const {
     return "paged_kv1t";
 }
 
+void PagedKVCache::init(int num_layers, int64_t max_seq_len, int64_t num_heads,
+                        int64_t head_dim) {
+    max_seq_len_ = max_seq_len;
+    cache_ = std::make_unique<PagedKVCache4M>(num_layers, num_heads, head_dim,
+                                              PagedKVCache4M::DEFAULT_BLOCK_SIZE);
+}
+
+int64_t PagedKVCache::logical_capacity() const {
+    return cache_ ? cache_->logical_capacity() : 0;
+}
+
 } // namespace quant

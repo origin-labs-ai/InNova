@@ -826,9 +826,6 @@ Tensor moe_dispatch_batched(const Tensor& x_flat,
     return output;
 }
 
-// ========================================================================
-// AVX2-optimized MoE kernels
-// ========================================================================
 
 namespace avx2 {
 

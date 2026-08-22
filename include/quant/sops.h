@@ -8,7 +8,7 @@
 //   SOPS = (elements x info_weight) / time / 10^21
 //   info_weight = 32 / bits_per_weight_element
 //
-// All 15 QUANT/QUANT formats: QUANT1 through QUANT32, QUANT variants, plus mixes.
+// All 15 base formats: Q1 through Q32, GRP variants, plus mixes.
 // ============================================================================
 
 #include <cstdint>
@@ -31,36 +31,36 @@ struct SopsFormat {
 
 // All base formats from format_registry.h
 inline const SopsFormat sops_formats[] = {
-    {"QUANT1",            1.0,   32.000},
-    {"QUANT_Q0",        1.50,  21.333},
-    {"QUANT_Q1",    2.0,   16.000},
-    {"QUANT2",            2.0,   16.000},
-    {"QUANT4",            4.0,    8.000},
-    {"QUANT8",            8.0,    4.000},
-    {"QUANT16",          16.0,    2.000},
-    {"QUANT32",          32.0,    1.000},
-    {"QUANT1_GRP",        1.0,   32.000},
-    {"QUANT2_GRP",        2.625, 12.190},
-    {"QUANT4_GRP",        4.50,   7.111},
-    {"QUANT8_GRP",        8.50,   3.765},
-    {"QUANT16_GRP",      16.0,    2.000},
-    {"QUANT_Q0_GRP",    1.50,  21.333},
-    {"QUANT_Q1_GRP",2.0,   16.000},
+    {"Q1",            1.0,   32.000},
+    {"Q0",        1.50,  21.333},
+    {"Q1K",    2.0,   16.000},
+    {"Q2",            2.0,   16.000},
+    {"Q4",            4.0,    8.000},
+    {"Q8",            8.0,    4.000},
+    {"Q16",          16.0,    2.000},
+    {"Q32",          32.0,    1.000},
+    {"Q1_GRP",        1.0,   32.000},
+    {"Q2_GRP",        2.625, 12.190},
+    {"Q4_GRP",        4.50,   7.111},
+    {"Q8_GRP",        8.50,   3.765},
+    {"Q16_GRP",      16.0,    2.000},
+    {"Q0_GRP",    1.50,  21.333},
+    {"Q1K_GRP",2.0,   16.000},
 };
 inline constexpr int SOPS_NUM_FORMATS = 15;
 
 // Mix format effective BPW (from format_registry.cpp)
 inline const SopsFormat sops_mix_formats[] = {
-    {"QUANT8+QUANT2_1_99",      2.06,  15.534},
-    {"QUANT8+QUANT4_5_95",      4.20,   7.619},
-    {"QUANT4+QUANT2_5_95",      2.10,  15.238},
-    {"QUANT4+QUANT2_10_90",     2.20,  14.545},
-    {"QUANT8+QUANT2_5_95",      2.30,  13.913},
-    {"QUANT8+QUANT2_10_90",     2.60,  12.308},
-    {"QUANT+QUANT8_5_95",     7.675,  4.169},
-    {"QUANT16+QUANT4_1_99",     4.12,   7.767},
-    {"QUANT16+QUANT8_5_95",     8.40,   3.810},
-    {"QUANT32+QUANT8_1_99",     8.24,   3.883},
+    {"Q8+Q2_1_99",      2.06,  15.534},
+    {"Q8+Q4_5_95",      4.20,   7.619},
+    {"Q4+Q2_5_95",      2.10,  15.238},
+    {"Q4+Q2_10_90",     2.20,  14.545},
+    {"Q8+Q2_5_95",      2.30,  13.913},
+    {"Q8+Q2_10_90",     2.60,  12.308},
+    {"Q4+Q8_5_95",     7.675,  4.169},
+    {"Q16+Q4_1_99",     4.12,   7.767},
+    {"Q16+Q8_5_95",     8.40,   3.810},
+    {"Q32+Q8_1_99",     8.24,   3.883},
 };
 inline constexpr int SOPS_NUM_MIXES = 10;
 

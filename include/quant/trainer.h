@@ -8,6 +8,7 @@
 #include "quant/codebook.h"
 #include "quant/random.h"
 #include "quant/reward.h"
+#include "quant/continual_engine.h"
 #include <vector>
 #include <string>
 #include <functional>
@@ -16,6 +17,7 @@
 #include <mutex>
 #include <queue>
 #include <atomic>
+#include <memory>
 
 namespace quant {
 
@@ -53,6 +55,17 @@ struct TrainConfig {
     // Gradient noise injection (Neelakantan et al. ICLR 2016)
     float grad_noise_eta = 0.0f;
     float grad_noise_gamma = 0.55f;
+    // QAT (Quantization-Aware Training)
+    bool use_qat = false;
+    int qat_bits = 8;
+    bool qat_symmetric = true;
+    bool qat_use_lsq = false;
+    float qat_init_scale = 0.1f;
+    // MoE Load-Balance auxiliary loss (wired from MoEModel::total_load_balance_loss)
+    float moe_load_balance_coef = 0.01f;
+    float moe_z_loss_coef = 0.001f;
+    // MTP auxiliary loss weight
+    float mtp_loss_weight = 0.0f;
 };
 
 struct AugmentConfig {
@@ -226,106 +239,126 @@ struct TrainMetrics {
 
 class Trainer {
 public:
-    Trainer(Model* model, Tokenizer* tokenizer);
-    
-    void compile(AdamW* optimizer, const TrainConfig& cfg = TrainConfig{});
-    void compile(Adafactor* optimizer, const TrainConfig& cfg = TrainConfig{});
-    void fit(DataLoader& train_dl, const TrainConfig& cfg,
-             DataLoader* val_dl = nullptr);
-    
-    float train_step(const Tensor& input_ids, const Tensor& labels);
-    float micro_step(const Tensor& input_ids, const Tensor& labels, float loss_scale = 1.0f);
-    float eval_loss(DataLoader& val_dl, int64_t max_batches = 20);
-    float clip_gradients(float max_norm);
-    void unscale_gradients(float scale);
-    void save_checkpoint(const std::string& path);
-    void load_checkpoint(const std::string& path);
-    
-    // Callbacks
     using LogCallback = std::function<void(const TrainMetrics&)>;
     using EpochCallback = std::function<void(int epoch, const TrainMetrics&)>;
     using StepCallback = std::function<void(int step, const TrainMetrics&)>;
+
+    Trainer(Model* model, Tokenizer* tokenizer);
+
+    void compile(AdamW* optimizer, const TrainConfig& cfg = TrainConfig{});
+    void compile(Adafactor* optimizer, const TrainConfig& cfg = TrainConfig{});
+    void compile(const TrainConfig& cfg = TrainConfig{});
+
+    void init_mixed_precision();
+    float eval_loss(DataLoader& val_dl, int64_t max_batches);
+    void unscale_gradients(float scale);
+    void fit(DataLoader& dl, const TrainConfig& cfg, DataLoader* val_dl = nullptr);
+    float micro_step(const Tensor& input_ids, const Tensor& labels, float loss_scale);
+    float train_step(const Tensor& input_ids, const Tensor& labels);
+    float clip_gradients(float max_norm);
+    void save_checkpoint(const std::string& path);
+    void load_checkpoint(const std::string& path);
+
     void set_log_callback(LogCallback cb);
     void set_epoch_callback(EpochCallback cb);
     void set_step_callback(StepCallback cb);
-    
     const TrainMetrics& metrics() const;
-    const std::vector<Tensor*>& get_model_params() const { return model_params_; }
-    std::vector<Codebook*> get_codebooks() const { return codebooks_; }
-    void set_codebooks(const std::vector<Codebook*>& cbs) { codebooks_ = cbs; }
-    
-    // C20: EMA tracking
-    void ema_init(float decay = 0.999f);
+
+    float rdrop_loss(const Tensor& input_ids, const Tensor& labels, float alpha);
+    Tensor label_smoothing_loss(const Tensor& logits, const Tensor& labels, float smoothing);
+    float mtp_loss(const std::vector<Tensor>& mtp_logits, const Tensor& labels);
+
+    void ema_init(float decay);
     void ema_step();
     void ema_apply();
     void ema_swap();
-    
-    // C14: Enhanced mixed precision
-    void dynamic_loss_scale(float grad_norm, float max_grad_norm);
+    bool ema_enabled() const { return ema_enabled_; }
 
-    // Task 121: master FP32 weights + FP16 forward
-    void init_mixed_precision();
-    void mp_quantize_forward();   // snapshot FP32 master, quantize model weights to FP16
-    void mp_restore_master();     // restore FP32 master weights for optimizer step
-    bool mixed_precision_active() const { return mp_active_; }
-    
-    // C17: Label smoothing cross-entropy
-    Tensor label_smoothing_loss(const Tensor& logits, const Tensor& labels, float smoothing);
-    // C19: R-Drop consistency loss
-    float rdrop_loss(const Tensor& input_ids, const Tensor& labels, float alpha);
-    // Gradient noise injection (Neelakantan et al. ICLR 2016)
+    void dynamic_loss_scale(float grad_norm, float max_grad_norm);
     void inject_gradient_noise(int step);
-    
+
+    const std::vector<Tensor*>& get_model_params() const { return model_params_; }
+
+    // QAT hooks: optionally fake-quantize weights in forward graph
+    void enable_qat(int bits = 8, bool symmetric = true, bool use_lsq = false, float init_scale = 0.1f);
+    void disable_qat();
+    bool qat_enabled() const;
+    // apply fake-quant to a weight tensor (STE-aware, called inside micro_step if enabled)
+    Tensor qat_fake_quantize(const Tensor& weight);
+    Tensor qat_fake_quantize_lsq(const Tensor& weight, Tensor& scale_param);
+
+    // Continual learning: EWC + Compressed replay
+    void enable_continual(const ContinualEngineConfig& cfg = {});
+    void disable_continual();
+    bool continual_enabled() const { return continual_enabled_; }
+    ContinualEngine* continual_engine() { return continual_engine_.get(); }
+    void on_task_boundary(uint32_t new_task_id,
+                          const float* eval_inputs = nullptr,
+                          const float* eval_targets = nullptr,
+                          size_t eval_count = 0);
+    void set_ewc_lambda(float lambda);
+    void set_replay_ratio(float ratio);
+
 private:
-    Model* model_;
-    Tokenizer* tokenizer_;
+    Model* model_ = nullptr;
+    Tokenizer* tokenizer_ = nullptr;
     Optimizer* optimizer_ = nullptr;
-    TrainMetrics metrics_;
-    LogCallback log_cb_;
-    EpochCallback epoch_cb_;
-    StepCallback step_cb_;
+    std::unique_ptr<Optimizer> default_opt_;
     std::vector<Tensor*> model_params_;
     std::vector<Codebook*> codebooks_;
-    
+    std::vector<Tensor> ema_params_;
+    TrainMetrics metrics_;
+    LogCallback log_cb_;
+    StepCallback step_cb_;
+    EpochCallback epoch_cb_;
+    RNG grad_noise_rng_;
     int step_ = 0;
     float loss_scale_ = 1.0f;
     int loss_scale_interval_ = 2000;
     int steps_since_scale_update_ = 0;
-    
-    // C20: EMA state
-    std::vector<Tensor> ema_params_;
-    float ema_decay_ = 0.999f;
-    bool ema_enabled_ = false;
-
-    // Task 121: master FP32 weight copies for mixed precision
-    std::vector<Tensor> mp_master_;
-    bool mp_active_ = false;
-
     float grad_noise_eta_ = 0.0f;
     float grad_noise_gamma_ = 0.55f;
-    RNG grad_noise_rng_;
     float label_smoothing_ = 0.0f;
+    float ema_decay_ = 0.999f;
+    bool ema_enabled_ = false;
+    // QAT state
+    bool qat_enabled_ = false;
+    int qat_bits_ = 8;
+    bool qat_symmetric_ = true;
+    bool qat_use_lsq_ = false;
+    float qat_init_scale_ = 0.1f;
+    std::vector<Tensor> qat_scales_; // per-param scale (LSQ trainable)
+    // Continual state
+    bool continual_enabled_ = false;
+    std::unique_ptr<ContinualEngine> continual_engine_;
+    ContinualEngineConfig continual_cfg_;
+    float ewc_lambda_ = 1.0f;
+    float replay_ratio_ = 0.25f;
+    uint32_t current_task_id_ = 0;
 };
 
 // ===========================================================================
-// PPO Trainer — Proximal Policy Optimization for RLHF
+// PPO Trainer — Proximal Policy Optimization (native C++ implementation)
 // ===========================================================================
 class PPOTrainer {
 public:
-    PPOTrainer(Model* policy, Model* ref_model, float clip_epsilon = 0.2f,
-               float value_coef = 0.5f, float entropy_coef = 0.01f,
-               float gamma = 0.99f, float gae_lambda = 0.95f,
+    PPOTrainer(Model* policy, Model* ref_model,
+               float clip_epsilon = 0.2f,
+               float value_coef = 0.5f,
+               float entropy_coef = 0.01f,
+               float gamma = 0.99f,
+               float gae_lambda = 0.95f,
                float kl_target = 0.02f);
 
-    void train_step(const Tensor& states, const Tensor& actions,
-                    const Tensor& old_logprobs, const Tensor& advantages,
-                    const Tensor& returns);
-
+    Tensor critic_forward(const Tensor& hidden);
+    Tensor compute_log_probs(const Tensor& logits, const Tensor& ids);
     Tensor compute_gae(const Tensor& rewards, const Tensor& values,
                        const Tensor& dones);
     float compute_kl_divergence(const Tensor& logits_a, const Tensor& logits_b);
 
-    Tensor compute_log_probs(const Tensor& logits, const Tensor& ids);
+    void train_step(const Tensor& states, const Tensor& actions,
+                    const Tensor& old_logprobs, const Tensor& advantages,
+                    const Tensor& returns);
 
     std::vector<Tensor*> critic_parameters();
     void set_log_callback(std::function<void(float pl, float vl, float ent, float kl)> cb) {
@@ -349,7 +382,6 @@ private:
     Tensor v_fc1_weight_, v_fc1_bias_;
     Tensor v_fc2_weight_, v_fc2_bias_;
 
-    Tensor critic_forward(const Tensor& hidden);
     std::function<void(float, float, float, float)> log_cb_;
 };
 
@@ -383,6 +415,47 @@ private:
 };
 
 // ===========================================================================
+// GRPO Trainer — Group Relative Policy Optimization
+// ===========================================================================
+class GRPOTrainer {
+public:
+    GRPOTrainer(Model* policy, Tokenizer* tok, int group_size = 8, float beta = 0.04f);
+    void set_optimizer(Optimizer* opt) { optimizer_ = opt; }
+    void set_beta(float b) { beta_ = b; }
+    float train_step(const std::string& prompt);
+    // tensor-batch variant used by RLHFPipeline
+    float train_step(const Tensor& input_ids, const Tensor& labels, const Tensor& rewards);
+    float last_loss() const { return last_loss_; }
+    int group_size() const { return group_size_; }
+private:
+    Model* model_;
+    Tokenizer* tok_;
+    int group_size_;
+    float beta_;
+    Optimizer* optimizer_ = nullptr;
+    float last_loss_ = 0.0f;
+    Tensor compute_log_probs(const Tensor& logits, const Tensor& ids);
+};
+
+// ===========================================================================
+// RLVR Trainer — Reinforcement Learning with Verifiable Rewards
+// ===========================================================================
+class RLVRTrainer {
+public:
+    RLVRTrainer(Model* model, Tokenizer* tok, Optimizer* optimizer = nullptr);
+    void set_optimizer(Optimizer* opt) { optimizer_ = opt; }
+    float train_step(const std::string& prompt, const std::string& verifiable_answer);
+    float train_step(const Tensor& input_ids, const Tensor& labels, float reward);
+    float last_reward() const { return last_reward_; }
+private:
+    Model* model_;
+    Tokenizer* tok_;
+    Optimizer* optimizer_ = nullptr;
+    float last_reward_ = 0.0f;
+    bool verify(const std::string& output, const std::string& answer);
+};
+
+// ===========================================================================
 // RLHF Pipeline — Complete preference-based alignment loop
 // ===========================================================================
 class RLHFPipeline {
@@ -397,6 +470,10 @@ public:
                       int ppo_batch_size = 8, int max_new_tokens = 64);
     void dpo_finetune(const std::vector<Comparison>& comparisons, int n_steps = 10,
                       int batch_size = 4);
+    void grpo_finetune(const std::vector<std::string>& prompts, int n_steps = 20,
+                       int max_new_tokens = 32);
+    void rlvf_finetune(const std::vector<std::pair<std::string,std::string>>& qa_pairs,
+                       int n_steps = 20, int max_new_tokens = 32);
 
     void run(int n_rounds = 3, int n_prompts = 50, int n_ppo_steps = 200);
 

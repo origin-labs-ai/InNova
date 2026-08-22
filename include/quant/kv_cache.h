@@ -3,6 +3,7 @@
 #include "quant/tensor.h"
 #include <vector>
 #include <string>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 
@@ -235,6 +236,31 @@ private:
     void* create_root() const override;
     void destroy_root(void* root) const override;
     const char* disk_name() const override;
+};
+
+// ===========================================================================
+// PagedKVCache — convenience facade over the hierarchical paged engine
+//
+// Wraps PagedKVCache4M behind a default-constructible + init() API.
+// ===========================================================================
+
+class PagedKVCache {
+public:
+    PagedKVCache() = default;
+    ~PagedKVCache() = default;
+
+    PagedKVCache(const PagedKVCache&) = delete;
+    PagedKVCache& operator=(const PagedKVCache&) = delete;
+
+    void init(int num_layers, int64_t max_seq_len, int64_t num_heads,
+              int64_t head_dim);
+
+    int64_t logical_capacity() const;
+    int64_t max_seq_len() const { return max_seq_len_; }
+
+private:
+    std::unique_ptr<PagedKVCache4M> cache_;
+    int64_t max_seq_len_ = 0;
 };
 
 } // namespace quant

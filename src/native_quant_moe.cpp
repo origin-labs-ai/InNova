@@ -21,17 +21,14 @@ NativeQUANTMoEModel::NativeQUANTMoEModel(const NativeMoEConfig& cfg)
     : cfg_(cfg), total_params_(0), emb_params_(0), head_params_(0)
 {
 #ifdef QUANT_DEBUG
-    printf("[DBG] NativeQUANTMoEModel ctor: begin\n"); fflush(stdout);
 #endif
     emb_ = new Embedding(cfg_.vocab_size, cfg_.hidden_size);
 #ifdef QUANT_DEBUG
-    printf("[DBG] embedding created\n"); fflush(stdout);
 #endif
     emb_params_ = (size_t)cfg_.vocab_size * (size_t)cfg_.hidden_size;
 
     layers_.resize(cfg_.num_layers);
 #ifdef QUANT_DEBUG
-    printf("[DBG] layers resized to %lld\n", (long long)cfg_.num_layers); fflush(stdout);
 #endif
     TransformerConfig tcfg;
     tcfg.hidden_size = cfg_.hidden_size;
@@ -42,13 +39,11 @@ NativeQUANTMoEModel::NativeQUANTMoEModel(const NativeMoEConfig& cfg)
     tcfg.max_seq_len = cfg_.max_seq_len;
     for (int64_t i = 0; i < cfg_.num_layers; i++) {
 #ifdef QUANT_DEBUG
-        printf("[DBG] creating layer %lld/%lld\n", (long long)i, (long long)cfg_.num_layers); fflush(stdout);
 #endif
         layers_[i] = std::make_unique<TransformerBlock>(tcfg);
     }
 
 #ifdef QUANT_DEBUG
-    printf("[DBG] creating MoE...\n"); fflush(stdout);
 #endif
     MoEAllConfig mc;
     mc.variant = MoEVariant::SPARSE_TOPK;
@@ -58,11 +53,9 @@ NativeQUANTMoEModel::NativeQUANTMoEModel(const NativeMoEConfig& cfg)
     mc.load_balance_coef = cfg_.load_balance_coef;
     mc.z_loss_coef = cfg_.z_loss_coef;
 #ifdef QUANT_DEBUG
-    printf("[DBG] calling SparseMoE constructor...\n"); fflush(stdout);
 #endif
     moe_ = new SparseMoE(cfg_.hidden_size, mc);
 #ifdef QUANT_DEBUG
-    printf("[DBG] MoE created\n"); fflush(stdout);
 #endif
 
     norm_ = new RMSNorm(cfg_.hidden_size);
@@ -70,7 +63,6 @@ NativeQUANTMoEModel::NativeQUANTMoEModel(const NativeMoEConfig& cfg)
     head_params_ = (size_t)cfg_.hidden_size * (size_t)cfg_.vocab_size;
 
 #ifdef QUANT_DEBUG
-    printf("[DBG] counting params...\n"); fflush(stdout);
 #endif
     total_params_ = emb_params_ + head_params_;
     for (auto& l : layers_) {
@@ -81,17 +73,14 @@ NativeQUANTMoEModel::NativeQUANTMoEModel(const NativeMoEConfig& cfg)
     }
     total_params_ += (size_t)cfg_.num_experts * 3 * (size_t)cfg_.hidden_size * (size_t)cfg_.ffn_hidden;
     total_params_ += (size_t)cfg_.hidden_size * (size_t)cfg_.num_experts;
-
-#ifdef QUANT_DEBUG
-    printf("[DBG] allocating temp_deq_ (%llu floats = %llu bytes)\n",
-           (unsigned long long)(total_params_ + 4096),
-           (unsigned long long)((total_params_ + 4096) * sizeof(float)));
-    fflush(stdout);
-#endif
+//DBG
+//DBG#ifdef QUANT_DEBUG
+//DBG           (unsigned long long)(total_params_ + 4096),
+//DBG           (unsigned long long)((total_params_ + 4096) * sizeof(float)));
+//DBG    fflush(stdout);
+//DBG#endif
     temp_deq_ = std::make_unique<float[]>(total_params_ + 4096);
 #ifdef QUANT_DEBUG
-    printf("[DBG] temp_deq_ allocated OK\n"); fflush(stdout);
-    if (temp_deq_) printf("[DBG] temp_deq_ pointer: %p\n", (void*)temp_deq_.get()); fflush(stdout);
 #endif
 
     printf("[NativeQUANTMoE] Config: hidden=%lld layers=%lld experts=%lld top_k=%lld\n",
@@ -100,7 +89,6 @@ NativeQUANTMoEModel::NativeQUANTMoEModel(const NativeMoEConfig& cfg)
     printf("[NativeQUANTMoE] Total params: %lld (%.2fM)\n",
            (long long)total_params_, total_params_ / 1e6);
 #ifdef QUANT_DEBUG
-    printf("[DBG] NativeQUANTMoEModel ctor: end\n"); fflush(stdout);
 #endif
 }
 

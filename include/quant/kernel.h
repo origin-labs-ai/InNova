@@ -57,6 +57,14 @@ void q24_decode(const uint8_t* packed, float* weights, int count);
 void scalar_gemm(const float* A, const float* B, float* C,
                  int M, int N, int K);
 
+// C[M,N] = A[M,K] x B[N,K]^T — B stored row-major as {N, K} (weights {out, in})
+void scalar_gemm_bt(const float* A, const float* B, float* C,
+                    int M, int N, int K);
+
+// AVX2 variant of scalar_gemm_bt
+void avx2_gemm_bt(const float* A, const float* B, float* C,
+                  int M, int N, int K);
+
 // Tiled GEMM with 64x64 blocking for cache efficiency
 void tiled_gemm(const float* A, const float* B, float* C,
                 int M, int N, int K);

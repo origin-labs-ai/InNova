@@ -3,7 +3,7 @@
 // ----------------------------------------------------------------------------
 // Every external-format bridge (PTQ, GGUF, Safetensors) loads weights into
 // AdapterTensor (always FP32), then funnels through write_quant_mixed() which
-// assigns a per-block mixed-precision format (QUANT1/QUANT_Q0/QUANT4/QUANT8/QUANT16)
+// assigns a per-block mixed-precision format (Q1/Q_TWI_MIX_1_5/Q4/Q8/Q16)
 // via the parent project's FormatRegistry + codebooks and writes a .quant file.
 //
 // Design rule: NOTHING leaves the adapter edition in a foreign format. The only
@@ -39,16 +39,16 @@ struct AdapterTensor {
 
 // Configuration for the QUANT conversion funnel.
 struct BridgeConfig {
-    // Single on-disk format for ALL blocks (default: QUANT_Q1_GRP at
-    // exactly 2.0 BPW — per-block FP32 scale + top-k magnitude sparse
-    // records, 0.25 bytes/weight).
-    Format format = Format::QUANT_Q1_GRP;
+    // Single on-disk format for ALL blocks (default: Q2_GRP at
+    // 2.625 BPW, highly recommended).
+    // Note: this is ignored if compound != Q2_GRP
+    Format format = Format::Q2_GRP;
 
     // Compound format (TWI_MIX / QUAD): when set to a MIX_*/QUAD_* RegFormat,
     // blocks are routed to the member formats by importance with the exact
     // registry ratios, so the file's average BPW equals the claimed
     // effective_bpw. Defaults to the single format above.
-    RegFormat compound = RegFormat::QUANT_Q1_GRP;
+    RegFormat compound = RegFormat::Q2_GRP;
 
     // Kept for CLI/API compatibility; write_quant_mixed ignores it in favor of
     // `format`. The nearest matching format is chosen when set.
@@ -89,7 +89,7 @@ bool quantize_block(Format fmt, const float* w, int n,
 
 // Quality-first per-tensor format routing:
 //  - Critical small tensors (A_log, dt_bias, norms, conv1d, biases) stay
-//    lossless QUANT32 — low-bit quantization destroys them.
+//    lossless Q32 — low-bit quantization destroys them.
 //  - Embedding tables (embed_tokens, lm_head) must NOT be sparsified: the
 //    2.0 BPW sparse format keeps only ~8% of weights (92% zeros) which
 //    breaks the model. They are routed to the best DENSE GRP format within
@@ -100,7 +100,7 @@ Format select_tensor_format(const std::string& name, int64_t numel, Format base)
 // select_tensor_format(); compound (TWI_MIX/QUAD) formats route blocks to
 // their member formats by importance quantiles using the exact registry
 // ratios, so the file average BPW equals the claimed effective_bpw.
-// Adaptive mixes (QUANT_MIX) allocate via FormatRegistry::allocate_mix_blocks
+// Adaptive mixes (Q_MIX) allocate via FormatRegistry::allocate_mix_blocks
 // (measured benefit-per-byte under the hard claimed-BPW budget).
 // `mix` may be null for single-format writes. `plan_out` (optional) receives
 // the per-block layout (starts/lens/formats); `shape` (optional) is the

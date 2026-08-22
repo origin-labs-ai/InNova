@@ -291,7 +291,7 @@ float KVCacheQuantizer::estimated_quality_loss() const {
 void TelemetryPrinter::print_all_header() {
     printf("+==========================================================+\n");
     printf("|           InNova - Telemetry Proof Report            |\n");
-    printf("|  ALL RIGHTS RESERVED - PRIVATE AND PROPRIETARY          |\n");
+    printf("|  APACHE LICENSE 2.0 - OPEN SOURCE                       |\n");
     printf("+==========================================================+\n");
 }
 

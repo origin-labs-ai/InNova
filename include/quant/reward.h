@@ -28,6 +28,7 @@ public:
     Tensor score(const Tensor& sequence);
     Tensor reward_loss(const Tensor& chosen_rewards, const Tensor& rejected_rewards);
     float train_step(const Tensor& chosen, const Tensor& rejected, Optimizer* opt, float loss_scale = 1.0f);
+    float compute_abstention_reward(const std::string& output, float confidence);
 
     std::vector<Tensor*> parameters();
     void load(const std::string& path);

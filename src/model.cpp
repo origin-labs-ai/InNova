@@ -1,5 +1,6 @@
 #include "quant/model.h"
 #include "quant/transformer.h"
+#include "quant/autograd.h"
 #include <cstring>
 #include <cmath>
 #include <random>
@@ -21,6 +22,10 @@ void DenseModel::build_layers() {
     }
     norm = std::make_unique<RMSNorm>(config.hidden_size, config.norm_eps);
     lm_head = std::make_unique<Linear>(config.hidden_size, config.vocab_size);
+    mtp_heads.clear();
+    for (int i = 0; i < config.mtp_num_heads; i++) {
+        mtp_heads.push_back(std::make_unique<Linear>(config.hidden_size, config.vocab_size));
+    }
 }
 
 int64_t DenseModel::vocab_size() const { return config.vocab_size; }
@@ -44,6 +49,7 @@ int64_t DenseModel::param_count() const {
 }
 
 void DenseModel::init_weights() {
+    if (layers.empty()) build_layers();
     std::mt19937 rng(std::random_device{}());
     auto rand_fill = [&](Tensor& t) {
         float* d = t.data<float>();
@@ -84,6 +90,7 @@ void DenseModel::get_parameters(std::vector<Tensor*>& params) {
     }
     params.push_back(&norm->weight);
     params.push_back(&lm_head->weight);
+    for (auto& h : mtp_heads) params.push_back(&h->weight);
 }
 
 Tensor DenseModel::forward(const Tensor& input_ids, const Tensor& positions,
@@ -382,6 +389,49 @@ void Model::save(const std::string& quant_path) const {
     hdr.config_size = sizeof(TransformerConfig);
     writer.write_header(hdr, (const uint8_t*)&config);
     writer.close();
+}
+
+// MTP: run backbone, then produce one logit tensor per head
+std::vector<Tensor> DenseModel::mtp_forward(const Tensor& input_ids, const Tensor& positions, KVCache* cache) {
+    Tensor hidden;
+    {
+        int64_t B = input_ids.dim(0);
+        int64_t S = input_ids.dim(1);
+        Tensor h = tok_embeddings->forward(input_ids.reshape(Shape{B * S}));
+        h = h.reshape(Shape{B, S, config.hidden_size});
+        KVCache local_cache;
+        KVCache* active_cache = cache;
+        if (!active_cache) {
+            local_cache.init((int)config.num_layers, config.max_seq_len, config.num_heads, config.head_dim);
+            active_cache = &local_cache;
+        }
+        Tensor causal_mask(Shape{1, 1, S, S});
+        float* md = causal_mask.data<float>();
+        for (int64_t s = 0; s < S; s++) for (int64_t t = 0; t < S; t++) md[s * S + t] = (t > s) ? -INFINITY : 0.0f;
+        for (int64_t i = 0; i < config.num_layers; i++) h = layers[i]->forward(h, positions, causal_mask, *active_cache, (int)i);
+        h = norm->forward(h);
+        hidden = h;
+    }
+    std::vector<Tensor> logits;
+    logits.reserve(mtp_heads.size() + 1);
+    logits.push_back(lm_head->forward(hidden.reshape(Shape{hidden.dim(0) * hidden.dim(1), config.hidden_size})));
+    for (auto& h : mtp_heads) logits.push_back(h->forward(hidden.reshape(Shape{hidden.dim(0) * hidden.dim(1), config.hidden_size})));
+    return logits;
+}
+
+float DenseModel::mtp_loss(const std::vector<Tensor>& mtp_logits, const Tensor& labels) const {
+    if (mtp_logits.empty()) return 0.0f;
+    int64_t B = labels.dim(0), S = labels.dim(1);
+    float total = 0.0f;
+    for (size_t h = 0; h < mtp_logits.size(); h++) {
+        Tensor shifted(Shape{B, S}, DType::F32); shifted.zero_();
+        const float* ld = labels.data<float>();
+        float* sd = shifted.data<float>();
+        for (int64_t b = 0; b < B; b++) for (int64_t s = 0; s < S - (int64_t)(h + 1); s++) sd[b * S + s] = ld[b * S + s + (h + 1)];
+        Tensor ce = AutogradEngine::cross_entropy_op(mtp_logits[h], shifted);
+        total += *(const float*)ce.data();
+    }
+    return total / (float)mtp_logits.size();
 }
 
 } // namespace quant

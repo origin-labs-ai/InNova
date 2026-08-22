@@ -37,6 +37,22 @@ public:
     void fill(float val, void* x, int64_t n);
     void copy_buf(const void* src, void* dst, int64_t n);
 
+    void rope(const void* x, void* q, int64_t seq_len, int64_t head_dim);
+    void attention(const void* q, const void* k, const void* v, void* o, int64_t seq_len, int64_t head_dim);
+    void reduce_sum(const void* x, void* result, int64_t n);
+    void reduce_max(const void* x, void* result, int64_t n);
+    void moe_gather(const void* expert_outputs, const void* routing_indices, void* output, int64_t num_tokens, int64_t expert_dim);
+    void moe_scatter(const void* input, const void* routing_indices, void* expert_inputs, int64_t num_tokens, int64_t token_dim);
+
+    // MoE Page-locking and Async Streams (64% speedup support)
+    bool register_host_memory(void* ptr, size_t bytes);
+    bool unregister_host_memory(void* ptr);
+    void* create_stream();
+    void destroy_stream(void* stream);
+    void synchronize_stream(void* stream);
+    void async_upload(const void* src, void* dst, size_t bytes, void* stream = nullptr);
+    void async_download(const void* src, void* dst, size_t bytes, void* stream = nullptr);
+
     void synchronize();
     int64_t memory_free() const;
     int64_t memory_total() const;

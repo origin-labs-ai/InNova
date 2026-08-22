@@ -13,14 +13,14 @@ Tensor matmul_grad(const Tensor& a, const Tensor& b, const Tensor& grad_output) 
     return matmul_grad_wrt_a(grad_output, b);
 }
 
-// dA = grad_output * B^T where B is stored as {N, K} (weight shape)
-// grad_output: {M, N},  b (weight): {N, K}
+// dA = grad_output * B^T where B is the {K, N} operand of scalar_gemm
+// grad_output: {M, N},  b: {K, N}
 // dA: {M, K}
 // Access pattern matches scalar_gemm: bd[k * N + j] where k in [0,K), j in [0,N)
 Tensor matmul_grad_wrt_a(const Tensor& grad_output, const Tensor& b) {
     int64_t M = grad_output.dim(0);
-    int64_t N = b.dim(0);
-    int64_t K = b.dim(1);
+    int64_t N = grad_output.dim(1);
+    int64_t K = b.dim(0);
     Tensor dA({M, K});
     const float* gd = grad_output.data<float>();
     const float* bd = b.data<float>();
@@ -56,19 +56,13 @@ Tensor matmul_grad_wrt_b(const Tensor& grad_output, const Tensor& a) {
     return dB;
 }
 
-// Gradient w.r.t. weight stored as {N, K} (transpose of matmul_grad_wrt_b output)
+// Gradient w.r.t. the weight operand of scalar_gemm, stored as {K, N}
+// (the same layout matmul_op/Linear feed to the forward pass).
 Tensor weight_grad(const Tensor& grad_output, const Tensor& a, const Tensor& weight) {
-    // weight: {N, K}, a: {M, K}, grad_output: {M, N}
-    int64_t N = weight.dim(0);
-    int64_t K = weight.dim(1);
-    Tensor dB = matmul_grad_wrt_b(grad_output, a);  // {K, N}
-    Tensor dW({N, K}, DType::F32);
-    const float* dbd = dB.data<float>();
-    float* dwd = dW.data<float>();
-    for (int64_t k = 0; k < K; ++k)
-        for (int64_t n = 0; n < N; ++n)
-            dwd[n * K + k] = dbd[k * N + n];
-    return dW;
+    // weight: {K, N}, a: {M, K}, grad_output: {M, N}
+    Tensor dB = matmul_grad_wrt_b(grad_output, a);  // {K, N} — already matches weight
+    (void)weight;
+    return dB;
 }
 
 // ========================================================================

@@ -283,7 +283,7 @@ void test_quant_format_roundtrip() {
     }
 
     QUANTReader reader(path);
-    Tensor loaded = reader.read_tensor("test_tensor");
+    Tensor loaded = reader.read_tensor("layer1.w");
 
     float max_err = 0;
     for (int i = 0; i < 256; i++) {
@@ -575,11 +575,17 @@ void test_bpe_roundtrip() {
 int main() {
     std::cout << "=== PROTECTED VERIFICATION TESTS ===" << std::endl;
 
+    std::cout << "START P1" << std::endl;
     test_tensor_fp16_roundtrip();
+    std::cout << "START P2" << std::endl;
     test_gemm_sizes();
+    std::cout << "START P3" << std::endl;
     test_autograd_gradcheck();
+    std::cout << "START P4" << std::endl;
     test_flash_attention_reference();
+    std::cout << "START P5" << std::endl;
     test_kernel_tl_gemm();
+    std::cout << "START P6" << std::endl;
     test_quant_format_roundtrip();
     test_moe_load_balance();
     test_trainer_checkpoint();

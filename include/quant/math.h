@@ -19,6 +19,12 @@ void silu(const Tensor& x, Tensor& y);
 void sigmoid(const Tensor& x, Tensor& y);
 void tanh_(const Tensor& x, Tensor& y);
 
+// SwiGLU: silu(gate) * up — gated variant used by LLaMA / DeepSeek
+void swiglu(const Tensor& gate, const Tensor& up, Tensor& y);
+
+// GeGLU: gelu(gate) * up — gated variant used by Gemma / PaLM
+void geglu(const Tensor& gate, const Tensor& up, Tensor& y);
+
 void layer_norm(const Tensor& x, const Tensor& gamma, const Tensor& beta, float eps, Tensor& y);
 void rms_norm(const Tensor& x, const Tensor& gamma, float eps, Tensor& y);
 
@@ -77,6 +83,26 @@ void vec_lerp(float* dst, const float* a, const float* b, float t, int n);
 void vec_smoothstep(float* dst, const float* src, float edge0, float edge1, int n);
 void vec_fp32_to_fp16(uint16_t* dst, const float* src, int n);
 void vec_fp16_to_fp32(float* dst, const uint16_t* src, int n);
+
+// FP8 E4M3 conversion (high precision, used for activations/weights)
+void vec_fp32_to_fp8_e4m3(uint8_t* dst, const float* src, int n);
+void vec_fp8_e4m3_to_fp32(float* dst, const uint8_t* src, int n);
+float f32_to_fp8_e4m3_scalar(float val);
+float fp8_e4m3_to_f32_scalar(uint8_t val);
+
+// FP8 E5M2 conversion (wide range, used for gradients)
+void vec_fp32_to_fp8_e5m2(uint8_t* dst, const float* src, int n);
+void vec_fp8_e5m2_to_fp32(float* dst, const uint8_t* src, int n);
+float f32_to_fp8_e5m2_scalar(float val);
+float fp8_e5m2_to_f32_scalar(uint8_t val);
+
+// FP8 GEMM: A[M,K] x B[K,N] -> C[M,N] with FP8 quantized accumulation
+void fp8_gemm(const float* A, const float* B, float* C,
+              int64_t M, int64_t N, int64_t K, bool use_e4m3 = true);
+
+// GeGLU SIMD kernels
+void vec_geglu(float* dst, const float* gate, const float* up, int n);
+void vec_geglu_avx2(float* dst, const float* gate, const float* up, int n);
 void vec_softmax_stable_avx2(float* dst, const float* src, int n);
 void vec_layer_norm_avx2(float* dst, const float* src, const float* gamma, const float* beta, int n, float eps);
 void vec_rms_norm_avx2(float* dst, const float* src, const float* gamma, int n, float eps);

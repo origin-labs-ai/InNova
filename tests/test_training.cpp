@@ -215,7 +215,7 @@ int main() {
         int64_t D = 3;
         int64_t V = 8;
 
-        Tensor w(Shape{D, V});
+        Tensor w(Shape{V, D});
         float* wd = w.data<float>();
         for (int64_t i = 0; i < D * V; i++) wd[i] = (float)(i % 5) / 5.0f - 0.5f;
 
@@ -228,7 +228,7 @@ int main() {
         float* ld = labels.data<float>();
         for (int64_t i = 0; i < N; i++) ld[i] = (float)(i % V);
 
-        Tensor w_param(Shape{D, V});
+        Tensor w_param(Shape{V, D});
         float* wp = w_param.data<float>();
         for (int64_t i = 0; i < D * V; i++) wp[i] = 0.0f;
         engine.register_parameter(&w_param);

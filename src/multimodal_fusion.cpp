@@ -67,7 +67,7 @@ Tensor CrossAttentionFusion::forward(const Tensor& query, const Tensor& key_valu
     for (int64_t i = 0; i < BQ * BKV; i++)
         ad[i] *= scale;
 
-    if (mask.numel() > 0) {
+    if (mask.data() != nullptr && mask.numel() > 0) {
         const float* md = mask.data<float>();
         for (int64_t b = 0; b < B; b++)
             for (int64_t q_idx = 0; q_idx < Q; q_idx++)
@@ -116,8 +116,9 @@ Tensor MultimodalFusion::fuse_vision_audio(const Tensor& vision, const Tensor& a
     int64_t B = vision.dim(0), D = hidden_size;
     Tensor v_proj = this->proj.project_vision(vision);
     Tensor a_proj = this->proj.project_audio(audio);
-    Tensor out_v = v_proj;
-    Tensor out_a = a_proj;
+    // Linear flattens {B,S,D} to {B*S,D}; restore 3D for cross-attention layers.
+    Tensor out_v = v_proj.reshape(Shape{B, v_proj.numel() / (B * D), D});
+    Tensor out_a = a_proj.reshape(Shape{B, a_proj.numel() / (B * D), D});
     for (const auto& layer : vision_audio_layers) {
         Tensor v_attended = layer.forward(out_v, out_a);
         Tensor a_attended = layer.forward(out_a, out_v);

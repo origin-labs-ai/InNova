@@ -44,6 +44,9 @@ typedef CUresult (*PFN_cuStreamCreate)(CUstream*, unsigned int);
 typedef CUresult (*PFN_cuStreamDestroy)(CUstream);
 typedef CUresult (*PFN_cuStreamSynchronize)(CUstream);
 typedef CUresult (*PFN_cuLaunchKernel)(CUfunction, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, CUstream, void**, void**);
+typedef CUresult (*PFN_cuMemGetInfo)(size_t*, size_t*);
+typedef CUresult (*PFN_cuMemHostRegister)(void*, size_t, unsigned int);
+typedef CUresult (*PFN_cuMemHostUnregister)(void*);
 
 static const char* CUDA_PTX_CODE = R"(
 .version 6.5
@@ -227,12 +230,441 @@ L_NORM_LOOP:
 L_EXIT: ret;
 }
 
-.visible .entry rope_kernel(.param .u64 X, .param .u32 N) { ret; }
-.visible .entry attention_kernel(.param .u64 X, .param .u32 N) { ret; }
-.visible .entry reduce_sum_kernel(.param .u64 X, .param .u32 N) { ret; }
-.visible .entry reduce_max_kernel(.param .u64 X, .param .u32 N) { ret; }
-.visible .entry moe_gather_kernel(.param .u64 X, .param .u32 N) { ret; }
-.visible .entry moe_scatter_kernel(.param .u64 X, .param .u32 N) { ret; }
+.visible .entry rope_kernel(.param .u64 X, .param .u64 Q, .param .u32 seq_len, .param .u32 head_dim) {
+    .reg .u32 %p_idx, %d_idx, %slen, %hdim, %idx1, %idx2, %x_idx;
+    .reg .pred %p_exit, %p_loop;
+    .reg .f32 %q1, %q2, %cos_val, %sin_val, %new_q1, %new_q2;
+    .reg .u64 %ptrX, %ptrQ, %ptr1, %ptr2, %ptrC, %ptrS, %offset;
+
+    mov.u32 %p_idx, %ctaid.x;
+    ld.param.u32 %slen, [seq_len];
+    setp.ge.u32 %p_exit, %p_idx, %slen;
+    @%p_exit bra L_EXIT;
+
+    ld.param.u32 %hdim, [head_dim];
+    ld.param.u64 %ptrX, [X];
+    ld.param.u64 %ptrQ, [Q];
+
+    mov.u32 %d_idx, 0;
+L_LOOP:
+    setp.ge.u32 %p_loop, %d_idx, %hdim;
+    @%p_loop bra L_EXIT;
+
+    mad.lo.u32 %idx1, %p_idx, %hdim, %d_idx;
+    cvt.u64.u32 %offset, %idx1; shl.b64 %offset, %offset, 2; add.u64 %ptr1, %ptrQ, %offset;
+    ld.global.f32 %q1, [%ptr1];
+
+    add.u32 %idx2, %idx1, 1;
+    cvt.u64.u32 %offset, %idx2; shl.b64 %offset, %offset, 2; add.u64 %ptr2, %ptrQ, %offset;
+    ld.global.f32 %q2, [%ptr2];
+
+    cvt.u64.u32 %offset, %idx1; shl.b64 %offset, %offset, 2; add.u64 %ptrC, %ptrX, %offset;
+    ld.global.f32 %cos_val, [%ptrC];
+    add.u64 %ptrS, %ptrC, 4;
+    ld.global.f32 %sin_val, [%ptrS];
+
+    mul.f32 %new_q1, %q1, %cos_val;
+    neg.f32 %sin_val, %sin_val;
+    fma.rn.f32 %new_q1, %q2, %sin_val, %new_q1;
+    neg.f32 %sin_val, %sin_val;
+
+    mul.f32 %new_q2, %q1, %sin_val;
+    fma.rn.f32 %new_q2, %q2, %cos_val, %new_q2;
+
+    st.global.f32 [%ptr1], %new_q1;
+    st.global.f32 [%ptr2], %new_q2;
+
+    add.u32 %d_idx, %d_idx, 2;
+    bra L_LOOP;
+
+L_EXIT:
+    ret;
+}
+
+.visible .entry attention_kernel(.param .u64 Q, .param .u64 K, .param .u64 V, .param .u64 O, .param .u32 seq_len, .param .u32 head_dim) {
+    .reg .u32 %q_idx, %k_idx, %d_idx, %slen, %hdim, %idx;
+    .reg .pred %p_exit, %p_k, %p_d;
+    .reg .f32 %fQ, %fK, %fV, %score, %max_score, %sum_exp, %exp_score, %out_val, %scale;
+    .reg .u64 %ptrQ, %ptrK, %ptrV, %ptrO, %ptr, %offset;
+
+    mov.u32 %q_idx, %ctaid.x;
+    ld.param.u32 %slen, [seq_len];
+    setp.ge.u32 %p_exit, %q_idx, %slen;
+    @%p_exit bra L_EXIT;
+
+    ld.param.u32 %hdim, [head_dim];
+    ld.param.u64 %ptrQ, [Q];
+    ld.param.u64 %ptrK, [K];
+    ld.param.u64 %ptrV, [V];
+    ld.param.u64 %ptrO, [O];
+
+    cvt.rn.f32.u32 %scale, %hdim;
+    rsqrt.approx.f32 %scale, %scale;
+
+    mov.f32 %max_score, -1000000.0;
+    mov.u32 %k_idx, 0;
+L_K1:
+    setp.ge.u32 %p_k, %k_idx, %slen;
+    @%p_k bra L_K1_END;
+    
+    mov.f32 %score, 0.0;
+    mov.u32 %d_idx, 0;
+L_D1:
+    setp.ge.u32 %p_d, %d_idx, %hdim;
+    @%p_d bra L_D1_END;
+    
+    mad.lo.u32 %idx, %q_idx, %hdim, %d_idx; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrQ, %offset;
+    ld.global.f32 %fQ, [%ptr];
+    
+    mad.lo.u32 %idx, %k_idx, %hdim, %d_idx; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrK, %offset;
+    ld.global.f32 %fK, [%ptr];
+    
+    fma.rn.f32 %score, %fQ, %fK, %score;
+    add.u32 %d_idx, %d_idx, 1; bra L_D1;
+L_D1_END:
+    mul.f32 %score, %score, %scale;
+    max.f32 %max_score, %max_score, %score;
+    add.u32 %k_idx, %k_idx, 1; bra L_K1;
+L_K1_END:
+
+    mov.f32 %sum_exp, 0.0;
+    mov.u32 %k_idx, 0;
+L_K2:
+    setp.ge.u32 %p_k, %k_idx, %slen;
+    @%p_k bra L_K2_END;
+    
+    mov.f32 %score, 0.0;
+    mov.u32 %d_idx, 0;
+L_D2:
+    setp.ge.u32 %p_d, %d_idx, %hdim;
+    @%p_d bra L_D2_END;
+    
+    mad.lo.u32 %idx, %q_idx, %hdim, %d_idx; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrQ, %offset;
+    ld.global.f32 %fQ, [%ptr];
+    
+    mad.lo.u32 %idx, %k_idx, %hdim, %d_idx; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrK, %offset;
+    ld.global.f32 %fK, [%ptr];
+    
+    fma.rn.f32 %score, %fQ, %fK, %score;
+    add.u32 %d_idx, %d_idx, 1; bra L_D2;
+L_D2_END:
+    mul.f32 %score, %score, %scale;
+    sub.f32 %score, %score, %max_score;
+    mul.f32 %score, %score, 1.44269504; ex2.approx.f32 %exp_score, %score;
+    add.f32 %sum_exp, %sum_exp, %exp_score;
+    add.u32 %k_idx, %k_idx, 1; bra L_K2;
+L_K2_END:
+
+    mov.u32 %d_idx, 0;
+L_D3:
+    setp.ge.u32 %p_d, %d_idx, %hdim;
+    @%p_d bra L_D3_END;
+    
+    mov.f32 %out_val, 0.0;
+    mov.u32 %k_idx, 0;
+L_K3:
+    setp.ge.u32 %p_k, %k_idx, %slen;
+    @%p_k bra L_K3_END;
+    
+    mov.f32 %score, 0.0;
+    .reg .u32 %d2;
+    mov.u32 %d2, 0;
+L_D4:
+    setp.ge.u32 %p_exit, %d2, %hdim;
+    @%p_exit bra L_D4_END;
+    
+    mad.lo.u32 %idx, %q_idx, %hdim, %d2; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrQ, %offset;
+    ld.global.f32 %fQ, [%ptr];
+    
+    mad.lo.u32 %idx, %k_idx, %hdim, %d2; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrK, %offset;
+    ld.global.f32 %fK, [%ptr];
+    
+    fma.rn.f32 %score, %fQ, %fK, %score;
+    add.u32 %d2, %d2, 1; bra L_D4;
+L_D4_END:
+    mul.f32 %score, %score, %scale;
+    sub.f32 %score, %score, %max_score;
+    mul.f32 %score, %score, 1.44269504; ex2.approx.f32 %exp_score, %score;
+    div.approx.f32 %exp_score, %exp_score, %sum_exp;
+    
+    mad.lo.u32 %idx, %k_idx, %hdim, %d_idx; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrV, %offset;
+    ld.global.f32 %fV, [%ptr];
+    
+    fma.rn.f32 %out_val, %exp_score, %fV, %out_val;
+    add.u32 %k_idx, %k_idx, 1; bra L_K3;
+L_K3_END:
+    
+    mad.lo.u32 %idx, %q_idx, %hdim, %d_idx; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrO, %offset;
+    st.global.f32 [%ptr], %out_val;
+    
+    add.u32 %d_idx, %d_idx, 1; bra L_D3;
+L_D3_END:
+
+L_EXIT:
+    ret;
+}
+
+.visible .entry reduce_sum_kernel(.param .u64 X, .param .u64 result, .param .u32 N) {
+    .reg .u32 %tid, %rN, %stride;
+    .reg .pred %p;
+    .reg .f32 %val, %val2;
+    .reg .u64 %ptrX, %ptrRes, %offset, %ptr;
+    .shared .align 4 .b8 smem[4096];
+
+    mov.u32 %tid, %tid.x;
+    ld.param.u32 %rN, [N];
+    
+    mov.f32 %val, 0.0;
+    setp.ge.u32 %p, %tid, %rN;
+    @%p bra L_STORE_SMEM;
+    
+    ld.param.u64 %ptrX, [X];
+    cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrX, %offset;
+    ld.global.f32 %val, [%ptr];
+
+L_STORE_SMEM:
+    cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2;
+    mov.u64 %ptr, smem; add.u64 %ptr, %ptr, %offset;
+    st.shared.f32 [%ptr], %val;
+    bar.sync 0;
+
+    mov.u32 %stride, %ntid.x;
+    shr.u32 %stride, %stride, 1;
+L_REDUCE:
+    setp.eq.u32 %p, %stride, 0;
+    @%p bra L_DONE;
+    setp.ge.u32 %p, %tid, %stride;
+    @%p bra L_SYNC;
+
+    mov.u64 %ptr, smem; cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptr, %offset;
+    ld.shared.f32 %val, [%ptr];
+    add.u32 %stride, %tid, %stride;
+    cvt.u64.u32 %offset, %stride; shl.b64 %offset, %offset, 2; mov.u64 %ptr, smem; add.u64 %ptr, %ptr, %offset;
+    ld.shared.f32 %val2, [%ptr];
+    add.f32 %val, %val, %val2;
+    
+    cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2; mov.u64 %ptr, smem; add.u64 %ptr, %ptr, %offset;
+    st.shared.f32 [%ptr], %val;
+
+    sub.u32 %stride, %stride, %tid;
+L_SYNC:
+    bar.sync 0;
+    shr.u32 %stride, %stride, 1;
+    bra L_REDUCE;
+
+L_DONE:
+    setp.ne.u32 %p, %tid, 0;
+    @%p bra L_EXIT;
+    ld.param.u64 %ptrRes, [result];
+    mov.u64 %ptr, smem; ld.shared.f32 %val, [%ptr];
+    st.global.f32 [%ptrRes], %val;
+
+L_EXIT:
+    ret;
+}
+
+.visible .entry reduce_max_kernel(.param .u64 X, .param .u64 result, .param .u32 N) {
+    .reg .u32 %tid, %rN, %stride;
+    .reg .pred %p;
+    .reg .f32 %val, %val2;
+    .reg .u64 %ptrX, %ptrRes, %offset, %ptr;
+    .shared .align 4 .b8 smem[4096];
+
+    mov.u32 %tid, %tid.x;
+    ld.param.u32 %rN, [N];
+    
+    mov.f32 %val, -1000000.0;
+    setp.ge.u32 %p, %tid, %rN;
+    @%p bra L_STORE_SMEM;
+    
+    ld.param.u64 %ptrX, [X];
+    cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrX, %offset;
+    ld.global.f32 %val, [%ptr];
+
+L_STORE_SMEM:
+    cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2;
+    mov.u64 %ptr, smem; add.u64 %ptr, %ptr, %offset;
+    st.shared.f32 [%ptr], %val;
+    bar.sync 0;
+
+    mov.u32 %stride, %ntid.x;
+    shr.u32 %stride, %stride, 1;
+L_REDUCE:
+    setp.eq.u32 %p, %stride, 0;
+    @%p bra L_DONE;
+    setp.ge.u32 %p, %tid, %stride;
+    @%p bra L_SYNC;
+
+    mov.u64 %ptr, smem; cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptr, %offset;
+    ld.shared.f32 %val, [%ptr];
+    add.u32 %stride, %tid, %stride;
+    cvt.u64.u32 %offset, %stride; shl.b64 %offset, %offset, 2; mov.u64 %ptr, smem; add.u64 %ptr, %ptr, %offset;
+    ld.shared.f32 %val2, [%ptr];
+    max.f32 %val, %val, %val2;
+    
+    cvt.u64.u32 %offset, %tid; shl.b64 %offset, %offset, 2; mov.u64 %ptr, smem; add.u64 %ptr, %ptr, %offset;
+    st.shared.f32 [%ptr], %val;
+
+    sub.u32 %stride, %stride, %tid;
+L_SYNC:
+    bar.sync 0;
+    shr.u32 %stride, %stride, 1;
+    bra L_REDUCE;
+
+L_DONE:
+    setp.ne.u32 %p, %tid, 0;
+    @%p bra L_EXIT;
+    ld.param.u64 %ptrRes, [result];
+    mov.u64 %ptr, smem; ld.shared.f32 %val, [%ptr];
+    st.global.f32 [%ptrRes], %val;
+
+L_EXIT:
+    ret;
+}
+
+.visible .entry moe_gather_kernel(.param .u64 expert_outputs, .param .u64 routing_indices, .param .u64 output, .param .u32 num_tokens, .param .u32 expert_dim) {
+    .reg .u32 %t, %d, %ntok, %edim, %route, %idx_in, %idx_out;
+    .reg .pred %p;
+    .reg .f32 %val;
+    .reg .u64 %ptrEO, %ptrRI, %ptrOut, %ptr, %offset;
+    
+    mov.u32 %t, %ctaid.x;
+    ld.param.u32 %ntok, [num_tokens];
+    setp.ge.u32 %p, %t, %ntok;
+    @%p bra L_EXIT;
+
+    ld.param.u64 %ptrRI, [routing_indices];
+    cvt.u64.u32 %offset, %t; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrRI, %offset;
+    ld.global.u32 %route, [%ptr];
+
+    ld.param.u32 %edim, [expert_dim];
+    ld.param.u64 %ptrEO, [expert_outputs];
+    ld.param.u64 %ptrOut, [output];
+
+    mov.u32 %d, %tid.x;
+L_LOOP:
+    setp.ge.u32 %p, %d, %edim;
+    @%p bra L_EXIT;
+
+    mad.lo.u32 %idx_in, %route, %edim, %d;
+    cvt.u64.u32 %offset, %idx_in; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrEO, %offset;
+    ld.global.f32 %val, [%ptr];
+
+    mad.lo.u32 %idx_out, %t, %edim, %d;
+    cvt.u64.u32 %offset, %idx_out; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrOut, %offset;
+    st.global.f32 [%ptr], %val;
+
+    add.u32 %d, %d, %ntid.x;
+    bra L_LOOP;
+
+L_EXIT:
+    ret;
+}
+
+.visible .entry moe_scatter_kernel(.param .u64 input, .param .u64 routing_indices, .param .u64 expert_inputs, .param .u32 num_tokens, .param .u32 token_dim) {
+    .reg .u32 %t, %d, %ntok, %tdim, %route, %idx_in, %idx_out;
+    .reg .pred %p;
+    .reg .f32 %val;
+    .reg .u64 %ptrIn, %ptrRI, %ptrEI, %ptr, %offset;
+    
+    mov.u32 %t, %ctaid.x;
+    ld.param.u32 %ntok, [num_tokens];
+    setp.ge.u32 %p, %t, %ntok;
+    @%p bra L_EXIT;
+
+    ld.param.u64 %ptrRI, [routing_indices];
+    cvt.u64.u32 %offset, %t; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrRI, %offset;
+    ld.global.u32 %route, [%ptr];
+
+    ld.param.u32 %tdim, [token_dim];
+    ld.param.u64 %ptrIn, [input];
+    ld.param.u64 %ptrEI, [expert_inputs];
+
+    mov.u32 %d, %tid.x;
+L_LOOP:
+    setp.ge.u32 %p, %d, %tdim;
+    @%p bra L_EXIT;
+
+    mad.lo.u32 %idx_in, %t, %tdim, %d;
+    cvt.u64.u32 %offset, %idx_in; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrIn, %offset;
+    ld.global.f32 %val, [%ptr];
+
+    mad.lo.u32 %idx_out, %route, %tdim, %d;
+    cvt.u64.u32 %offset, %idx_out; shl.b64 %offset, %offset, 2; add.u64 %ptr, %ptrEI, %offset;
+    st.global.f32 [%ptr], %val;
+
+    add.u32 %d, %d, %ntid.x;
+    bra L_LOOP;
+
+L_EXIT:
+    ret;
+}
+
+.visible .entry layernorm_kernel(.param .u64 X, .param .u64 Gamma, .param .u64 Beta, .param .u64 Y, .param .u32 rows, .param .u32 cols, .param .f32 eps) {
+    .reg .u32 %row, %col, %rRows, %rCols, %idx;
+    .reg .pred %p;
+    .reg .f32 %fSum, %fMean, %fVar, %fVal, %fG, %fB, %fEps, %fScale;
+    .reg .u64 %ptrX, %ptrG, %ptrB, %ptrY, %offset, %ptr;
+
+    mov.u32 %row, %ctaid.x;
+    ld.param.u32 %rRows, [rows];
+    setp.ge.u32 %p, %row, %rRows;
+    @%p bra L_EXIT;
+
+    ld.param.u32 %rCols, [cols];
+    ld.param.u64 %ptrX, [X];
+    ld.param.u64 %ptrG, [Gamma];
+    ld.param.u64 %ptrB, [Beta];
+    ld.param.u64 %ptrY, [Y];
+
+    mov.u32 %col, 0; mov.f32 %fSum, 0.0;
+L_MEAN_LOOP:
+    setp.ge.u32 %p, %col, %rCols;
+    @%p bra L_MEAN_END;
+    mad.lo.u32 %idx, %row, %rCols, %col; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrX, %offset; ld.global.f32 %fVal, [%ptr]; add.f32 %fSum, %fSum, %fVal;
+    add.u32 %col, %col, 1; bra L_MEAN_LOOP;
+L_MEAN_END:
+    cvt.rn.f32.u32 %fScale, %rCols; rcp.approx.f32 %fScale, %fScale;
+    mul.f32 %fMean, %fSum, %fScale;
+
+    mov.u32 %col, 0; mov.f32 %fSum, 0.0;
+L_VAR_LOOP:
+    setp.ge.u32 %p, %col, %rCols;
+    @%p bra L_VAR_END;
+    mad.lo.u32 %idx, %row, %rCols, %col; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrX, %offset; ld.global.f32 %fVal, [%ptr];
+    sub.f32 %fVal, %fVal, %fMean;
+    fma.rn.f32 %fSum, %fVal, %fVal, %fSum;
+    add.u32 %col, %col, 1; bra L_VAR_LOOP;
+L_VAR_END:
+    mul.f32 %fVar, %fSum, %fScale;
+    ld.param.f32 %fEps, [eps]; add.f32 %fVar, %fVar, %fEps; rsqrt.approx.f32 %fVar, %fVar;
+
+    mov.u32 %col, 0;
+L_NORM_LOOP:
+    setp.ge.u32 %p, %col, %rCols;
+    @%p bra L_EXIT;
+    mad.lo.u32 %idx, %row, %rCols, %col; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrX, %offset; ld.global.f32 %fVal, [%ptr];
+    sub.f32 %fVal, %fVal, %fMean;
+    mul.f32 %fVal, %fVal, %fVar;
+
+    cvt.u64.u32 %offset, %col; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrG, %offset; ld.global.f32 %fG, [%ptr];
+    add.u64 %ptr, %ptrB, %offset; ld.global.f32 %fB, [%ptr];
+
+    fma.rn.f32 %fVal, %fVal, %fG, %fB;
+
+    mad.lo.u32 %idx, %row, %rCols, %col; cvt.u64.u32 %offset, %idx; shl.b64 %offset, %offset, 2;
+    add.u64 %ptr, %ptrY, %offset; st.global.f32 [%ptr], %fVal;
+    
+    add.u32 %col, %col, 1; bra L_NORM_LOOP;
+L_EXIT:
+    ret;
+}
 )";
 
 struct GPUComputeCuda::Impl {
@@ -264,6 +696,10 @@ struct GPUComputeCuda::Impl {
     CUstream copy_stream;
 
     CUfunction f_gemm, f_relu, f_silu, f_gelu, f_add, f_mul, f_scale, f_fill, f_softmax, f_rmsnorm;
+    CUfunction f_layernorm, f_rope, f_attention, f_reduce_sum, f_reduce_max, f_moe_gather, f_moe_scatter;
+    PFN_cuMemGetInfo cuMemGetInfo = nullptr;
+    PFN_cuMemHostRegister cuMemHostRegister = nullptr;
+    PFN_cuMemHostUnregister cuMemHostUnregister = nullptr;
     
     std::vector<CUdeviceptr> bufs;
     std::mutex mtx;
@@ -306,6 +742,9 @@ struct GPUComputeCuda::Impl {
         cuStreamDestroy = (PFN_cuStreamDestroy)load_func("cuStreamDestroy");
         cuStreamSynchronize = (PFN_cuStreamSynchronize)load_func("cuStreamSynchronize");
         cuLaunchKernel = (PFN_cuLaunchKernel)load_func("cuLaunchKernel");
+        cuMemGetInfo = (PFN_cuMemGetInfo)load_func("cuMemGetInfo");
+        cuMemHostRegister = (PFN_cuMemHostRegister)load_func("cuMemHostRegister");
+        cuMemHostUnregister = (PFN_cuMemHostUnregister)load_func("cuMemHostUnregister");
 
         if (!cuInit || !cuLaunchKernel) return false;
 
@@ -328,12 +767,20 @@ struct GPUComputeCuda::Impl {
         cuModuleGetFunction(&f_fill, module, "fill_kernel");
         cuModuleGetFunction(&f_softmax, module, "softmax_kernel");
         cuModuleGetFunction(&f_rmsnorm, module, "rmsnorm_kernel");
+        cuModuleGetFunction(&f_layernorm, module, "layernorm_kernel");
+        cuModuleGetFunction(&f_rope, module, "rope_kernel");
+        cuModuleGetFunction(&f_attention, module, "attention_kernel");
+        cuModuleGetFunction(&f_reduce_sum, module, "reduce_sum_kernel");
+        cuModuleGetFunction(&f_reduce_max, module, "reduce_max_kernel");
+        cuModuleGetFunction(&f_moe_gather, module, "moe_gather_kernel");
+        cuModuleGetFunction(&f_moe_scatter, module, "moe_scatter_kernel");
 
         ok = true;
         return true;
     }
 
     void shutdown() {
+        std::lock_guard<std::mutex> lk(mtx);
         if (!ok) return;
         for (auto b : bufs) cuMemFree(b);
         bufs.clear();
@@ -374,8 +821,8 @@ void* GPUComputeCuda::alloc(int64_t bytes) {
 void GPUComputeCuda::free_buf(void* ptr) {
     if (!impl_->ok || !ptr) return;
     CUdeviceptr dptr = (CUdeviceptr)ptr;
-    impl_->cuMemFree(dptr);
     std::lock_guard<std::mutex> lk(impl_->mtx);
+    impl_->cuMemFree(dptr);
     for (auto it = impl_->bufs.begin(); it != impl_->bufs.end(); ++it) {
         if (*it == dptr) {
             impl_->bufs.erase(it);
@@ -386,12 +833,14 @@ void GPUComputeCuda::free_buf(void* ptr) {
 
 void GPUComputeCuda::upload(const Tensor& src, void* dst) {
     if (!impl_->ok || !dst || src.numel() == 0) return;
+    std::lock_guard<std::mutex> lk(impl_->mtx);
     impl_->cuMemcpyHtoDAsync((CUdeviceptr)dst, src.data(), src.size_bytes(), impl_->copy_stream);
     impl_->cuStreamSynchronize(impl_->copy_stream);
 }
 
 void GPUComputeCuda::download(void* src, Tensor& dst) {
     if (!impl_->ok || !src || dst.numel() == 0) return;
+    std::lock_guard<std::mutex> lk(impl_->mtx);
     impl_->cuMemcpyDtoHAsync(dst.data(), (CUdeviceptr)src, dst.size_bytes(), impl_->copy_stream);
     impl_->cuStreamSynchronize(impl_->copy_stream);
 }
@@ -451,8 +900,11 @@ void GPUComputeCuda::rms_norm(const void* x, const void* weight, void* y, int64_
 }
 
 void GPUComputeCuda::layer_norm(const void* x, const void* gamma, const void* beta, void* y, int64_t rows, int64_t cols, float eps) {
-    // simplified fallback for now
-    rms_norm(x, gamma, y, rows, cols, eps);
+    if (!impl_->ok || !impl_->f_layernorm) return;
+    CUdeviceptr dX = (CUdeviceptr)x, dG = (CUdeviceptr)gamma, dB = (CUdeviceptr)beta, dY = (CUdeviceptr)y;
+    uint32_t uRows = rows, uCols = cols;
+    void* args[] = { &dX, &dG, &dB, &dY, &uRows, &uCols, &eps };
+    impl_->cuLaunchKernel(impl_->f_layernorm, rows, 1, 1, 1, 1, 1, 0, impl_->compute_stream, args, nullptr);
 }
 
 void GPUComputeCuda::add(const void* a, const void* b, void* c, int64_t n) {
@@ -492,6 +944,58 @@ void GPUComputeCuda::copy_buf(const void* src, void* dst, int64_t n) {
     impl_->cuMemcpyDtoDAsync((CUdeviceptr)dst, (CUdeviceptr)src, n * sizeof(float), impl_->compute_stream);
 }
 
+void GPUComputeCuda::rope(const void* x, void* q, int64_t seq_len, int64_t head_dim) {
+    if (!impl_->ok || !impl_->f_rope) return;
+    CUdeviceptr dX = (CUdeviceptr)x, dQ = (CUdeviceptr)q;
+    uint32_t uS = seq_len, uH = head_dim;
+    void* args[] = { &dX, &dQ, &uS, &uH };
+    impl_->cuLaunchKernel(impl_->f_rope, seq_len, 1, 1, 1, 1, 1, 0, impl_->compute_stream, args, nullptr);
+}
+
+void GPUComputeCuda::attention(const void* q, const void* k, const void* v, void* o, int64_t seq_len, int64_t head_dim) {
+    if (!impl_->ok || !impl_->f_attention) return;
+    CUdeviceptr dQ = (CUdeviceptr)q, dK = (CUdeviceptr)k, dV = (CUdeviceptr)v, dO = (CUdeviceptr)o;
+    uint32_t uS = seq_len, uH = head_dim;
+    void* args[] = { &dQ, &dK, &dV, &dO, &uS, &uH };
+    impl_->cuLaunchKernel(impl_->f_attention, seq_len, 1, 1, 1, 1, 1, 0, impl_->compute_stream, args, nullptr);
+}
+
+void GPUComputeCuda::reduce_sum(const void* x, void* result, int64_t n) {
+    if (!impl_->ok || !impl_->f_reduce_sum) return;
+    CUdeviceptr dX = (CUdeviceptr)x, dR = (CUdeviceptr)result;
+    uint32_t uN = n;
+    void* args[] = { &dX, &dR, &uN };
+    uint32_t threads = n > 1024 ? 1024 : n;
+    impl_->cuLaunchKernel(impl_->f_reduce_sum, 1, 1, 1, threads, 1, 1, 0, impl_->compute_stream, args, nullptr);
+}
+
+void GPUComputeCuda::reduce_max(const void* x, void* result, int64_t n) {
+    if (!impl_->ok || !impl_->f_reduce_max) return;
+    CUdeviceptr dX = (CUdeviceptr)x, dR = (CUdeviceptr)result;
+    uint32_t uN = n;
+    void* args[] = { &dX, &dR, &uN };
+    uint32_t threads = n > 1024 ? 1024 : n;
+    impl_->cuLaunchKernel(impl_->f_reduce_max, 1, 1, 1, threads, 1, 1, 0, impl_->compute_stream, args, nullptr);
+}
+
+void GPUComputeCuda::moe_gather(const void* expert_outputs, const void* routing_indices, void* output, int64_t num_tokens, int64_t expert_dim) {
+    if (!impl_->ok || !impl_->f_moe_gather) return;
+    CUdeviceptr dEO = (CUdeviceptr)expert_outputs, dRI = (CUdeviceptr)routing_indices, dO = (CUdeviceptr)output;
+    uint32_t uN = num_tokens, uD = expert_dim;
+    void* args[] = { &dEO, &dRI, &dO, &uN, &uD };
+    uint32_t threads = expert_dim > 1024 ? 1024 : expert_dim;
+    impl_->cuLaunchKernel(impl_->f_moe_gather, num_tokens, 1, 1, threads, 1, 1, 0, impl_->compute_stream, args, nullptr);
+}
+
+void GPUComputeCuda::moe_scatter(const void* input, const void* routing_indices, void* expert_inputs, int64_t num_tokens, int64_t token_dim) {
+    if (!impl_->ok || !impl_->f_moe_scatter) return;
+    CUdeviceptr dI = (CUdeviceptr)input, dRI = (CUdeviceptr)routing_indices, dEI = (CUdeviceptr)expert_inputs;
+    uint32_t uN = num_tokens, uD = token_dim;
+    void* args[] = { &dI, &dRI, &dEI, &uN, &uD };
+    uint32_t threads = token_dim > 1024 ? 1024 : token_dim;
+    impl_->cuLaunchKernel(impl_->f_moe_scatter, num_tokens, 1, 1, threads, 1, 1, 0, impl_->compute_stream, args, nullptr);
+}
+
 void GPUComputeCuda::synchronize() {
     if (impl_->ok) {
         impl_->cuStreamSynchronize(impl_->compute_stream);
@@ -499,9 +1003,52 @@ void GPUComputeCuda::synchronize() {
     }
 }
 
+bool GPUComputeCuda::register_host_memory(void* ptr, size_t bytes) {
+    if (!impl_->ok || !impl_->cuMemHostRegister || !ptr || bytes == 0) return false;
+    return impl_->cuMemHostRegister(ptr, bytes, 0) == CUDA_SUCCESS;
+}
+
+bool GPUComputeCuda::unregister_host_memory(void* ptr) {
+    if (!impl_->ok || !impl_->cuMemHostUnregister || !ptr) return false;
+    return impl_->cuMemHostUnregister(ptr) == CUDA_SUCCESS;
+}
+
+void* GPUComputeCuda::create_stream() {
+    if (!impl_->ok || !impl_->cuStreamCreate) return nullptr;
+    CUstream stream = nullptr;
+    if (impl_->cuStreamCreate(&stream, 0) == CUDA_SUCCESS) {
+        return (void*)stream;
+    }
+    return nullptr;
+}
+
+void GPUComputeCuda::destroy_stream(void* stream) {
+    if (!impl_->ok || !impl_->cuStreamDestroy || !stream) return;
+    impl_->cuStreamDestroy((CUstream)stream);
+}
+
+void GPUComputeCuda::synchronize_stream(void* stream) {
+    if (!impl_->ok || !impl_->cuStreamSynchronize || !stream) return;
+    impl_->cuStreamSynchronize((CUstream)stream);
+}
+
+void GPUComputeCuda::async_upload(const void* src, void* dst, size_t bytes, void* stream) {
+    if (!impl_->ok || !impl_->cuMemcpyHtoDAsync) return;
+    CUstream s = stream ? (CUstream)stream : impl_->copy_stream;
+    impl_->cuMemcpyHtoDAsync((CUdeviceptr)dst, src, bytes, s);
+}
+
+void GPUComputeCuda::async_download(const void* src, void* dst, size_t bytes, void* stream) {
+    if (!impl_->ok || !impl_->cuMemcpyDtoHAsync) return;
+    CUstream s = stream ? (CUstream)stream : impl_->copy_stream;
+    impl_->cuMemcpyDtoHAsync(dst, (CUdeviceptr)src, bytes, s);
+}
+
 int64_t GPUComputeCuda::memory_free() const {
-    // simplified
-    return 1LL * 1024 * 1024 * 1024;
+    if (!impl_->ok || !impl_->cuMemGetInfo) return 0;
+    size_t free = 0, total = 0;
+    impl_->cuMemGetInfo(&free, &total);
+    return free;
 }
 
 int64_t GPUComputeCuda::memory_total() const {

@@ -30,13 +30,22 @@ MoETrainer::MoETrainer(MoEModel* model, Tokenizer* tokenizer,
                        ExpertParallel* expert_parallel)
     : model_(model), tokenizer_(tokenizer), expert_parallel_(expert_parallel) {}
 
-void MoETrainer::compile(AdamW* optimizer, const MoETrainConfig& cfg) {
+void MoETrainer::compile(Optimizer* optimizer, const MoETrainConfig& cfg) {
     optimizer_ = optimizer;
     config_ = cfg;
     step_ = 0;
     loss_scale_ = cfg.loss_scale;
     grad_accum_steps_ = cfg.gradient_accumulation_steps;
     collect_params();
+
+    if (optimizer_ && !model_params_.empty()) {
+        auto& engine = AutogradEngine::instance();
+        for (auto* p : model_params_) {
+            p->requires_grad(true);
+            engine.register_parameter(p);
+        }
+        optimizer_->add_param_group(model_params_);
+    }
 
     if (expert_parallel_ && cfg.use_expert_parallel) {
         if (!owns_expert_parallel_) {
@@ -47,6 +56,28 @@ void MoETrainer::compile(AdamW* optimizer, const MoETrainConfig& cfg) {
     if (cfg.mixed_precision) {
         init_mixed_precision();
     }
+}
+
+void MoETrainer::compile(AdamW* optimizer, const MoETrainConfig& cfg) {
+    compile(static_cast<Optimizer*>(optimizer), cfg);
+    if (optimizer) {
+        optimizer->set_schedule(cfg.schedule, cfg.warmup_steps, cfg.train_steps);
+        optimizer->set_weight_decay(cfg.weight_decay);
+    }
+}
+
+void MoETrainer::compile(Adafactor* optimizer, const MoETrainConfig& cfg) {
+    compile(static_cast<Optimizer*>(optimizer), cfg);
+    if (optimizer) {
+        optimizer->set_lr(cfg.learning_rate);
+        optimizer->set_weight_decay(cfg.weight_decay);
+    }
+}
+
+void MoETrainer::compile(const MoETrainConfig& cfg) {
+    auto* opt = new Adafactor(cfg.learning_rate, 0.999f, 1e-8f, cfg.weight_decay);
+    default_opt_.reset(opt);
+    compile(opt, cfg);
 }
 
 void MoETrainer::collect_params() {
@@ -83,6 +114,12 @@ void MoETrainer::collect_params() {
     model_params_.push_back(&model_->lm_head->weight);
     if (model_->lm_head->bias.numel() > 0)
         model_params_.push_back(&model_->lm_head->bias);
+
+    // Registered parameters are trainable: ensure the autograd engine accumulates
+    // gradients for them even if the model never set requires_grad explicitly.
+    for (auto* p : model_params_) {
+        p->requires_grad(true);
+    }
 }
 
 void MoETrainer::fit(DataLoader& train_dl, const MoETrainConfig& cfg,
@@ -156,8 +193,6 @@ void MoETrainer::fit(DataLoader& train_dl, const MoETrainConfig& cfg,
             if (step_ % cfg.save_interval == 0 && step_ > 0) {
                 save_checkpoint(cfg.output_path);
             }
-
-            step_++;
         }
     }
 
@@ -212,6 +247,11 @@ float MoETrainer::train_step(const Tensor& input_ids, const Tensor& labels) {
     if (ema_enabled_) {
         ema_step();
     }
+
+    // A direct train_step() call counts as one completed training step; fit()
+    // relies on this counter for logging/checkpoint cadence.
+    step_++;
+    metrics_.step = step_;
 
     return total_loss;
 }
@@ -566,13 +606,9 @@ void MoETrainingPipeline::configure(const MoETrainConfig& cfg) {
 
     float lr = cfg.learning_rate;
     float wd = cfg.weight_decay;
-    auto schedule = cfg.schedule;
-    int warmup = cfg.warmup_steps;
-    int total_steps = cfg.train_steps;
 
-    auto adamw = std::make_unique<AdamW>(lr, 0.9f, 0.95f, 1e-8f, wd);
-    adamw->set_schedule(schedule, warmup, total_steps);
-    optimizer_ = std::move(adamw);
+    auto adafactor = std::make_unique<Adafactor>(lr, 0.999f, 1e-8f, wd);
+    optimizer_ = std::move(adafactor);
 
     init_data();
     trainer_->compile(optimizer_.get(), cfg);

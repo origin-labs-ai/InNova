@@ -81,7 +81,11 @@ int main(int argc, char** argv) {
             f.close();
             tokenizer.load(vocab_path);
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        std::cerr << "[Warning] Optional tokenizer load failed: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "[Warning] Optional tokenizer load failed with unknown exception." << std::endl;
+    }
 
     std::cout << "Model loaded: " << model.param_count() << " params\n";
     std::cout << "Starting server on port " << args.port << "...\n";

@@ -161,11 +161,11 @@ const char* external_format_name(ExternalFormat f) {
 
 // Quality-first per-tensor routing (native, in-house):
 //  - Critical small tensors (A_log, dt_bias, norms, conv1d, biases) stay
-//    lossless QUANT32 — low-bit quantization destroys them.
+//    lossless Q32 — low-bit quantization destroys them.
 //  - Embedding tables (embed_tokens, lm_head) must NOT be sparsified: the
 //    2.0 BPW sparse format keeps only ~8% of weights (92% zeros) which
 //    breaks the model. They are routed to the best DENSE GRP format within
-//    the claimed BPW (e.g. QUANT2_GRP @ 2.625 -> QUANT4-class quality -- the native
+//    the claimed BPW (e.g. Q2_GRP @ 2.625 -> Q4-class quality -- the native
 //    "GRP wins at 2x BPW" ladder).
 Format select_tensor_format(const std::string& name, int64_t numel, Format base) {
     const bool critical =
@@ -177,19 +177,20 @@ Format select_tensor_format(const std::string& name, int64_t numel, Format base)
         name.find("in_proj_a") != std::string::npos ||
         name.find("in_proj_b") != std::string::npos ||
         (name.size() >= 5 && name.compare(name.size() - 5, 5, ".bias") == 0);
-    if (critical && numel <= 262144) return Format::QUANT32;
+    if (critical && numel <= 262144) return Format::Q32;
     const bool embedding =
         name.find("embed_tokens") != std::string::npos ||
         name.find("lm_head") != std::string::npos;
-    if (!embedding) return base;
-    const float b = format_bpw(base);
-    if (b <= 1.0f)  return Format::QUANT1_GRP;
-    if (b <= 1.5f)  return Format::QUANT_Q0_GRP;
-    if (b <= 2.0f)  return Format::QUANT2_GRP;
-    if (b <= 4.0f)  return Format::QUANT4_GRP;
-    if (b <= 8.0f)  return Format::QUANT8_GRP;
-    if (b <= 16.0f) return Format::QUANT16_GRP;
-    return Format::QUANT32;
+    if (critical && numel <= 262144) return Format::Q32;
+
+    const float b = target_bpw;
+    if (b <= 1.0f)  return Format::Q1_GRP;
+    if (b <= 1.5f)  return Format::Q_TWI_MIX_1_5_GRP;
+    if (b <= 2.0f)  return Format::Q2_GRP;
+    if (b <= 4.0f)  return Format::Q4_GRP;
+    if (b <= 8.0f)  return Format::Q8_GRP;
+    if (b <= 16.0f) return Format::Q16_GRP;
+    return Format::Q32;
 }
 
 // Quantize one block to `fmt`, filling codebook + indices. Every QUANT/QUANT
@@ -241,13 +242,13 @@ std::vector<Format> allocate_tensor_formats(const std::string& name, int64_t num
         if (plan_out) fill_flat_plan(*plan_out, numel, bs, out);
         return out;
     }
-    if (guard == Format::QUANT32) {
-        for (auto& f : out) f = Format::QUANT32;
+    if (guard == Format::Q32) {
+        for (auto& f : out) f = Format::Q32;
         if (plan_out) fill_flat_plan(*plan_out, numel, bs, out);
         return out;
     }
 
-    // QUANT_MIX adaptive allocator: measured benefit-per-byte greedy under a
+    // Q_MIX adaptive allocator: measured benefit-per-byte greedy under a
     // HARD budget equal to the claimed BPW -- the exact BPW is a cap that is
     // never exceeded, and every byte is spent where it buys the most quality
     // (adaptive + priority-wise). Row/column-aligned blocks for narrow 2D.
@@ -301,7 +302,7 @@ std::vector<Format> allocate_tensor_formats(const std::string& name, int64_t num
 // correctly from the sizes of the preceding tables.
 //
 // Blocks are quantized with a per-tensor format: `cfg.format` by default,
-// overridden by select_tensor_format() for critical (QUANT32) and embedding
+// overridden by select_tensor_format() for critical (Q32) and embedding
 // (dense GRP) tensors. TWI_MIX / QUAD_MIX files are produced by assigning
 // different formats to different blocks/tensors; the engine decodes every
 // block by its own format entry, so any mix runs correctly.

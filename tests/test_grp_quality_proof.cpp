@@ -11,9 +11,9 @@ int main() {
     std::cout << "  InNova GRP Quality Superiority Proof  " << std::endl;
     std::cout << "=========================================" << std::endl;
 
-    // Verify all 10 GRP formats exist and are registered
-    std::cout << "[Test 1] Verifying all 10 GRP variants in FormatRegistry..." << std::endl;
-    for (int i = 10; i <= 19; i++) {
+    // Verify all 9 GRP formats exist and are registered
+    std::cout << "[Test 1] Verifying all 9 GRP variants in FormatRegistry..." << std::endl;
+    for (int i = 10; i <= 18; i++) {
         auto fmt = static_cast<quant::Format>(i);
         std::string name = quant::format_name(fmt);
         float bpw = quant::format_bpw(fmt);

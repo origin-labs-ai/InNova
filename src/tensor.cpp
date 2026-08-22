@@ -235,6 +235,12 @@ void Tensor::fill(float val) {
             for (int64_t i = 0; i < n; i++) d[i] = iv;
             break;
         }
+        case DType::I32: {
+            int32_t iv = (int32_t)val;
+            int32_t* d = data<int32_t>();
+            for (int64_t i = 0; i < n; i++) d[i] = iv;
+            break;
+        }
         case DType::U8: {
             uint8_t u = (uint8_t)val;
             uint8_t* d = data<uint8_t>();

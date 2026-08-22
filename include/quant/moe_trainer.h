@@ -61,7 +61,10 @@ public:
     MoETrainer(MoEModel* model, Tokenizer* tokenizer,
                ExpertParallel* expert_parallel = nullptr);
 
+    void compile(Optimizer* optimizer, const MoETrainConfig& cfg = MoETrainConfig{});
     void compile(AdamW* optimizer, const MoETrainConfig& cfg = MoETrainConfig{});
+    void compile(Adafactor* optimizer, const MoETrainConfig& cfg = MoETrainConfig{});
+    void compile(const MoETrainConfig& cfg = MoETrainConfig{});
     void fit(DataLoader& train_dl, const MoETrainConfig& cfg,
              DataLoader* val_dl = nullptr);
 
@@ -106,7 +109,8 @@ private:
     MoEModel* model_;
     Tokenizer* tokenizer_;
     ExpertParallel* expert_parallel_;
-    AdamW* optimizer_ = nullptr;
+    Optimizer* optimizer_ = nullptr;
+    std::unique_ptr<Optimizer> default_opt_;
     MoETrainConfig config_;
     MoEMetrics metrics_;
     LogCallback log_cb_;
@@ -159,7 +163,7 @@ private:
     std::string val_path_;
     MoETrainConfig config_;
     std::unique_ptr<MoETrainer> trainer_;
-    std::unique_ptr<AdamW> optimizer_;
+    std::unique_ptr<Optimizer> optimizer_;
     std::unique_ptr<DataLoader> train_dl_;
     std::unique_ptr<DataLoader> val_dl_;
     std::unique_ptr<ExpertParallel> ep_;

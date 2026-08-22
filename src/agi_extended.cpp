@@ -629,6 +629,56 @@ bool PlanningEngine::execute(const std::vector<PlanStep>& plan) {
     return true;
 }
 
+std::vector<PlanStep> PlanningEngine::topological_sort(const std::vector<PlanStep>& steps) {
+    // Kahn's algorithm on step-action dependencies. Returns steps in an order
+    // where every step's dependencies come before it.
+    std::vector<PlanStep> result;
+    std::map<std::string, std::vector<std::string>> deps_of;
+    std::map<std::string, int> indegree;
+    std::map<std::string, PlanStep> by_action;
+    for (const auto& s : steps) {
+        by_action[s.action] = s;
+        indegree[s.action] = 0;
+        deps_of[s.action] = {};
+    }
+    for (const auto& s : steps) {
+        for (const auto& d : s.dependencies) {
+            deps_of[d].push_back(s.action);
+            indegree[s.action]++;
+        }
+    }
+    std::deque<std::string> ready;
+    for (const auto& kv : indegree)
+        if (kv.second == 0) ready.push_back(kv.first);
+    while (!ready.empty()) {
+        std::string action = ready.front(); ready.pop_front();
+        result.push_back(by_action[action]);
+        for (const auto& next : deps_of[action])
+            if (--indegree[next] == 0) ready.push_back(next);
+    }
+    // If the graph is cyclic, append leftover steps in original order so that
+    // every plan step is still returned (planning degrades to sequential).
+    if (result.size() < steps.size()) {
+        std::set<std::string> done;
+        for (const auto& r : result) done.insert(r.action);
+        for (const auto& s : steps)
+            if (done.find(s.action) == done.end()) result.push_back(s);
+    }
+    return result;
+}
+
+float PlanningEngine::estimate_confidence(const std::vector<PlanStep>& plan) {
+    if (plan.empty()) return 0.0f;
+    float total = 0.0f;
+    for (const auto& s : plan) total += s.confidence;
+    return total / (float)plan.size();
+}
+
+void PlanningEngine::clear_execution_history() {
+    std::lock_guard<std::mutex> lock(plan_mutex_);
+    execution_history_.clear();
+}
+
 // ========================================================================
 // G25: Evaluation harness
 // ========================================================================
@@ -696,6 +746,140 @@ EvaluationHarness::Result EvaluationHarness::evaluate(const std::string& benchma
 
 std::vector<EvaluationHarness::Result> EvaluationHarness::evaluate_all() {
     return {evaluate("hellaswag"), evaluate("mmlu"), evaluate("arc")};
+}
+
+#include <atomic>
+#include <mutex>
+#include <map>
+#include <vector>
+
+class PersonaHotSwap {
+public:
+    struct Persona {
+        std::string name;
+        std::vector<float> weight_deltas;
+        size_t memory_mapped_offset;
+    };
+    
+    void load_persona(const std::string& path);
+    void swap_to(const std::string& persona_name);
+    const Persona* current() const;
+    std::vector<std::string> list_personas() const;
+private:
+    std::map<std::string, Persona> personas_;
+    std::atomic<const Persona*> current_{nullptr};
+    std::mutex swap_mutex_;
+};
+
+void PersonaHotSwap::load_persona(const std::string& path) {
+    std::lock_guard<std::mutex> lock(swap_mutex_);
+    Persona p;
+    p.name = path;
+    p.memory_mapped_offset = personas_.size() * 1024;
+    p.weight_deltas.assign(1024, 0.1f);
+    personas_[p.name] = p;
+    if (!current_.load()) {
+        current_.store(&personas_[p.name]);
+    }
+}
+
+void PersonaHotSwap::swap_to(const std::string& persona_name) {
+    std::lock_guard<std::mutex> lock(swap_mutex_);
+    auto it = personas_.find(persona_name);
+    if (it != personas_.end()) {
+        current_.store(&it->second, std::memory_order_seq_cst);
+    }
+}
+
+const PersonaHotSwap::Persona* PersonaHotSwap::current() const {
+    return current_.load(std::memory_order_seq_cst);
+}
+
+std::vector<std::string> PersonaHotSwap::list_personas() const {
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(swap_mutex_));
+    std::vector<std::string> names;
+    for (const auto& kv : personas_) {
+        names.push_back(kv.first);
+    }
+    return names;
+}
+
+class VirtualLayerPages {
+public:
+    struct Page {
+        void* data;
+        size_t size;
+        bool is_resident;
+        uint64_t last_access;
+        uint32_t verification_token;
+    };
+    
+    void* page_in(int layer_id);
+    void page_out(int layer_id);
+    bool verify_page(int layer_id) const;
+    void double_buffer_prepare(int next_layer_id);
+private:
+    std::map<int, Page> pages_;
+    int max_resident_ = 8;
+    void evict_lru();
+};
+
+void VirtualLayerPages::evict_lru() {
+    int resident_count = 0;
+    int lru_layer = -1;
+    uint64_t min_access = static_cast<uint64_t>(-1);
+    
+    for (const auto& kv : pages_) {
+        if (kv.second.is_resident) {
+            resident_count++;
+            if (kv.second.last_access < min_access) {
+                min_access = kv.second.last_access;
+                lru_layer = kv.first;
+            }
+        }
+    }
+    
+    if (resident_count >= max_resident_ && lru_layer != -1) {
+        page_out(lru_layer);
+    }
+}
+
+void* VirtualLayerPages::page_in(int layer_id) {
+    evict_lru();
+    
+    auto& page = pages_[layer_id];
+    if (!page.is_resident) {
+        page.size = 1024 * 1024;
+        page.data = std::malloc(page.size);
+        std::memset(page.data, 0, page.size);
+        page.is_resident = true;
+        page.verification_token = 0xDEADBEEF;
+    }
+    page.last_access = std::chrono::steady_clock::now().time_since_epoch().count();
+    return page.data;
+}
+
+void VirtualLayerPages::page_out(int layer_id) {
+    auto it = pages_.find(layer_id);
+    if (it != pages_.end() && it->second.is_resident) {
+        std::free(it->second.data);
+        it->second.data = nullptr;
+        it->second.is_resident = false;
+    }
+}
+
+bool VirtualLayerPages::verify_page(int layer_id) const {
+    auto it = pages_.find(layer_id);
+    if (it != pages_.end()) {
+        return it->second.verification_token == 0xDEADBEEF;
+    }
+    return false;
+}
+
+void VirtualLayerPages::double_buffer_prepare(int next_layer_id) {
+    if (pages_.find(next_layer_id) == pages_.end() || !pages_[next_layer_id].is_resident) {
+        page_in(next_layer_id);
+    }
 }
 
 } // namespace agi

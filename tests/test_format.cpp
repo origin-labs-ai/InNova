@@ -13,7 +13,7 @@ void test_format_enum_properties() {
     std::cout << "[Test 1] Testing Format enum properties and helpers..." << std::endl;
 
     // Verify format count
-    assert(quant::FORMAT_COUNT == 38);
+    assert(quant::FORMAT_COUNT == 37);
 
     // Verify all base formats
     for (int i = 0; i <= 9; i++) {
@@ -46,8 +46,8 @@ void test_format_enum_properties() {
     assert(std::abs(quant::format_bpw(quant::Format::Q24) - 24.0f) < 1e-4f);
     assert(std::abs(quant::format_bpw(quant::Format::Q32) - 32.0f) < 1e-4f);
 
-    // Verify all 10 GRP variants
-    for (int i = 10; i <= 19; i++) {
+    // Verify all 9 GRP variants (Q1_GRP to Q24_GRP)
+    for (int i = 10; i <= 18; i++) {
         auto fmt = static_cast<quant::Format>(i);
         assert(quant::format_is_grp(fmt));
         assert(!quant::format_is_base(fmt));
@@ -128,7 +128,7 @@ void test_all_requested_formats() {
     test_format_roundtrip(quant::Format::Q12, "Q12");
     test_format_roundtrip(quant::Format::Q24, "Q24");
 
-    // All 10 GRP variants
+    // All 9 GRP variants
     test_format_roundtrip(quant::Format::Q1_GRP, "Q1_GRP");
     test_format_roundtrip(quant::Format::Q2_GRP, "Q2_GRP");
     test_format_roundtrip(quant::Format::Q3_GRP, "Q3_GRP");
@@ -138,7 +138,6 @@ void test_all_requested_formats() {
     test_format_roundtrip(quant::Format::Q12_GRP, "Q12_GRP");
     test_format_roundtrip(quant::Format::Q16_GRP, "Q16_GRP");
     test_format_roundtrip(quant::Format::Q24_GRP, "Q24_GRP");
-    test_format_roundtrip(quant::Format::Q32_GRP, "Q32_GRP");
 
     // All 4 TWI_MIX variants
     test_format_roundtrip(quant::Format::Q_TWI_MIX_1_5, "Q_TWI_MIX_1_5");

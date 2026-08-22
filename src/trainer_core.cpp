@@ -5,6 +5,7 @@
 #include "quant/optimizer.h"
 #include "quant/transformer.h"
 #include "quant/flash_attention.h"
+#include "quant/qat.h"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -82,6 +83,11 @@ void Trainer::compile(AdamW* opt, const TrainConfig& cfg) {
     grad_noise_eta_ = cfg.grad_noise_eta;
     grad_noise_gamma_ = cfg.grad_noise_gamma;
     label_smoothing_ = cfg.label_smoothing;
+    qat_enabled_ = cfg.use_qat;
+    qat_bits_ = cfg.qat_bits;
+    qat_symmetric_ = cfg.qat_symmetric;
+    qat_use_lsq_ = cfg.qat_use_lsq;
+    qat_init_scale_ = cfg.qat_init_scale;
     if (cfg.mixed_precision) init_mixed_precision();
 }
 
@@ -102,7 +108,18 @@ void Trainer::compile(Adafactor* opt, const TrainConfig& cfg) {
     grad_noise_eta_ = cfg.grad_noise_eta;
     grad_noise_gamma_ = cfg.grad_noise_gamma;
     label_smoothing_ = cfg.label_smoothing;
+    qat_enabled_ = cfg.use_qat;
+    qat_bits_ = cfg.qat_bits;
+    qat_symmetric_ = cfg.qat_symmetric;
+    qat_use_lsq_ = cfg.qat_use_lsq;
+    qat_init_scale_ = cfg.qat_init_scale;
     if (cfg.mixed_precision) init_mixed_precision();
+}
+
+void Trainer::compile(const TrainConfig& cfg) {
+    auto* opt = new Adafactor(cfg.learning_rate, 0.999f, 1e-8f, cfg.weight_decay);
+    default_opt_.reset(opt);
+    compile(opt, cfg);
 }
 
 void Trainer::init_mixed_precision() {
@@ -246,6 +263,47 @@ float Trainer::micro_step(const Tensor& input_ids, const Tensor& labels, float l
     for (auto* p : model_params_) {
         engine.register_parameter(p);
     }
+    // QAT: inject FakeQuantize nodes before forward (weights see quant noise, grad uses STE)
+    std::vector<std::vector<float>> qat_backup;
+    if (qat_enabled_) {
+        bool need_init = qat_scales_.size() != model_params_.size();
+        if (need_init) {
+            qat_scales_.clear();
+            for (auto* p : model_params_) {
+                int qmin, qmax;
+                qat::get_qrange_bits(qat_bits_, qat_symmetric_, false, qmin, qmax);
+                const float* d = p->data<float>();
+                float mx = 0; int64_t n = p->numel();
+                for (int64_t i = 0; i < n; ++i) mx = std::max(mx, std::fabs(d[i]));
+                if (mx < 1e-8f) mx = 1.0f;
+                float sc = mx / (float)qmax;
+                if (sc < 1e-6f) sc = qat_init_scale_;
+                Tensor ts(Shape{1}, DType::F32);
+                ts.data<float>()[0] = sc;
+                ts.requires_grad(qat_use_lsq_);
+                qat_scales_.push_back(ts);
+            }
+            if (qat_use_lsq_ && optimizer_) {
+                for (size_t i = 0; i < qat_scales_.size(); ++i) {
+                    engine.register_parameter(&qat_scales_[i]);
+                    optimizer_->add_param(&qat_scales_[i]);
+                }
+            }
+        } else if (qat_use_lsq_) {
+            for (size_t i = 0; i < qat_scales_.size(); ++i) engine.register_parameter(&qat_scales_[i]);
+        }
+        qat_backup.resize(model_params_.size());
+        for (size_t i = 0; i < model_params_.size(); ++i) {
+            Tensor* p = model_params_[i];
+            qat_backup[i].assign(p->data<float>(), p->data<float>() + p->numel());
+            int qmin, qmax;
+            qat::get_qrange_bits(qat_bits_, qat_symmetric_, false, qmin, qmax);
+            Tensor q;
+            if (qat_use_lsq_) q = qat::lsq_fake_quantize(*p, qat_scales_[i], qmin, qmax);
+            else { float sc = qat_scales_[i].data<float>()[0]; q = qat::fake_quantize(*p, sc, qmin, qmax); }
+            std::memcpy(p->data<float>(), q.data<float>(), (size_t)p->numel() * sizeof(float));
+        }
+    }
     Tensor logits = model_->forward(fp_input, positions);
     Tensor loss;
     if (label_smoothing_ > 0.0f) {
@@ -257,10 +315,148 @@ float Trainer::micro_step(const Tensor& input_ids, const Tensor& labels, float l
         float* ld = (float*)loss.data();
         *ld *= loss_scale;
     }
+    // Continual replay mixing: mix in old samples as additional loss term (graph-aware)
+    Tensor replay_loss;
+    bool has_replay_loss = false;
+    std::vector<float> replay_loss_scale_holder;
+    if (continual_enabled_ && continual_engine_ && continual_engine_->replay().size() > 0 && replay_ratio_ > 0.0f) {
+        // sample one replay batch of same size
+        std::vector<std::vector<float>> r_inputs, r_targets;
+        std::vector<float> r_weights;
+        size_t rb = (size_t)std::min<int64_t>(B, 4);
+        if (continual_engine_->replay().sample_batch(r_inputs, r_targets, r_weights, rb)) {
+            // use first sampled entry to build replay batch (average across sampled)
+            // reconstruct tensors of shape {rb, S} from dequantized floats
+            int64_t elem = B * S;
+            Tensor r_in(Shape{(int64_t)rb, S});
+            Tensor r_lab(Shape{(int64_t)rb, S});
+            float* ri = r_in.data<float>(); float* rl = r_lab.data<float>();
+            for (size_t b = 0; b < rb; b++) {
+                // r_inputs[b] holds elem_count floats; truncate/pad to S
+                size_t copy_n = std::min<size_t>((size_t)S, r_inputs[b].size());
+                for (int64_t s = 0; s < S; s++) {
+                    float v = s < (int64_t)copy_n ? r_inputs[b][s] : 0.0f;
+                    ri[b * S + s] = v;
+                    float tv = s < (int64_t)copy_n && s < (int64_t)r_targets[b].size() ? r_targets[b][s] : v;
+                    rl[b * S + s] = tv;
+                }
+            }
+            Tensor r_pos(Shape{(int64_t)rb, S});
+            float* rp = r_pos.data<float>();
+            for (int64_t i = 0; i < (int64_t)rb * S; i++) rp[i] = (float)(i % S);
+            Tensor r_logits = model_->forward(r_in, r_pos);
+            replay_loss = AutogradEngine::cross_entropy_op(r_logits, r_lab);
+            has_replay_loss = true;
+            // scale replay loss by replay_ratio before adding to main graph
+            float* rld = replay_loss.data<float>();
+            // keep original for return accounting but scale for backward weighting via grad scale
+            // we will combine via explicit weighted add after backward (scale grad instead)
+        }
+    }
     engine.backward(loss);
+    if (has_replay_loss) {
+        // second backward for replay, gradients accumulate; scale by replay_ratio_
+        // temporarily scale replay loss grad by replay_ratio_
+        Tensor scaled = replay_loss;
+        float* sd = scaled.data<float>();
+        // create a scaled copy for backward scaling: we scale grad accumulation manually
+        // set grad of replay_loss to replay_ratio then backward
+        Tensor g(Shape{1}); g.data<float>()[0] = replay_ratio_;
+        // Instead of graph scaling, directly scale param grads contributed by replay backward
+        // Do backward then scale delta grads
+        // snapshot current grad norms to isolate replay contribution
+        std::vector<std::vector<float>> before_grads;
+        before_grads.reserve(model_params_.size());
+        for (auto* p : model_params_) {
+            if (p->has_grad()) {
+                float* gd = p->grad().data<float>();
+                before_grads.emplace_back(gd, gd + p->grad().numel());
+            } else before_grads.emplace_back();
+        }
+        AutogradEngine::instance().backward(replay_loss);
+        // scale the delta contributed by replay
+        for (size_t i = 0; i < model_params_.size(); i++) {
+            auto* p = model_params_[i];
+            if (!p->has_grad() || before_grads[i].empty()) continue;
+            float* gd = p->grad().data<float>();
+            for (int64_t k = 0; k < p->grad().numel(); k++) {
+                float delta = gd[k] - before_grads[i][k];
+                gd[k] = before_grads[i][k] + delta * replay_ratio_;
+            }
+        }
+    }
+    // EWC regularization: inject gradient lambda * Fisher * (w - anchor)
+    if (continual_enabled_ && continual_engine_ && continual_engine_->ecc().initialized) {
+        const auto& ecc = continual_engine_->ecc();
+        size_t off = 0;
+        for (auto* p : model_params_) {
+            if (!p->has_grad()) continue;
+            float* gd = p->grad().data<float>();
+            const float* wd = p->data<float>();
+            int64_t n = p->numel();
+            for (int64_t i = 0; i < n; i++) {
+                size_t idx = off + (size_t)i;
+                if (idx < ecc.fisher_diagonal.size() && idx < ecc.anchor_weights.size()) {
+                    float diff = wd[i] - ecc.anchor_weights[idx];
+                    gd[i] += 2.0f * ewc_lambda_ * ecc.fisher_diagonal[idx] * diff;
+                }
+            }
+            off += (size_t)n;
+        }
+    }
+    // restore master weights (keep quantized version only for forward noise; optimizer steps master)
+    if (qat_enabled_ && !qat_backup.empty()) {
+        for (size_t i = 0; i < model_params_.size() && i < qat_backup.size(); ++i) {
+            std::memcpy(model_params_[i]->data<float>(), qat_backup[i].data(), qat_backup[i].size() * sizeof(float));
+        }
+    }
+    // Update Fisher and insert current batch into compressed replay buffer
+    if (continual_enabled_ && continual_engine_) {
+        // flatten grads for fisher update
+        size_t total = 0; for (auto* p : model_params_) total += (size_t)p->numel();
+        std::vector<float> flat_grad; flat_grad.reserve(total);
+        for (auto* p : model_params_) if (p->has_grad()) {
+            const float* gd = p->grad().data<float>();
+            flat_grad.insert(flat_grad.end(), gd, gd + p->grad().numel());
+        } else {
+            flat_grad.insert(flat_grad.end(), (size_t)p->numel(), 0.0f);
+        }
+        std::vector<float> flat_w; flat_w.reserve(total);
+        for (auto* p : model_params_) {
+            const float* d = p->data<float>();
+            flat_w.insert(flat_w.end(), d, d + p->numel());
+        }
+        if (!flat_grad.empty() && !flat_w.empty()) {
+            size_t n = std::min(flat_grad.size(), flat_w.size());
+            continual_engine_->on_step(flat_grad.data(), n, flat_w.data(), n, optimizer_ ? optimizer_->get_lr() : 3e-4f, current_task_id_);
+        }
+        // insert current batch into replay (store input+label as flat floats)
+        std::vector<float> flat_in, flat_lab;
+        flat_in.reserve((size_t)(B*S)); flat_lab.reserve((size_t)(B*S));
+        const float* id = input_ids.data<float>(); const float* lb = labels.data<float>();
+        for (int64_t i = 0; i < B*S; i++) { flat_in.push_back(id[i]); flat_lab.push_back(lb[i]); }
+        float imp = 1.0f;
+        if (!flat_grad.empty()) {
+            double sq = 0; for (float g : flat_grad) sq += (double)g*g;
+            imp = (float)std::sqrt(sq) + 0.01f;
+        }
+        if (!flat_in.empty()) {
+            continual_engine_->replay().insert(flat_in.data(), flat_lab.data(), flat_in.size(), current_task_id_, imp);
+        }
+    }
     engine.clear();
     AutogradEngine::set_enabled(false);
-    return *(const float*)loss.data() / loss_scale;
+    float ret_loss = *(const float*)loss.data() / loss_scale;
+    if (has_replay_loss) ret_loss += replay_ratio_ * replay_loss.data<float>()[0];
+    if (continual_enabled_ && continual_engine_ && continual_engine_->ecc().initialized) {
+        // add EWC scalar to reported loss
+        size_t total = 0; for (auto* p : model_params_) total += (size_t)p->numel();
+        std::vector<float> flat_w; flat_w.reserve(total);
+        for (auto* p : model_params_) { const float* d = p->data<float>(); flat_w.insert(flat_w.end(), d, d + p->numel()); }
+        if (!flat_w.empty())
+            ret_loss += continual_engine_->ecc().regularize(flat_w.data(), flat_w.size(), ewc_lambda_);
+    }
+    return ret_loss;
 }
 
 float Trainer::train_step(const Tensor& input_ids, const Tensor& labels) {
@@ -542,5 +738,95 @@ void Trainer::inject_gradient_noise(int step) {
             g[i] += grad_noise_rng_.normal() * sigma;
     }
 }
+
+float Trainer::mtp_loss(const std::vector<Tensor>& mtp_logits, const Tensor& labels) {
+    int num_heads = mtp_logits.size();
+    if (num_heads == 0) return 0.0f;
+    
+    int64_t B = labels.dim(0);
+    int64_t S = labels.dim(1);
+    
+    float total_loss = 0.0f;
+    
+    for (int h = 0; h < num_heads; h++) {
+        // Shift labels by h + 1 for future token prediction
+        Tensor shifted_labels(Shape{B, S}, DType::F32);
+        shifted_labels.zero_();
+        const float* ld = labels.data<float>();
+        float* sld = shifted_labels.data<float>();
+        
+        for (int64_t b = 0; b < B; b++) {
+            for (int64_t s = 0; s < S - (h + 1); s++) {
+                sld[b * S + s] = ld[b * S + s + (h + 1)];
+            }
+        }
+        
+        Tensor ce = AutogradEngine::cross_entropy_op(mtp_logits[h], shifted_labels);
+        total_loss += *(const float*)ce.data();
+    }
+    
+    return total_loss / (float)num_heads;
+}
+
+void Trainer::enable_qat(int bits, bool symmetric, bool use_lsq, float init_scale) {
+    qat_enabled_ = true;
+    qat_bits_ = bits;
+    qat_symmetric_ = symmetric;
+    qat_use_lsq_ = use_lsq;
+    qat_init_scale_ = init_scale;
+    qat_scales_.clear();
+}
+void Trainer::disable_qat() { qat_enabled_ = false; qat_scales_.clear(); }
+bool Trainer::qat_enabled() const { return qat_enabled_; }
+Tensor Trainer::qat_fake_quantize(const Tensor& weight) {
+    int qmin, qmax;
+    qat::get_qrange_bits(qat_bits_, qat_symmetric_, false, qmin, qmax);
+    const float* d = weight.data<float>();
+    float mx = 0; int64_t n = weight.numel();
+    for (int64_t i = 0; i < n; ++i) mx = std::max(mx, std::fabs(d[i]));
+    if (mx < 1e-8f) mx = 1.0f;
+    float sc = mx / (float)qmax;
+    return qat::fake_quantize(weight, sc, qmin, qmax);
+}
+Tensor Trainer::qat_fake_quantize_lsq(const Tensor& weight, Tensor& scale_param) {
+    int qmin, qmax;
+    qat::get_qrange_bits(qat_bits_, qat_symmetric_, false, qmin, qmax);
+    return qat::lsq_fake_quantize(weight, scale_param, qmin, qmax);
+}
+
+void Trainer::enable_continual(const ContinualEngineConfig& cfg) {
+    continual_cfg_ = cfg;
+    ewc_lambda_ = cfg.ecc_lambda;
+    continual_engine_ = std::make_unique<ContinualEngine>(cfg);
+    continual_enabled_ = true;
+    current_task_id_ = 0;
+}
+void Trainer::disable_continual() { continual_enabled_ = false; continual_engine_.reset(); }
+void Trainer::on_task_boundary(uint32_t new_task_id, const float* eval_inputs, const float* eval_targets, size_t eval_count) {
+    current_task_id_ = new_task_id;
+    if (continual_engine_) {
+        // snapshot anchor weights from current params
+        for (auto* p : model_params_) {
+            // use first param to seed, but ECCState keeps flat vector
+        }
+        // flatten weights for anchor
+        size_t total = 0;
+        for (auto* p : model_params_) total += (size_t)p->numel();
+        std::vector<float> flat; flat.reserve(total);
+        for (auto* p : model_params_) {
+            const float* d = p->data<float>();
+            flat.insert(flat.end(), d, d + p->numel());
+        }
+        if (!flat.empty()) {
+            if (!continual_engine_->ecc().initialized) {
+                const_cast<ECCState&>(continual_engine_->ecc()).initialize(flat.size());
+            }
+            const_cast<ECCState&>(continual_engine_->ecc()).update_anchor(flat.data(), flat.size());
+        }
+        continual_engine_->on_task_boundary(new_task_id, eval_inputs, eval_targets, eval_count);
+    }
+}
+void Trainer::set_ewc_lambda(float lambda) { ewc_lambda_ = lambda; continual_cfg_.ecc_lambda = lambda; }
+void Trainer::set_replay_ratio(float r) { replay_ratio_ = std::max(0.0f, std::min(1.0f, r)); }
 
 } // namespace quant

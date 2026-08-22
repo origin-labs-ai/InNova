@@ -97,6 +97,26 @@ void swiglu_scalar(const float* gate, const float* up, float* output,
 void swiglu(const float* gate, const float* up, float* output, int64_t n);
 
 // ============================================================================
+// GeGLU — GELU-Gated Linear Unit activation
+// ============================================================================
+// GeGLU(x, W_gate, W_up) = gelu(x @ W_gate) * (x @ W_up)
+//
+// Similar to SwiGLU but uses GELU instead of SiLU as the gating function.
+// Used in PaLM, Gemma, and Kimi K3 architectures.
+// ============================================================================
+
+void geglu_avx2(const float* gate, const float* up, float* output,
+                int64_t n);
+
+void geglu_avx512(const float* gate, const float* up, float* output,
+                  int64_t n);
+
+void geglu_scalar(const float* gate, const float* up, float* output,
+                  int64_t n);
+
+void geglu(const float* gate, const float* up, float* output, int64_t n);
+
+// ============================================================================
 // RoPE — Rotary Position Embeddings
 // ============================================================================
 // Applies rotation matrix to Q and K tensors for position encoding.

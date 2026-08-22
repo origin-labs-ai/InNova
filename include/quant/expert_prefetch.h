@@ -5,13 +5,22 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <cstring>
+#include <functional>
 
 namespace quant {
 
 // Expert weight page - represents one expert's weights in memory
+struct SourceSegment {
+    const void* ptr = nullptr;
+    size_t bytes = 0;
+};
+
 struct ExpertPage {
     void* host_ptr = nullptr;       // Host memory (possibly page-locked)
     void* device_ptr = nullptr;     // GPU device memory (if GPU backend active)
+    const void* source_ptr = nullptr; // Single contiguous source (when expert weights are packed)
+    std::vector<SourceSegment> source_segments; // Multi-segment source (gate/up/down separate tensors)
     size_t size_bytes = 0;
     int expert_id = -1;
     int layer_id = -1;
@@ -22,6 +31,7 @@ struct ExpertPage {
     ExpertPage() = default;
     ExpertPage(const ExpertPage& other)
         : host_ptr(other.host_ptr), device_ptr(other.device_ptr),
+          source_ptr(other.source_ptr), source_segments(other.source_segments),
           size_bytes(other.size_bytes), expert_id(other.expert_id),
           layer_id(other.layer_id), is_pinned(other.is_pinned),
           is_on_device(other.is_on_device),
@@ -29,6 +39,7 @@ struct ExpertPage {
 
     ExpertPage(ExpertPage&& other) noexcept
         : host_ptr(other.host_ptr), device_ptr(other.device_ptr),
+          source_ptr(other.source_ptr), source_segments(std::move(other.source_segments)),
           size_bytes(other.size_bytes), expert_id(other.expert_id),
           layer_id(other.layer_id), is_pinned(other.is_pinned),
           is_on_device(other.is_on_device),
@@ -38,6 +49,8 @@ struct ExpertPage {
         if (this != &other) {
             host_ptr = other.host_ptr;
             device_ptr = other.device_ptr;
+            source_ptr = other.source_ptr;
+            source_segments = other.source_segments;
             size_bytes = other.size_bytes;
             expert_id = other.expert_id;
             layer_id = other.layer_id;
@@ -52,6 +65,8 @@ struct ExpertPage {
         if (this != &other) {
             host_ptr = other.host_ptr;
             device_ptr = other.device_ptr;
+            source_ptr = other.source_ptr;
+            source_segments = std::move(other.source_segments);
             size_bytes = other.size_bytes;
             expert_id = other.expert_id;
             layer_id = other.layer_id;
@@ -72,6 +87,13 @@ public:
     // Initialize: allocate pages, pin memory
     void initialize();
     
+    // Register the source data pointer(s) for an expert (from model's in-memory weights).
+    // Use the contiguous form when the expert blob is packed, or the segmented form
+    // when gate/up/down live in separate tensors.
+    void set_expert_source(int layer_id, int expert_id, const void* src_ptr);
+    void set_expert_segments(int layer_id, int expert_id,
+                             const std::vector<SourceSegment>& segments);
+
     // Called by router: which experts will be needed for next layer?
     void schedule_prefetch(int layer_id, const std::vector<int>& expert_ids);
     
@@ -93,12 +115,16 @@ public:
 private:
     void prefetch_thread_func();
     void evict_lru();
-    
+    void load_from_disk(ExpertPage& page);
+    void upload_to_device(ExpertPage& page);
+    void save_to_disk(ExpertPage& page);
+
     int num_experts_;
     int num_layers_;
     size_t expert_size_;
     int prefetch_ahead_;
     int max_resident_;
+    std::string cache_dir_;
     
     std::vector<std::vector<ExpertPage>> pages_;
     std::vector<std::pair<int, int>> lru_list_;
@@ -113,6 +139,13 @@ private:
         int expert_id;
     };
     std::vector<PrefetchRequest> prefetch_queue_;
+    
+    // Double buffers for prefetching
+    std::vector<void*> prefetch_buffers_;
+    int current_buffer_idx_ = 0;
+    
+    // GPU copy stream for async transfers
+    void* copy_stream_ = nullptr;
     
     Stats stats_;
 };

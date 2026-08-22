@@ -344,4 +344,31 @@ void RewardModel::load(const std::string& path) {
     fclose(fp);
 }
 
+float RewardModel::compute_abstention_reward(const std::string& output, float confidence) {
+    if (confidence < 0.5f) {
+        std::string lower_out = output;
+        for (char& c : lower_out) c = std::tolower(c);
+        if (lower_out.find("i don't know") != std::string::npos || lower_out.find("i do not know") != std::string::npos) {
+            return 1.0f;
+        }
+        return -2.0f;
+    }
+    return 0.0f;
+}
+
+class AsymmetricReward {
+public:
+    float score(const std::string& output, float confidence, bool is_fabricated) {
+        if (is_fabricated) {
+            return -3.0f * (1.0f - confidence);
+        }
+        std::string lower_out = output;
+        for (char& c : lower_out) c = std::tolower(c);
+        if (lower_out.find("i don't know") != std::string::npos || lower_out.find("i do not know") != std::string::npos) {
+            return 0.5f;
+        }
+        return 1.0f * confidence;
+    }
+};
+
 } // namespace quant

@@ -582,7 +582,7 @@ Where Q = x·W_Q, K = x·W_K, V = x·W_V
 - "Pause Giant AI Experiments" open letter (2023)
 
 **InNova Approach:**
-- "ALL RIGHTS RESERVED — PRIVATE AND PROPRIETARY"
+- Open source under Apache License 2.0
 - Build AGI safely, with alignment built in from start
 - Meta-cognition pipeline includes value preservation
 - Weight format (QUANT8) has versioning → can validate model provenance
@@ -1838,7 +1838,7 @@ The project was initialized with a Grok CLI session (ID: `019f4745-8754-7fc2-afe
 | **Distributed** | ❌ | ❌ | ✅ FSDP | **✅ Design included** |
 | **Fine-tune system** | ❌ | ❌ | ✅ | **✅ Native QUANT** |
 | **Model zoo** | 100+ models | BitNet only | MLX only | **Converter tools** |
-| **License** | MIT | MIT | MIT | **Proprietary** |
+| **License** | MIT | MIT | MIT | **Apache 2.0** |
 
 ---
 
@@ -2251,11 +2251,9 @@ int main() {
 
 ## 📜 License
 
-**ALL RIGHTS RESERVED — PRIVATE AND PROPRIETARY**
+**Apache License 2.0 — Open Source**
 
-This codebase is proprietary. No part of this software may be reproduced, distributed, or transmitted in any form or by any means without prior written permission of the owner.
-
-**For licensing inquiries: USD $2.5 Billion**
+This project is free and open-source software licensed under the [Apache License 2.0](LICENSE). You are free to use, modify, and distribute this software in accordance with the license terms.
 
 ---
 
@@ -5696,7 +5694,7 @@ Questions the merged document is asked most often, answered from the full text:
 - Q: Who wrote the narrative? A: The project owner wrote it; the narrative is written in the first person so readers know the story belongs to the author.
 - Q: Are the benchmark numbers real? A: They are the recorded in-house benchmark results at the time of writing; the record includes the corrections.
 - Q: What does the forced pay loop mean? A: The Destroyer removes the price; the Balancer monetizes trust; revenue funds the free release.
-- Q: What is the license? A: ALL RIGHTS RESERVED — PRIVATE AND PROPRIETARY; the narrative's open-weight manifesto and the README's license coexist as the public record.
+- Q: What is the license? A: Apache License 2.0 — fully open source; see the LICENSE file for details.
 - Q: Where do I start reading? A: The Quick Start for building, the Honest Flags for limits, and Part One for the story.
 - Q: Is 6,144 lines an accident? A: No. The merged document was specified as exactly 6,144 lines, and the count is verified.
 

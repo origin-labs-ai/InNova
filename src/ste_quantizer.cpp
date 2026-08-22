@@ -91,7 +91,7 @@ Tensor STEQuantizer::quantize_with_codebook(const Tensor& fp32_weight, CodebookQ
     uint8_t* dst = (uint8_t*)quantized.data();
 
     for (int64_t i = 0; i < n; i++) {
-        dst[i] = codebook.quantize(src[i]);
+        dst[i] = (uint8_t)codebook.quantize(src[i]);
     }
 
     // Dequantize back to fp32 for STE (differentiable approximation)
@@ -122,7 +122,7 @@ Tensor STEQuantizer::quantize_with_codebook(const Tensor& fp32_weight, CodebookQ
     std::memset(dst, 0, (size_t)packed_bytes);
 
     for (int64_t i = 0; i < n; i++) {
-        uint8_t idx = codebook.quantize(src[i]);
+        uint8_t idx = (uint8_t)codebook.quantize(src[i]);
         if (i % 2 == 0) {
             dst[i / 2] = (dst[i / 2] & 0xF0) | (idx & 0x0F);
         } else {
@@ -159,7 +159,7 @@ Tensor STEQuantizer::forward_mixed(const Tensor& weights, const std::vector<Form
         Format fmt = per_block_formats[(size_t)b];
 
         switch (fmt) {
-        case Format::Q1: {
+        case Format::Q2: {
                 std::vector<uint8_t> packed((block_n + 3) / 4);
                 float scale;
                 quantize_quant(src + block_start, packed.data(), &scale, block_n);
@@ -234,6 +234,49 @@ void STEQuantizer::quantize_Q1(const float* src, uint8_t* dst, float* scale, int
             dst[i / 8] |= (1 << (i % 8));
         }
     }
+}
+
+int STEQuantizer::bits_for_format(Format f) const {
+    switch (f) {
+        case Format::Q1: return 1;
+        case Format::Q2: return 2;
+        case Format::Q3: return 3;
+        case Format::Q4: return 4;
+        case Format::Q6: return 6;
+        case Format::Q8: return 8;
+        case Format::Q12: return 12;
+        case Format::Q16: return 16;
+        default: return 8;
+    }
+}
+
+Tensor STEQuantizer::fake_quantize_qat(const Tensor& fp32_weight, float scale_override) {
+    int bits = bits_for_format(target_format_);
+    int qmin, qmax;
+    qat::get_qrange_bits(bits, true, false, qmin, qmax);
+    float scale = scale_override;
+    if (scale <= 1e-8f) {
+        int64_t n = fp32_weight.numel();
+        const float* d = fp32_weight.data<float>();
+        float mx = 0;
+        for (int64_t i = 0; i < n; ++i) mx = std::max(mx, std::fabs(d[i]));
+        if (mx < 1e-8f) mx = 1.0f;
+        scale = mx / (float)qmax;
+    }
+    // STE node: forward = round/clamp, backward = identity
+    return qat::fake_quantize(fp32_weight, scale, qmin, qmax);
+}
+
+Tensor STEQuantizer::lsq_quantize(const Tensor& fp32_weight, Tensor& scale_param) {
+    int bits = bits_for_format(target_format_);
+    int qmin, qmax;
+    qat::get_qrange_bits(bits, true, false, qmin, qmax);
+    return qat::lsq_fake_quantize(fp32_weight, scale_param, qmin, qmax);
+}
+
+Tensor STEQuantizer::fake_quantize_with_observer(const Tensor& fp32_weight, qat::Observer& obs, int bits) {
+    int b = bits > 0 ? bits : bits_for_format(target_format_);
+    return qat::fake_quantize_with_observer(fp32_weight, obs, b, true);
 }
 
 } // namespace quant
