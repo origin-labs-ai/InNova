@@ -473,6 +473,17 @@ add_library(quant_thread_safety STATIC
 target_include_directories(quant_thread_safety PUBLIC include)
 target_link_libraries(quant_thread_safety PUBLIC quant_core)
 
+# GLE telemetry — Gauntlet Loop Enhanced append-only event stream (PART-J)
+add_library(quant_gle STATIC
+  src/gle/gle_telemetry.cpp
+)
+target_include_directories(quant_gle PUBLIC ${CMAKE_SOURCE_DIR}/src/gle)
+set_target_properties(quant_gle PROPERTIES CXX_STANDARD 20)
+
+# GLE report generator (markdown summary from events.jsonl)
+add_executable(gle_report tools/gle_report.cpp)
+target_link_libraries(gle_report PRIVATE quant_gle)
+
 # Continual learning engine
 add_library(quant_continual STATIC
   src/continual_engine.cpp
