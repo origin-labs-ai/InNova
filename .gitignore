@@ -101,6 +101,14 @@ SANDBOX_TEST_LOG.md
 *.ps1
 *.py
 
+# Regression tracker is versioned despite global ps1 ignore
+!scripts/check_regression.ps1
+
+# GLE telemetry: heavy run artifacts ignored, events.jsonl stays tracked
+.research/telemetry/runs/
+.research/telemetry/bench_history/
+.research/telemetry/reports/
+
 # Dist (binary release)
 dist/
 
