@@ -853,12 +853,14 @@ static void dequant_6k(const uint8_t* bytes, size_t size, int n, float* out) {
 
 static float level_value_affine(int bits, uint32_t index) {
     if (bits == 2) return (float)std::min(index, 3u) * (1.0f / 3.0f);
+    if (bits == 3) return (float)std::min(index, 7u) * (1.0f / 7.0f);
     return (float)std::min(index, 15u) * (1.0f / 15.0f);
 }
 
 static uint32_t nearest_level_affine(float value, int bits) {
     const float v = std::max(0.0f, std::min(1.0f, value));
     if (bits == 4) return (uint32_t)std::lround(v * 15.0f);
+    if (bits == 3) return (uint32_t)std::lround(v * 7.0f);
     return (uint32_t)std::lround(v * 3.0f);
 }
 
