@@ -33,4 +33,11 @@
 
 ## FAKE → Rebuild Backlog Map
 
-(none yet — Phase 2 audit fill karega)
+| Wound/Claim | Verdict | Evidence | Action |
+|---|---|---|---|
+| B-1 Q3_GRP collapse (-14 dB) | ALREADY-FIXED (stale baseline) | grp_proof_test PASS: gaussian 29.21 > plain-Q3 24.79; real 30.46 > 26.59; fresh CSV rows | Plan PART-O numbers were pre-fix; test_grp_quality_proof guards regression (commit 9bd2ce3) |
+| NEW: Q8_GRP lost to plain Q8 (50.23 vs 54.66 gaussian) | FIXED THIS SESSION | affine path (gsz=32, scb=mb=6): gaussian 56.33 > 54.66; real 57.11 > 56.92; budget exact 272B (commit 562fae9) | Old CSV 59.03 proven un-reproducible from d302e46 code on MSVC = stale artifact from another build env |
+| B-5 / L015 legacy alias purge | REJECTED (wound is fake/stale) | QUANT_Q0/Q1/6_K are LIVE registered formats: constants.h:42-48, quant_import.cpp enum mapping, sops tables, API_REFERENCE — 25+ files | Blind purge would break public API; aliases are current naming |
+| L016 -fno-exceptions jhooth | DOC-FIXED | README:2077 corrected to reflect reality (88 try/catch sites, flag never set) | FULL conversion = dedicated campaign: gpu_compute*.cpp throw_hr plumbing (19+ sites), backend.cpp 21 catches, production_* 18, agi* 11, hpo_nas 6 — scoped in workbench |
+| E-5 sanitizer CI missing | STALE (already exists) | ci_full.yml:127-138 ASan+UBSan ubuntu gcc matrix step | Green-run verification pending next CI trigger |
+| QUAD_MIX@12.5 old-vs-new delta (54.9 vs 47.4) | GHOST-BASELINE suspect | Same class as Q8_GRP: old number un-reproducible from committed code on MSVC | Investigate separately before trusting either number |

@@ -2074,7 +2074,7 @@ This is a solo-developed project, but contributions are welcome:
 
 ### Coding Standards
 
-- C++20, no exceptions (compile with `-fno-exceptions`)
+- C++20, RAII-first; exceptions are permitted but used sparingly (the project does NOT compile with `-fno-exceptions`)
 - No external dependencies beyond C++ standard library
 - RAII for resource management
 - Namespace: `quant::` for public API, `quant::detail::` for internals
