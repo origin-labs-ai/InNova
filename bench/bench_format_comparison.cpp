@@ -272,6 +272,8 @@ struct BenchEntry {
     float max_abs;
     double encode_us;
     double decode_us;
+    double encode_std;
+    double decode_std;
     std::string notes;
 };
 
@@ -283,22 +285,46 @@ BenchEntry run_format(Format fmt, const std::vector<float>& w,
     e.max_abs = 0;
     for (float v : w) e.max_abs = std::max(e.max_abs, std::fabs(v));
 
+    // Encode and decode are timed SEPARATELY (no round-trip/2 hack).
+    // Encoded buffers are retained per chunk so the decode pass measures
+    // real dequantization work on the actual compressed representation.
+    const int64_t nch = ((int64_t)w.size() + kChunk - 1) / kChunk;
+    std::vector<std::vector<uint8_t>> ei(nch), ec(nch);
     std::vector<float> out(w.size());
     std::vector<uint8_t> idx, cb;
+    std::vector<double> enc_s, dec_s;
     size_t total_idx = 0, total_cb = 0;
-    auto t0 = std::chrono::high_resolution_clock::now();
-    for (int64_t start = 0; start < (int64_t)w.size(); start += kChunk) {
-        int64_t end = std::min(start + kChunk, (int64_t)w.size());
-        quantize_block_all(fmt, w.data() + start, (int)(end - start), idx, cb);
-        total_idx += idx.size();
-        total_cb += cb.size();
-        dequantize_block_all(fmt, idx.data(), idx.size(), cb.data(), cb.size(),
-                             (uint32_t)(end - start), out.data() + start);
+    for (int rep = -kWarmupReps; rep < kTimedReps; ++rep) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        size_t ci = 0;
+        for (int64_t start = 0; start < (int64_t)w.size(); start += kChunk) {
+            int64_t end = std::min(start + kChunk, (int64_t)w.size());
+            quantize_block_all(fmt, w.data() + start, (int)(end - start), idx, cb);
+            ei[ci].swap(idx);
+            ec[ci].swap(cb);
+            ++ci;
+        }
+        if (rep == kTimedReps - 1) {
+            for (size_t i = 0; i < nch; i++) { total_idx += ei[i].size(); total_cb += ec[i].size(); }
+        }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        ci = 0;
+        for (int64_t start = 0; start < (int64_t)w.size(); start += kChunk) {
+            int64_t end = std::min(start + kChunk, (int64_t)w.size());
+            dequantize_block_all(fmt, ei[ci].data(), ei[ci].size(), ec[ci].data(), ec[ci].size(),
+                                 (uint32_t)(end - start), out.data() + start);
+            ++ci;
+        }
+        auto t2 = std::chrono::high_resolution_clock::now();
+        if (rep >= 0) {
+            enc_s.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+            dec_s.push_back(std::chrono::duration<double, std::micro>(t2 - t1).count());
+        }
     }
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double us = std::chrono::duration<double, std::micro>(t1 - t0).count();
-    e.encode_us = us / 2.0;
-    e.decode_us = us / 2.0;
+    e.encode_us = median_of(enc_s);
+    e.decode_us = median_of(dec_s);
+    e.encode_std = stddev_of(enc_s);
+    e.decode_std = stddev_of(dec_s);
     double real_bpw = (double)(total_idx + total_cb) * 8.0 / (double)w.size();
     e.mse = mse_of(w, out);
     e.psnr = psnr_of(e.mse, e.max_abs);
@@ -313,33 +339,68 @@ BenchEntry run_format_tensors(Format fmt, const std::vector<std::vector<float>>&
     e.bpw = quant::format_bpw(fmt);
     e.max_abs = 0;
 
-    double err = 0;
-    int64_t total = 0;
-    size_t total_idx = 0, total_cb = 0;
-    std::vector<float> out;
+    // Encode and decode timed separately; per-tensor block boundaries preserved.
+    struct Span { size_t tindex; int64_t start, len; };
+    std::vector<Span> spans;
+    for (size_t ti = 0; ti < tensors.size(); ++ti) {
+        const auto& t = tensors[ti];
+        for (int64_t s = 0; s < (int64_t)t.size(); s += kChunk)
+            spans.push_back({ti, s, std::min(s + kChunk, (int64_t)t.size())});
+    }
+    std::vector<std::vector<float>> outs(tensors.size());
+    for (size_t ti = 0; ti < tensors.size(); ++ti) outs[ti].resize(tensors[ti].size());
+    std::vector<std::vector<uint8_t>> ei(spans.size()), ec(spans.size());
     std::vector<uint8_t> idx, cb;
-    auto t0 = std::chrono::high_resolution_clock::now();
+    std::vector<double> enc_s, dec_s;
+    size_t total_idx = 0, total_cb = 0;
+    int64_t total = 0;
+    double err = 0;
     for (const auto& t : tensors) {
         for (float v : t) e.max_abs = std::max(e.max_abs, std::fabs(v));
-        out.resize(t.size());
-        for (int64_t start = 0; start < (int64_t)t.size(); start += kChunk) {
-            int64_t end = std::min(start + kChunk, (int64_t)t.size());
-            quantize_block_all(fmt, t.data() + start, (int)(end - start), idx, cb);
-            total_idx += idx.size();
-            total_cb += cb.size();
-            dequantize_block_all(fmt, idx.data(), idx.size(), cb.data(), cb.size(),
-                                 (uint32_t)(end - start), out.data() + start);
-        }
-        for (size_t i = 0; i < t.size(); i++) {
-            double d = (double)t[i] - (double)out[i];
-            err += d * d;
-        }
         total += (int64_t)t.size();
     }
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double us = std::chrono::duration<double, std::micro>(t1 - t0).count();
-    e.encode_us = us / 2.0;
-    e.decode_us = us / 2.0;
+    for (int rep = -kWarmupReps; rep < kTimedReps; ++rep) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        size_t si = 0;
+        for (const auto& sp : spans) {
+            const float* src = tensors[sp.tindex].data() + sp.start;
+            quantize_block_all(fmt, src, (int)sp.len, idx, cb);
+            ei[si].swap(idx);
+            ec[si].swap(cb);
+            ++si;
+        }
+        if (rep == kTimedReps - 1) {
+            total_idx = 0; total_cb = 0;
+            for (size_t i = 0; i < spans.size(); i++) { total_idx += ei[i].size(); total_cb += ec[i].size(); }
+        }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        si = 0;
+        for (const auto& sp : spans) {
+            float* dst = outs[sp.tindex].data() + sp.start;
+            dequantize_block_all(fmt, ei[si].data(), ei[si].size(), ec[si].data(), ec[si].size(),
+                                 (uint32_t)sp.len, dst);
+            ++si;
+        }
+        auto t2 = std::chrono::high_resolution_clock::now();
+        if (rep >= 0) {
+            enc_s.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+            dec_s.push_back(std::chrono::duration<double, std::micro>(t2 - t1).count());
+        }
+        if (rep == kTimedReps - 1) {
+            err = 0;
+            for (size_t ti = 0; ti < tensors.size(); ++ti) {
+                const auto& t = tensors[ti];
+                for (size_t i = 0; i < t.size(); i++) {
+                    double d = (double)t[i] - (double)outs[ti][i];
+                    err += d * d;
+                }
+            }
+        }
+    }
+    e.encode_us = median_of(enc_s);
+    e.decode_us = median_of(dec_s);
+    e.encode_std = stddev_of(enc_s);
+    e.decode_std = stddev_of(dec_s);
     e.mse = err / (double)total;
     e.psnr = psnr_of(e.mse, e.max_abs);
     e.notes = "real " + std::to_string((double)(total_idx + total_cb) * 8.0 / (double)total) + " BPW";
@@ -359,11 +420,16 @@ BenchEntry run_baseline(const std::string& name, float bpw,
     rt(w, out);
     auto t1 = std::chrono::high_resolution_clock::now();
     double us = std::chrono::duration<double, std::micro>(t1 - t0).count();
-    e.encode_us = us / 2.0;
-    e.decode_us = us / 2.0;
+    // Reference impls are opaque round-trip callbacks: no honest enc/dec split
+    // exists here, so the SAME measured total is reported in both columns and
+    // labeled as such (no invented /2 split).
+    e.encode_us = us;
+    e.decode_us = us;
+    e.encode_std = 0.0;
+    e.decode_std = 0.0;
     e.mse = mse_of(w, out);
     e.psnr = psnr_of(e.mse, e.max_abs);
-    e.notes = "reference";
+    e.notes = "reference round-trip (enc+dec total)";
     return e;
 }
 
@@ -477,11 +543,12 @@ int main(int argc, char** argv) {
     // CSV (for charting scripts).
     {
         std::ofstream csv("bench_format_comparison.csv");
-        csv << "dataset,format,bpw,mse,psnr,encode_us,decode_us\n";
+        csv << "dataset,format,bpw,mse,psnr,encode_us,decode_us,encode_std,decode_std\n";
         auto dump = [&](const char* ds, const std::vector<BenchEntry>& rows) {
             for (auto& r : rows)
                 csv << ds << "," << r.name << "," << r.bpw << "," << r.mse << ","
-                    << r.psnr << "," << r.encode_us << "," << r.decode_us << "\n";
+                    << r.psnr << "," << r.encode_us << "," << r.decode_us << ","
+                    << r.encode_std << "," << r.decode_std << "\n";
         };
         dump("gaussian", g_rows);
         dump("real", r_rows);
