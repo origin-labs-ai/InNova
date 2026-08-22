@@ -32,6 +32,24 @@ using namespace quant;
 
 constexpr int64_t kChunk = 256;
 constexpr int64_t kN = 65536;
+constexpr int kWarmupReps = 3;
+constexpr int kTimedReps = 7;
+
+double median_of(std::vector<double> v) {
+    if (v.empty()) return 0.0;
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+}
+
+double stddev_of(const std::vector<double>& v) {
+    if (v.size() < 2) return 0.0;
+    double mean = 0;
+    for (double x : v) mean += x;
+    mean /= (double)v.size();
+    double var = 0;
+    for (double x : v) var += (x - mean) * (x - mean);
+    return std::sqrt(var / (double)(v.size() - 1));
+}
 
 // ---------------------------------------------------------------- FP16
 inline uint16_t f32_to_f16(float f) {
@@ -305,7 +323,7 @@ BenchEntry run_format(Format fmt, const std::vector<float>& w,
             ++ci;
         }
         if (rep == kTimedReps - 1) {
-            for (size_t i = 0; i < nch; i++) { total_idx += ei[i].size(); total_cb += ec[i].size(); }
+            for (int64_t i = 0; i < nch; i++) { total_idx += ei[i].size(); total_cb += ec[i].size(); }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
         ci = 0;
@@ -340,12 +358,12 @@ BenchEntry run_format_tensors(Format fmt, const std::vector<std::vector<float>>&
     e.max_abs = 0;
 
     // Encode and decode timed separately; per-tensor block boundaries preserved.
-    struct Span { size_t tindex; int64_t start, len; };
+    struct Span { size_t tindex; int64_t start, cnt; };
     std::vector<Span> spans;
     for (size_t ti = 0; ti < tensors.size(); ++ti) {
         const auto& t = tensors[ti];
         for (int64_t s = 0; s < (int64_t)t.size(); s += kChunk)
-            spans.push_back({ti, s, std::min(s + kChunk, (int64_t)t.size())});
+            spans.push_back({ti, s, std::min(kChunk, (int64_t)t.size() - s)});
     }
     std::vector<std::vector<float>> outs(tensors.size());
     for (size_t ti = 0; ti < tensors.size(); ++ti) outs[ti].resize(tensors[ti].size());
@@ -364,7 +382,7 @@ BenchEntry run_format_tensors(Format fmt, const std::vector<std::vector<float>>&
         size_t si = 0;
         for (const auto& sp : spans) {
             const float* src = tensors[sp.tindex].data() + sp.start;
-            quantize_block_all(fmt, src, (int)sp.len, idx, cb);
+            quantize_block_all(fmt, src, (int)sp.cnt, idx, cb);
             ei[si].swap(idx);
             ec[si].swap(cb);
             ++si;
@@ -378,10 +396,14 @@ BenchEntry run_format_tensors(Format fmt, const std::vector<std::vector<float>>&
         for (const auto& sp : spans) {
             float* dst = outs[sp.tindex].data() + sp.start;
             dequantize_block_all(fmt, ei[si].data(), ei[si].size(), ec[si].data(), ec[si].size(),
-                                 (uint32_t)sp.len, dst);
+                                 (uint32_t)sp.cnt, dst);
             ++si;
         }
         auto t2 = std::chrono::high_resolution_clock::now();
+        std::cout << "[probeT] fmt=" << (int)fmt << " rep=" << rep << " dec ok" << std::endl;
+        if (rep == -kWarmupReps) {
+            std::cout << "[probe] fmt=" << (int)fmt << " real warm enc+dec ok" << std::endl;
+        }
         if (rep >= 0) {
             enc_s.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
             dec_s.push_back(std::chrono::duration<double, std::micro>(t2 - t1).count());
