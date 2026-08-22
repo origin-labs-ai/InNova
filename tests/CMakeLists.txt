@@ -47,6 +47,10 @@ add_quant_test_full(test_debug      test_debug.cpp      quant_model quant_produc
 # ── GLE telemetry ─────────────────────────────────────────────────
 add_quant_test_full(test_gle_telemetry test_gle_telemetry.cpp quant_gle ${_default_timeout})
 set_tests_properties(test_gle_telemetry PROPERTIES LABELS "gle")
+
+# ── MIX component invariants (L013/L014) ─────────────────────────
+add_quant_test_full(test_mix_components test_mix_components.cpp quant_format ${_default_timeout})
+set_tests_properties(test_mix_components PROPERTIES LABELS "core")
 set_tests_properties(test_debug      PROPERTIES LABELS "core")
 
 add_quant_test_full(test_all        test_all.cpp        quant_moe_variants quant_backend quant_continual ${_long_timeout})
