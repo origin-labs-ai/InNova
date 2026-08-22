@@ -854,6 +854,7 @@ static void dequant_6k(const uint8_t* bytes, size_t size, int n, float* out) {
 static float level_value_affine(int bits, uint32_t index) {
     if (bits == 2) return (float)std::min(index, 3u) * (1.0f / 3.0f);
     if (bits == 3) return (float)std::min(index, 7u) * (1.0f / 7.0f);
+    if (bits == 8) return (float)std::min(index, 255u) * (1.0f / 255.0f);
     return (float)std::min(index, 15u) * (1.0f / 15.0f);
 }
 
@@ -861,6 +862,7 @@ static uint32_t nearest_level_affine(float value, int bits) {
     const float v = std::max(0.0f, std::min(1.0f, value));
     if (bits == 4) return (uint32_t)std::lround(v * 15.0f);
     if (bits == 3) return (uint32_t)std::lround(v * 7.0f);
+    if (bits == 8) return (uint32_t)std::lround(v * 255.0f);
     return (uint32_t)std::lround(v * 3.0f);
 }
 
@@ -1560,7 +1562,10 @@ bool quantize_block_all(Format fmt, const float* w, int n, std::vector<uint8_t>&
             quant_grp16(12, w, n, indices);
             return true;
         case Format::Q8_GRP:
-            quant_grp16(8, w, n, indices);
+            // Affine path (gsz=32, 6-bit scale+min): exact 8.5 BPW budget fit
+            // (256+6+6+4 == 272 bytes) and strictly more expressive than the
+            // 3-bit-scale grp16 layout, which measurably lost to plain Q8.
+            quant_affine(8, w, n, 32, 6, 6, 8.5f, indices);
             return true;
         case Format::Q6_GRP:
             quant_6k(w, n, indices);
@@ -1780,7 +1785,7 @@ void dequantize_block_all(Format fmt, const uint8_t* indices, size_t idx_bytes, 
         case Format::Q12_GRP:
             dequant_grp16(12, indices, idx_bytes, n, out); return;
         case Format::Q8_GRP:
-            dequant_grp16(8, indices, idx_bytes, n, out); return;
+            dequant_affine(8, indices, idx_bytes, n, 32, 6, 6, 8.5f, out); return;
         case Format::Q6_GRP:
             dequant_6k(indices, idx_bytes, n, out); return;
         case Format::Q4_GRP:
