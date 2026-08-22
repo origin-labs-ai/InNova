@@ -400,10 +400,6 @@ BenchEntry run_format_tensors(Format fmt, const std::vector<std::vector<float>>&
             ++si;
         }
         auto t2 = std::chrono::high_resolution_clock::now();
-        std::cout << "[probeT] fmt=" << (int)fmt << " rep=" << rep << " dec ok" << std::endl;
-        if (rep == -kWarmupReps) {
-            std::cout << "[probe] fmt=" << (int)fmt << " real warm enc+dec ok" << std::endl;
-        }
         if (rep >= 0) {
             enc_s.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
             dec_s.push_back(std::chrono::duration<double, std::micro>(t2 - t1).count());
